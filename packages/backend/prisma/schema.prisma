@@ -1,0 +1,128 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum FileEventType {
+  CREATED
+  MODIFIED
+  DELETED
+  RENAMED
+  PERMISSION_CHANGED
+}
+
+enum ClassificationJobStatus {
+  PENDING
+  PROCESSING
+  DONE
+  FAILED
+}
+
+enum SensitivePatternType {
+  SSN
+  CREDIT_CARD
+  EMAIL
+  PHONE
+}
+
+enum AlertType {
+  RANSOMWARE_RATE
+  SENSITIVE_DATA_EXPOSED
+}
+
+enum AlertSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum AlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+model Agent {
+  id           String   @id @default(uuid())
+  key          String   @unique
+  hostname     String
+  watchedRoot  String
+  createdAt    DateTime @default(now())
+  lastSeenAt   DateTime @default(now())
+
+  fileEvents       FileEvent[]
+  storageSnapshots StorageSnapshot[]
+  alerts           Alert[]
+}
+
+model FileEvent {
+  id             String        @id @default(uuid())
+  agentId        String
+  agent          Agent         @relation(fields: [agentId], references: [id])
+  eventType      FileEventType
+  path           String
+  previousPath   String?
+  sizeBytes      Int?
+  contentSample  String?
+  occurredAt     DateTime
+  receivedAt     DateTime      @default(now())
+
+  classificationJob ClassificationJob?
+
+  @@index([agentId, occurredAt])
+}
+
+model StorageSnapshot {
+  id         String   @id @default(uuid())
+  agentId    String
+  agent      Agent    @relation(fields: [agentId], references: [id])
+  rootPath   String
+  totalBytes BigInt
+  fileCount  Int
+  takenAt    DateTime
+
+  @@index([agentId, takenAt])
+}
+
+model ClassificationJob {
+  id          String                   @id @default(uuid())
+  fileEventId String                   @unique
+  fileEvent   FileEvent                @relation(fields: [fileEventId], references: [id])
+  status      ClassificationJobStatus  @default(PENDING)
+  createdAt   DateTime                 @default(now())
+  processedAt DateTime?
+
+  matches ClassificationMatch[]
+
+  @@index([status, createdAt])
+}
+
+model ClassificationMatch {
+  id                  String               @id @default(uuid())
+  classificationJobId String
+  classificationJob   ClassificationJob    @relation(fields: [classificationJobId], references: [id])
+  patternType         SensitivePatternType
+  redactedSample      String
+  path                String
+  createdAt           DateTime             @default(now())
+}
+
+model Alert {
+  id        String        @id @default(uuid())
+  type      AlertType
+  severity  AlertSeverity
+  status    AlertStatus   @default(OPEN)
+  agentId   String?
+  agent     Agent?        @relation(fields: [agentId], references: [id])
+  message   String
+  metadata  Json?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([status, createdAt])
+}

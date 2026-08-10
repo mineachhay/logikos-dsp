@@ -1,0 +1,33 @@
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: #0f1115;
+  color: #e6e6e6;
+}
+.app { max-width: 1100px; margin: 0 auto; padding: 24px; }
+header { display: flex; align-items: center; gap: 24px; margin-bottom: 24px; }
+h1 { font-size: 20px; margin: 0; }
+nav { display: flex; gap: 8px; }
+nav button {
+  background: #1c1f26;
+  color: #ccc;
+  border: 1px solid #2a2e37;
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 13px;
+}
+nav button.active { background: #2f6fed; color: white; border-color: #2f6fed; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #22252c; }
+th { color: #999; font-weight: 500; text-transform: uppercase; font-size: 11px; letter-spacing: 0.04em; }
+.path { font-family: ui-monospace, SFMono-Regular, monospace; color: #aab4c8; }
+.empty, .error { color: #999; padding: 16px 0; }
+.error { color: #ef6f6f; }
+button { font: inherit; }
+.badge { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+.badge-low { background: #2a3140; color: #8ea6d6; }
+.badge-medium { background: #4a3a1f; color: #e2b566; }
+.badge-high { background: #4a2323; color: #e58a8a; }
+.badge-critical { background: #5c1a1a; color: #ff8080; }

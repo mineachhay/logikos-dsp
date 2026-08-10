@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: logikos
+      POSTGRES_PASSWORD: logikos
+      POSTGRES_DB: logikos_dsp
+    ports:
+      - "5432:5432"
+    volumes:
+      - logikos_dsp_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U logikos -d logikos_dsp"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  logikos_dsp_pgdata:
