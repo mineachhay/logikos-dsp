@@ -1,13 +1,9 @@
 import chokidar from "chokidar";
 import { readFile, stat } from "node:fs/promises";
-import path from "node:path";
 import type { FileEventInput, FileEventType } from "@logikos-dsp/shared";
 import { config } from "./config.js";
 import { postEvents } from "./client.js";
-
-const TEXTISH_EXTENSIONS = new Set([
-  ".txt", ".csv", ".json", ".log", ".md", ".xml", ".yaml", ".yml", ".sql", ".ini", ".conf",
-]);
+import { isSampleable } from "./contentSampling.js";
 
 let queue: FileEventInput[] = [];
 
@@ -22,8 +18,7 @@ async function flush() {
 }
 
 async function sampleContent(filePath: string, sizeBytes: number): Promise<string | undefined> {
-  if (sizeBytes > 5 * 1024 * 1024) return undefined; // don't bother reading huge files for a content sample
-  if (!TEXTISH_EXTENSIONS.has(path.extname(filePath).toLowerCase())) return undefined;
+  if (!isSampleable(filePath, sizeBytes)) return undefined;
   try {
     const buf = await readFile(filePath);
     return buf.subarray(0, config.maxContentSampleBytes).toString("base64");

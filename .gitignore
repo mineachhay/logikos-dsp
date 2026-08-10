@@ -9,3 +9,4 @@ build/
 /packages/backend/prisma/dev.db
 .pnpm-store/
 coverage/
+/.smb-test-data/

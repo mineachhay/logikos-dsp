@@ -8,13 +8,13 @@ export async function registerAgent(): Promise<void> {
     body: JSON.stringify({
       key: config.agentKey,
       hostname: config.hostname,
-      watchedRoot: config.watchPath,
+      watchedRoot: config.watchedRootLabel,
     }),
   });
   if (!res.ok) {
     throw new Error(`agent registration failed: ${res.status} ${await res.text()}`);
   }
-  console.log(`registered agent ${config.agentKey} watching ${config.watchPath}`);
+  console.log(`registered agent ${config.agentKey} watching ${config.watchedRootLabel}`);
 }
 
 export async function postEvents(events: FileEventInput[]): Promise<void> {

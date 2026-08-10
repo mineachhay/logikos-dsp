@@ -1,0 +1,8 @@
+services:
+  smb-test:
+    image: dperson/samba
+    command: '-s "share;/share;yes;no;no;testuser" -u "testuser;testpass"'
+    ports:
+      - "445:445"
+    volumes:
+      - ./.smb-test-data:/share

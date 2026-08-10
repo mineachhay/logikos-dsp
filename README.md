@@ -34,6 +34,24 @@ pnpm dev:agent        # set WATCH_PATH env var to the directory to monitor
 pnpm dev:dashboard    # http://localhost:5173
 ```
 
+### SMB connector (dev)
+
+Watches a real SMB/CIFS share instead of a local path (see [ARCHITECTURE.md](./ARCHITECTURE.md) for why it uses periodic snapshot diffing rather than real-time events). Point it at a real file server, or spin up a local test share:
+
+```bash
+pnpm smb:up   # starts a test Samba share (dperson/samba) at localhost:445, backed by ./.smb-test-data
+
+NODE_OPTIONS=--openssl-legacy-provider \
+SOURCE_TYPE=smb \
+SMB_HOST=localhost \
+SMB_SHARE=share \
+SMB_USERNAME=testuser \
+SMB_PASSWORD=testpass \
+pnpm dev:agent
+
+pnpm smb:down # when done
+```
+
 ## Status
 
-Early scaffold — a thin vertical slice runs end to end (agent → backend ingest → rules/classification → dashboard), but detection rules, storage backends (NAS/SMB/cloud), and auth are still minimal. Not production-ready.
+Early scaffold — a thin vertical slice runs end to end (agent → backend ingest → rules/classification → dashboard) for both local paths and SMB shares, but cloud storage connectors, detection rules, and auth are still minimal. Not production-ready.
