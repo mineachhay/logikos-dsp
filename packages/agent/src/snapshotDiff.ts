@@ -3,11 +3,8 @@ import type { Source } from "./sources/types.js";
 import { config } from "./config.js";
 import { postEvents, postStorageSnapshot } from "./client.js";
 import { isSampleable } from "./contentSampling.js";
-
-interface Baseline {
-  sizeBytes: number;
-  mtimeMs: number;
-}
+import { diffSnapshots } from "./diff.js";
+import type { Baseline } from "./diff.js";
 
 async function buildEvent(
   source: Source,
@@ -47,25 +44,22 @@ async function scanOnce(source: Source, baseline: Map<string, Baseline> | null):
   }
 
   if (baseline !== null) {
+    const diff = diffSnapshots(baseline, current);
     const events: FileEventInput[] = [];
 
-    for (const [path, stats] of current) {
-      const prev = baseline.get(path);
-      if (!prev) {
-        events.push(await buildEvent(source, "created", path, stats));
-      } else if (prev.sizeBytes !== stats.sizeBytes || prev.mtimeMs !== stats.mtimeMs) {
-        events.push(await buildEvent(source, "modified", path, stats));
-      }
+    for (const path of diff.created) {
+      events.push(await buildEvent(source, "created", path, current.get(path)!));
     }
-    for (const path of baseline.keys()) {
-      if (!current.has(path)) {
-        events.push({
-          agentKey: config.agentKey,
-          eventType: "deleted",
-          path,
-          occurredAt: new Date().toISOString(),
-        });
-      }
+    for (const path of diff.modified) {
+      events.push(await buildEvent(source, "modified", path, current.get(path)!));
+    }
+    for (const path of diff.deleted) {
+      events.push({
+        agentKey: config.agentKey,
+        eventType: "deleted",
+        path,
+        occurredAt: new Date().toISOString(),
+      });
     }
 
     for (let i = 0; i < events.length; i += config.eventBatchSize) {

@@ -4,6 +4,7 @@ build/
 .env
 .env.*
 !.env.example
+!.env.test.example
 *.log
 .DS_Store
 /packages/backend/prisma/dev.db

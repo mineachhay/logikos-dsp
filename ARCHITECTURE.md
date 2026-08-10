@@ -74,6 +74,20 @@ This required **no backend or dashboard changes** — `Agent.watchedRoot`, `File
 
 **Bootstrap admin via a seed script, not auto-creation.** `packages/backend/prisma/seed.ts` creates one `ADMIN` from `ADMIN_EMAIL`/`ADMIN_PASSWORD` env vars if no `User` rows exist yet (`pnpm db:seed`) — explicit and scriptable, rather than a magic first-run behavior that's easy to trigger by accident.
 
+## Testing
+
+Every feature up to this point was verified by hand — live processes, curl scripts, real Postgres, a real Samba container, a real webhook listener. That caught real bugs (an NTLMv1-only SMB library, Fastify-5-only plugin majors, a stale worker process racing a fresh one for job claims) that a mocked test suite likely wouldn't have. The automated suite added on top keeps that same philosophy rather than replacing it with mocks.
+
+**Vitest, pinned to `3.2.4`, not the current `4.x`.** Vitest 4 makes `vite` a required peer dependency and needs Vite 6/7/8; the dashboard already has a working `vite@5.4.8` from the original scaffold, and forcing a Vite major bump just to get a newer test runner wasn't worth putting that at risk. Vitest 3.2.4's own `vite` dependency range (`^5.0.0 || ^6.0.0 || ^7.0.0-0`) covers the existing 5.4.8 cleanly. One version across every package, each with its own `vitest.config.ts` — matches the existing per-package `tsconfig.json` convention rather than a single root workspace config.
+
+**Real Postgres for backend tests, not a mocked Prisma client.** A dedicated `logikos_dsp_test` database in the same Postgres container (no new docker service). `packages/backend/vitest.config.ts`'s `globalSetup` runs `prisma migrate deploy` against it before the suite (non-interactive, idempotent, safe on every run); `packages/backend/test/setup.ts` truncates the relevant tables in a `beforeEach`. Because every test file shares that one database, `fileParallelism: false` is set deliberately — running files in parallel would let one file's truncate wipe another file's in-flight data.
+
+**`packages/backend/src/index.ts` split into `app.ts` (builds and returns the Fastify instance) + `index.ts` (calls `buildApp()` then `.listen()`).** Standard Fastify testing pattern: tests import `buildApp()` and drive it with `app.inject({method, url, ...})` — no real port, but the exact same route/plugin registration code that runs in production.
+
+**Pure logic extracted out of I/O-heavy functions specifically to make it fast-testable.** `packages/classification/src/ner.ts`'s `mapEntitiesToMatches` (confidence filtering, entity-type mapping, redaction) is split out from `findNamedEntities`, which also does real 100MB-model inference — tests exercise the mapping with fixture data in milliseconds, without loading the model. `packages/agent/src/diff.ts`'s `diffSnapshots` (the create/modified/deleted comparison that's the core of the SMB connector's change detection) is split out of `snapshotDiff.ts` entirely, into its own file with zero imports from `config.ts` — `config.ts` validates env vars as an import-time side effect (calls `process.exit(1)` if `WATCH_PATH` is unset), so anything that transitively imports it can't be unit tested without faking an agent environment. `diff.ts` has no such coupling.
+
+**Scope: high-value coverage, not exhaustive.** Covered: `patterns.ts` (regex/Luhn), `mapEntitiesToMatches`, `diffSnapshots`, `contentSampling.ts`'s `isSampleable`, `checkRansomwareRate` (real DB), and auth/RBAC end to end via `app.inject()` (login, `/auth/me`, 401/403 enforcement — the most security-critical code in the project). **Not yet covered, deliberately** — the same way every other v1 boundary in this project has been documented rather than silently skipped: dashboard components, the chokidar-based `watcher.ts`, and live NER model inference (only its pure mapping logic is tested, not the actual ONNX pipeline).
+
 ## What's deliberately out of scope for v0
 
 - Cloud storage connectors (Google Drive, OneDrive/SharePoint) — needs real OAuth app credentials against a live tenant to build/test against, not available in this environment. SMB/network shares are covered (see above).

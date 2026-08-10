@@ -56,6 +56,20 @@ pnpm dev:agent
 pnpm smb:down # when done
 ```
 
+## Running tests
+
+`packages/agent` and `packages/classification` run pure-logic unit tests with no external services. `packages/backend` needs a dedicated test database (one-time setup):
+
+```bash
+pnpm db:up   # if not already running
+docker exec logikos-dsp-postgres-1 psql -U logikos -d postgres -c "CREATE DATABASE logikos_dsp_test;"
+cp packages/backend/.env.test.example packages/backend/.env.test  # edit if you changed Postgres credentials
+
+pnpm test    # runs every package's suite (pnpm -r test); packages without one are skipped
+```
+
+`packages/backend`'s suite applies pending migrations to `logikos_dsp_test` automatically on every run — no separate migrate step needed. `packages/dashboard` has no test suite yet (see [ARCHITECTURE.md](./ARCHITECTURE.md#testing)).
+
 ## Status
 
 Early scaffold — a thin vertical slice runs end to end (agent → backend ingest → rules/classification → dashboard) for both local paths and SMB shares, with cookie/JWT auth and two-role RBAC (ADMIN/VIEWER) gating the dashboard API, classification combining regex pattern matching with a local NER model (person/org/location detection, no data leaves the machine), and an approve-first webhook notification response action for HIGH/CRITICAL alerts. Cloud storage connectors and file quarantine are still open. Not production-ready.

@@ -46,13 +46,18 @@ function redactEntityName(word: string): string {
   return `${word[0]}${"*".repeat(word.length - 1)}`;
 }
 
-export async function findNamedEntities(content: string): Promise<PatternMatch[]> {
-  const text = content.slice(0, MAX_NER_INPUT_CHARS).trim();
-  if (!text) return [];
+export interface NamedEntity {
+  entity_group: string;
+  score: number;
+  word: string;
+}
 
-  const ner = await loadPipeline();
-  const entities = await ner(text, { aggregation_strategy: "simple" });
-
+/**
+ * Pure entity->match mapping, split out from findNamedEntities so it's
+ * testable with fixture data — no need to load the real ONNX model just to
+ * exercise the confidence-threshold/entity-type-mapping/redaction logic.
+ */
+export function mapEntitiesToMatches(entities: NamedEntity[]): PatternMatch[] {
   const matches: PatternMatch[] = [];
   for (const entity of entities) {
     const patternType = ENTITY_TYPE_MAP[entity.entity_group];
@@ -61,4 +66,13 @@ export async function findNamedEntities(content: string): Promise<PatternMatch[]
     matches.push({ patternType, redactedSample: redactEntityName(entity.word) });
   }
   return matches;
+}
+
+export async function findNamedEntities(content: string): Promise<PatternMatch[]> {
+  const text = content.slice(0, MAX_NER_INPUT_CHARS).trim();
+  if (!text) return [];
+
+  const ner = await loadPipeline();
+  const entities = await ner(text, { aggregation_strategy: "simple" });
+  return mapEntitiesToMatches(entities);
 }

@@ -13,6 +13,7 @@
     "db:up": "docker compose up -d postgres",
     "db:migrate": "pnpm --filter @logikos-dsp/backend prisma:migrate",
     "db:seed": "pnpm --filter @logikos-dsp/backend prisma:seed",
+    "test": "pnpm -r test",
     "smb:up": "docker compose -f docker-compose.smb-test.yml up -d",
     "smb:down": "docker compose -f docker-compose.smb-test.yml down"
   }
