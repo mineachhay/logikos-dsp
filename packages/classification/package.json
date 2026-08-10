@@ -9,6 +9,7 @@
     "start": "node --env-file=.env dist/index.js"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
     "@logikos-dsp/shared": "workspace:*",
     "pg": "^8.13.0"
   },

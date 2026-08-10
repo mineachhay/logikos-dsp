@@ -5,7 +5,7 @@ An open, self-hostable replacement for **ManageEngine DataSecurity Plus**.
 logikos-dsp covers the four core DSP capabilities:
 
 - **File audit / FIM** — real-time file create/modify/delete/rename/permission events from watched paths.
-- **Data risk assessment** — content classification of files (PII/PCI-style pattern matches) to flag sensitive data sitting in the wrong place.
+- **Data risk assessment** — content classification of files (PII/PCI-style pattern matches, plus local named-entity recognition for names/organizations/locations) to flag sensitive data sitting in the wrong place.
 - **Ransomware / anomaly detection** — rate- and pattern-based detection of mass file changes, with alerting.
 - **Disk / storage analysis** — periodic storage usage snapshots per watched path.
 
@@ -31,7 +31,7 @@ pnpm db:migrate       # applies Prisma schema
 cp packages/backend/.env.example packages/backend/.env  # set a real JWT_SECRET/ADMIN_PASSWORD before anything but local dev
 pnpm db:seed          # creates the first ADMIN user from ADMIN_EMAIL/ADMIN_PASSWORD in that .env
 pnpm dev:backend      # http://localhost:4000
-pnpm dev:classification
+pnpm dev:classification  # first run downloads the local NER model (~100MB, cached after) — expect ~20-30s startup
 pnpm dev:agent        # set WATCH_PATH env var to the directory to monitor
 pnpm dev:dashboard    # http://localhost:5173 — log in with ADMIN_EMAIL/ADMIN_PASSWORD
 ```
@@ -58,4 +58,4 @@ pnpm smb:down # when done
 
 ## Status
 
-Early scaffold — a thin vertical slice runs end to end (agent → backend ingest → rules/classification → dashboard) for both local paths and SMB shares, with cookie/JWT auth and two-role RBAC (ADMIN/VIEWER) gating the dashboard API. Cloud storage connectors, ML-based classification, and automated response actions are still open. Not production-ready.
+Early scaffold — a thin vertical slice runs end to end (agent → backend ingest → rules/classification → dashboard) for both local paths and SMB shares, with cookie/JWT auth and two-role RBAC (ADMIN/VIEWER) gating the dashboard API, and classification combining regex pattern matching with a local NER model (person/org/location detection, no data leaves the machine). Cloud storage connectors and automated response actions are still open. Not production-ready.

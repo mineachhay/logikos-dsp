@@ -32,7 +32,10 @@ export type SensitivePatternType =
   | "ssn"
   | "credit_card"
   | "email"
-  | "phone";
+  | "phone"
+  | "person"
+  | "organization"
+  | "location";
 
 export type AlertType = "ransomware_rate" | "sensitive_data_exposed";
 export type AlertSeverity = "low" | "medium" | "high" | "critical";

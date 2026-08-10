@@ -27,6 +27,9 @@ enum SensitivePatternType {
   CREDIT_CARD
   EMAIL
   PHONE
+  PERSON
+  ORGANIZATION
+  LOCATION
 }
 
 enum AlertType {

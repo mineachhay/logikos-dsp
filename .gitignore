@@ -10,3 +10,4 @@ build/
 .pnpm-store/
 coverage/
 /.smb-test-data/
+/packages/classification/.cache/

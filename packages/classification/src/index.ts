@@ -1,12 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { pool } from "./db.js";
 import { findSensitivePatterns } from "./patterns.js";
+import { findNamedEntities, preloadNerModel } from "./ner.js";
 
 const PATTERN_TYPE_MAP: Record<string, string> = {
   ssn: "SSN",
   credit_card: "CREDIT_CARD",
   email: "EMAIL",
   phone: "PHONE",
+  person: "PERSON",
+  organization: "ORGANIZATION",
+  location: "LOCATION",
 };
 
 const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS ?? 2000);
@@ -67,7 +71,7 @@ async function processJob(jobId: string): Promise<void> {
     const content = row.content_sample
       ? Buffer.from(row.content_sample, "base64").toString("utf8")
       : "";
-    const matches = findSensitivePatterns(content);
+    const matches = [...findSensitivePatterns(content), ...(await findNamedEntities(content))];
 
     for (const match of matches) {
       await pool.query(
@@ -119,8 +123,18 @@ async function tick() {
   }
 }
 
-console.log(`classification worker started, polling every ${POLL_INTERVAL_MS}ms`);
-setInterval(() => {
+async function main() {
+  console.log("classification worker starting, loading NER model...");
+  await preloadNerModel();
+
+  console.log(`classification worker started, polling every ${POLL_INTERVAL_MS}ms`);
+  setInterval(() => {
+    tick().catch((err) => console.error("classification tick failed", err));
+  }, POLL_INTERVAL_MS);
   tick().catch((err) => console.error("classification tick failed", err));
-}, POLL_INTERVAL_MS);
-tick().catch((err) => console.error("classification tick failed", err));
+}
+
+main().catch((err) => {
+  console.error("classification worker failed to start", err);
+  process.exit(1);
+});
