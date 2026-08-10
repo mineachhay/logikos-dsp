@@ -33,7 +33,7 @@ export async function checkRansomwareRate(agentId: string): Promise<void> {
   });
   if (existing) return;
 
-  await prisma.alert.create({
+  const alert = await prisma.alert.create({
     data: {
       type: "RANSOMWARE_RATE",
       severity: "CRITICAL",
@@ -41,5 +41,12 @@ export async function checkRansomwareRate(agentId: string): Promise<void> {
       message: `${count} file events from this agent in the last ${RANSOMWARE_RATE_WINDOW_SECONDS}s (threshold ${RANSOMWARE_RATE_THRESHOLD}) — possible ransomware or bulk-delete activity.`,
       metadata: { count, windowSeconds: RANSOMWARE_RATE_WINDOW_SECONDS },
     },
+  });
+
+  // CRITICAL alerts get a suggested response action, but it only fires once
+  // an ADMIN approves it via POST /response-actions/:id/approve — see
+  // ARCHITECTURE.md's "approve-first, always" note.
+  await prisma.responseAction.create({
+    data: { alertId: alert.id, type: "WEBHOOK_NOTIFICATION" },
   });
 }

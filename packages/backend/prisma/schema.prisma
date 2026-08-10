@@ -63,6 +63,8 @@ model User {
   isActive     Boolean   @default(true)
   createdAt    DateTime  @default(now())
   lastLoginAt  DateTime?
+
+  approvedResponseActions ResponseAction[]
 }
 
 model Agent {
@@ -141,6 +143,35 @@ model Alert {
   metadata  Json?
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
+
+  responseActions ResponseAction[]
+
+  @@index([status, createdAt])
+}
+
+enum ResponseActionType {
+  WEBHOOK_NOTIFICATION
+}
+
+enum ResponseActionStatus {
+  PENDING
+  REJECTED
+  EXECUTED
+  FAILED
+}
+
+model ResponseAction {
+  id               String               @id @default(uuid())
+  alertId          String
+  alert            Alert                @relation(fields: [alertId], references: [id])
+  type             ResponseActionType
+  status           ResponseActionStatus @default(PENDING)
+  approvedByUserId String?
+  approvedByUser   User?                @relation(fields: [approvedByUserId], references: [id])
+  approvedAt       DateTime?
+  executedAt       DateTime?
+  resultMessage    String?
+  createdAt        DateTime             @default(now())
 
   @@index([status, createdAt])
 }

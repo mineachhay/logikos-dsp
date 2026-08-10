@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { usePolling } from "./usePolling.js";
-import { patchAlertStatus } from "./api.js";
+import { patchAlertStatus, approveResponseAction, rejectResponseAction } from "./api.js";
 import type { Alert, FileEvent, StorageSnapshot, ClassificationMatch } from "./api.js";
 import { AuthProvider, useAuth } from "./auth.js";
 import LoginView from "./LoginView.js";
@@ -26,6 +26,24 @@ function AlertsView() {
     }
   }
 
+  async function approve(actionId: string) {
+    setBusyId(actionId);
+    try {
+      await approveResponseAction(actionId);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function reject(actionId: string) {
+    setBusyId(actionId);
+    try {
+      await rejectResponseAction(actionId);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   if (error) return <p className="error">Failed to load alerts: {error}</p>;
   if (!data) return <p>Loading…</p>;
   if (data.length === 0) return <p className="empty">No alerts yet.</p>;
@@ -41,26 +59,47 @@ function AlertsView() {
           <th>Status</th>
           <th>When</th>
           <th />
+          <th>Response</th>
         </tr>
       </thead>
       <tbody>
-        {data.map((a) => (
-          <tr key={a.id}>
-            <td><SeverityBadge severity={a.severity} /></td>
-            <td>{a.type}</td>
-            <td>{a.message}</td>
-            <td>{a.agent?.hostname ?? "—"}</td>
-            <td>{a.status}</td>
-            <td>{new Date(a.createdAt).toLocaleString()}</td>
-            <td>
-              {a.status === "OPEN" && user?.role === "ADMIN" && (
-                <button disabled={busyId === a.id} onClick={() => acknowledge(a.id)}>
-                  Acknowledge
-                </button>
-              )}
-            </td>
-          </tr>
-        ))}
+        {data.map((a) => {
+          const action = a.responseActions[0];
+          return (
+            <tr key={a.id}>
+              <td><SeverityBadge severity={a.severity} /></td>
+              <td>{a.type}</td>
+              <td>{a.message}</td>
+              <td>{a.agent?.hostname ?? "—"}</td>
+              <td>{a.status}</td>
+              <td>{new Date(a.createdAt).toLocaleString()}</td>
+              <td>
+                {a.status === "OPEN" && user?.role === "ADMIN" && (
+                  <button disabled={busyId === a.id} onClick={() => acknowledge(a.id)}>
+                    Acknowledge
+                  </button>
+                )}
+              </td>
+              <td>
+                {!action && "—"}
+                {action?.status === "PENDING" && user?.role === "ADMIN" && (
+                  <span className="response-actions">
+                    <button disabled={busyId === action.id} onClick={() => approve(action.id)}>
+                      Approve notification
+                    </button>
+                    <button disabled={busyId === action.id} onClick={() => reject(action.id)}>
+                      Reject
+                    </button>
+                  </span>
+                )}
+                {action?.status === "PENDING" && user?.role !== "ADMIN" && "Pending approval"}
+                {action && action.status !== "PENDING" && (
+                  <span title={action.resultMessage ?? undefined}>{action.status}</span>
+                )}
+              </td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );

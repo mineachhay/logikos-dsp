@@ -9,6 +9,7 @@ import { eventRoutes } from "./routes/events.js";
 import { alertRoutes } from "./routes/alerts.js";
 import { storageRoutes } from "./routes/storage.js";
 import { classificationRoutes } from "./routes/classification.js";
+import { responseActionRoutes } from "./routes/responseActions.js";
 
 const app = Fastify({ logger: true });
 
@@ -27,6 +28,7 @@ await app.register(eventRoutes);
 await app.register(alertRoutes);
 await app.register(storageRoutes);
 await app.register(classificationRoutes);
+await app.register(responseActionRoutes);
 
 const port = Number(process.env.PORT ?? 4000);
 app.listen({ port, host: "0.0.0.0" }).catch((err) => {

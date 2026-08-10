@@ -35,6 +35,8 @@ button { font: inherit; }
 .session { margin-left: auto; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #aab4c8; }
 .session button { background: #1c1f26; color: #ccc; border: 1px solid #2a2e37; border-radius: 6px; padding: 4px 10px; cursor: pointer; }
 
+.response-actions { display: flex; gap: 6px; }
+
 .login { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
 .login form { display: flex; flex-direction: column; gap: 12px; width: 280px; }
 .login h1 { text-align: center; margin-bottom: 8px; }

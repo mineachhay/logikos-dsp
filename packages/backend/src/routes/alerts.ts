@@ -20,7 +20,10 @@ export async function alertRoutes(app: FastifyInstance) {
       where: status ? { status } : undefined,
       orderBy: { createdAt: "desc" },
       take: limit,
-      include: { agent: { select: { hostname: true, watchedRoot: true } } },
+      include: {
+        agent: { select: { hostname: true, watchedRoot: true } },
+        responseActions: true,
+      },
     });
   });
 

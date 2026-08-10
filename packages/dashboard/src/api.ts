@@ -69,6 +69,13 @@ export async function createUser(email: string, password: string, role: Role): P
   return postJson<ManagedUser>("/users", { email, password, role });
 }
 
+export interface ResponseAction {
+  id: string;
+  type: "WEBHOOK_NOTIFICATION";
+  status: "PENDING" | "REJECTED" | "EXECUTED" | "FAILED";
+  resultMessage: string | null;
+}
+
 export interface Alert {
   id: string;
   type: "RANSOMWARE_RATE" | "SENSITIVE_DATA_EXPOSED";
@@ -77,6 +84,15 @@ export interface Alert {
   message: string;
   createdAt: string;
   agent: { hostname: string; watchedRoot: string } | null;
+  responseActions: ResponseAction[];
+}
+
+export async function approveResponseAction(id: string): Promise<ResponseAction> {
+  return postJson<ResponseAction>(`/response-actions/${id}/approve`, {});
+}
+
+export async function rejectResponseAction(id: string): Promise<ResponseAction> {
+  return postJson<ResponseAction>(`/response-actions/${id}/reject`, {});
 }
 
 export interface FileEvent {

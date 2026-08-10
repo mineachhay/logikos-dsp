@@ -86,18 +86,30 @@ async function processJob(jobId: string): Promise<void> {
       const severity = matches.some((m) => m.patternType === "ssn" || m.patternType === "credit_card")
         ? "HIGH"
         : "MEDIUM";
+      const alertId = randomUUID();
       await pool.query(
         `INSERT INTO "Alert"
            ("id","type","severity","status","agentId","message","metadata","createdAt","updatedAt")
          VALUES ($1,'SENSITIVE_DATA_EXPOSED',$2,'OPEN',$3,$4,$5,now(),now())`,
         [
-          randomUUID(),
+          alertId,
           severity,
           row.agent_id,
           `Sensitive data detected in ${row.path}: ${matches.map((m) => m.patternType).join(", ")}`,
           JSON.stringify({ path: row.path, patternTypes: matches.map((m) => m.patternType) }),
         ],
       );
+
+      // HIGH alerts get a suggested response action, but it only fires once
+      // an ADMIN approves it via POST /response-actions/:id/approve — see
+      // ARCHITECTURE.md's "approve-first, always" note.
+      if (severity === "HIGH") {
+        await pool.query(
+          `INSERT INTO "ResponseAction" ("id","alertId","type","status","createdAt")
+           VALUES ($1,$2,'WEBHOOK_NOTIFICATION','PENDING',now())`,
+          [randomUUID(), alertId],
+        );
+      }
     }
 
     await pool.query(
