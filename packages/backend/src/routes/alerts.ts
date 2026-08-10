@@ -12,6 +12,8 @@ const updateSchema = z.object({
 });
 
 export async function alertRoutes(app: FastifyInstance) {
+  app.addHook("onRequest", app.authenticate);
+
   app.get("/alerts", async (req) => {
     const { status, limit } = listQuerySchema.parse(req.query);
     return prisma.alert.findMany({
@@ -22,7 +24,7 @@ export async function alertRoutes(app: FastifyInstance) {
     });
   });
 
-  app.patch<{ Params: { id: string } }>("/alerts/:id", async (req, reply) => {
+  app.patch<{ Params: { id: string } }>("/alerts/:id", { preHandler: app.requireRole("ADMIN") }, async (req, reply) => {
     const body = updateSchema.parse(req.body);
     try {
       const alert = await prisma.alert.update({

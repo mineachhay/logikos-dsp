@@ -31,3 +31,20 @@ button { font: inherit; }
 .badge-medium { background: #4a3a1f; color: #e2b566; }
 .badge-high { background: #4a2323; color: #e58a8a; }
 .badge-critical { background: #5c1a1a; color: #ff8080; }
+
+.session { margin-left: auto; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #aab4c8; }
+.session button { background: #1c1f26; color: #ccc; border: 1px solid #2a2e37; border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+
+.login { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+.login form { display: flex; flex-direction: column; gap: 12px; width: 280px; }
+.login h1 { text-align: center; margin-bottom: 8px; }
+.login label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #aab4c8; }
+.login input, .create-user input, .create-user select {
+  background: #1c1f26; color: #e6e6e6; border: 1px solid #2a2e37; border-radius: 6px; padding: 8px 10px; font-size: 13px;
+}
+.login button, .create-user button {
+  background: #2f6fed; color: white; border: none; border-radius: 6px; padding: 8px 12px; cursor: pointer; font-size: 13px;
+}
+.login button:disabled, .create-user button:disabled { opacity: 0.6; cursor: default; }
+
+.create-user { display: flex; gap: 8px; margin-bottom: 16px; align-items: center; }

@@ -27,7 +27,7 @@ export async function agentRoutes(app: FastifyInstance) {
     return reply.send({ id: agent.id, hostname: agent.hostname, watchedRoot: agent.watchedRoot });
   });
 
-  app.get("/agents", async () => {
+  app.get("/agents", { preHandler: app.authenticate }, async () => {
     return prisma.agent.findMany({ orderBy: { lastSeenAt: "desc" } });
   });
 }

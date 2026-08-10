@@ -53,10 +53,22 @@ This required **no backend or dashboard changes** — `Agent.watchedRoot`, `File
 - `ClassificationJob` — queued "scan this file" work item, created on file create/modify events.
 - `ClassificationMatch` — a sensitivity-pattern hit (type: SSN/credit-card/email/etc, with a redacted sample) for a file.
 - `Alert` — a raised alert (ransomware-rate, sensitive-data-exposed, ...), with severity and status.
+- `User` — a dashboard login (`email`, `passwordHash`, `role`). Unrelated to `Agent`, see below.
+
+## Auth/RBAC
+
+**Two identity systems, deliberately kept separate.** `Agent.key` authenticates *machines* (agent processes calling `POST /agents/register`, `POST /ingest/events`, `POST /ingest/storage`) and was never touched by this feature. `User` + a cookie-based JWT authenticates *people* using the dashboard, gating every other endpoint (`/events`, `/alerts`, `/storage`, `/classification-*`, `/agents` GET, `/users`). Mixing these would mean either forcing unattended agent processes to hold a user session (no such user exists) or weakening the dashboard's auth to match agents' simple shared-secret model — neither is right, so the two stay on completely separate code paths. In `packages/backend/src/index.ts`, agent-facing routes are registered with a comment marking them as never-gated; dashboard-facing route files each self-gate via `app.addHook("onRequest", app.authenticate)`.
+
+**Cookie-based JWT, not a session table.** Consistent with the "Postgres only, no extra infra" stance below: a signed JWT in an httpOnly cookie (`@fastify/jwt` + `@fastify/cookie`) needs no session store, while still being safe against XSS token theft (unlike JWT-in-localStorage). No refresh-token flow in v1 — a user just logs in again after the token expires; revisit if session lifetime becomes a real complaint.
+
+**Two roles: `ADMIN` and `VIEWER`.** ADMIN can do everything, including managing users and acknowledging/resolving alerts (`PATCH /alerts/:id` requires it); VIEWER is read-only. A finer-grained role (e.g. can-acknowledge-but-not-manage-users) is a natural v2 addition once there's a real need for it.
+
+**`@fastify/jwt`/`@fastify/cookie` are pinned to their last Fastify-4-compatible majors** (`8.0.1` / `9.4.0`) — their current majors (10.x / 11.x) require Fastify 5, which this project isn't on. Bumping Fastify itself would be the right way to pick up newer versions, not a piecemeal plugin upgrade.
+
+**Bootstrap admin via a seed script, not auto-creation.** `packages/backend/prisma/seed.ts` creates one `ADMIN` from `ADMIN_EMAIL`/`ADMIN_PASSWORD` env vars if no `User` rows exist yet (`pnpm db:seed`) — explicit and scriptable, rather than a magic first-run behavior that's easy to trigger by accident.
 
 ## What's deliberately out of scope for v0
 
-- Auth/RBAC beyond a single shared API key (multi-tenant auth is a real feature, not a scaffolding detail).
 - Cloud storage connectors (Google Drive, OneDrive/SharePoint) — needs real OAuth app credentials against a live tenant to build/test against, not available in this environment. SMB/network shares are covered (see above).
 - ML-based classification (regex/format-validator rules only: SSN, credit card w/ Luhn check, email, phone).
 - Automated response actions (disabling shares, killing processes) — DSP does this; it's high-blast-radius and needs its own design/review pass before being wired up.

@@ -7,6 +7,8 @@ const querySchema = z.object({
 });
 
 export async function classificationRoutes(app: FastifyInstance) {
+  app.addHook("onRequest", app.authenticate);
+
   app.get("/classification-matches", async (req) => {
     const { limit } = querySchema.parse(req.query);
     return prisma.classificationMatch.findMany({

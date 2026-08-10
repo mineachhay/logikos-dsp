@@ -47,6 +47,21 @@ enum AlertStatus {
   RESOLVED
 }
 
+enum Role {
+  ADMIN
+  VIEWER
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  role         Role      @default(VIEWER)
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  lastLoginAt  DateTime?
+}
+
 model Agent {
   id           String   @id @default(uuid())
   key          String   @unique

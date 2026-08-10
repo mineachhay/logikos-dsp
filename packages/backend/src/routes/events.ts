@@ -8,6 +8,8 @@ const querySchema = z.object({
 });
 
 export async function eventRoutes(app: FastifyInstance) {
+  app.addHook("onRequest", app.authenticate);
+
   app.get("/events", async (req) => {
     const { agentId, limit } = querySchema.parse(req.query);
 

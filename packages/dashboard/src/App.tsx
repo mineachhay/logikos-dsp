@@ -2,15 +2,18 @@ import { useState } from "react";
 import { usePolling } from "./usePolling.js";
 import { patchAlertStatus } from "./api.js";
 import type { Alert, FileEvent, StorageSnapshot, ClassificationMatch } from "./api.js";
+import { AuthProvider, useAuth } from "./auth.js";
+import LoginView from "./LoginView.js";
+import UsersView from "./UsersView.js";
 
-const TABS = ["Alerts", "File Events", "Storage", "Data Risk"] as const;
-type Tab = (typeof TABS)[number];
+const BASE_TABS = ["Alerts", "File Events", "Storage", "Data Risk"] as const;
 
 function SeverityBadge({ severity }: { severity: Alert["severity"] }) {
   return <span className={`badge badge-${severity.toLowerCase()}`}>{severity}</span>;
 }
 
 function AlertsView() {
+  const { user } = useAuth();
   const { data, error } = usePolling<Alert[]>("/alerts?limit=100", 4000);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -50,7 +53,7 @@ function AlertsView() {
             <td>{a.status}</td>
             <td>{new Date(a.createdAt).toLocaleString()}</td>
             <td>
-              {a.status === "OPEN" && (
+              {a.status === "OPEN" && user?.role === "ADMIN" && (
                 <button disabled={busyId === a.id} onClick={() => acknowledge(a.id)}>
                   Acknowledge
                 </button>
@@ -169,27 +172,48 @@ function formatBytes(bytes: number): string {
   return `${value.toFixed(1)} ${units[unitIndex]}`;
 }
 
-export default function App() {
-  const [tab, setTab] = useState<Tab>("Alerts");
+function Dashboard() {
+  const { user, logout } = useAuth();
+  const tabs = user?.role === "ADMIN" ? [...BASE_TABS, "Users" as const] : BASE_TABS;
+  const [tab, setTab] = useState<string>("Alerts");
 
   return (
     <div className="app">
       <header>
         <h1>logikos-dsp</h1>
         <nav>
-          {TABS.map((t) => (
+          {tabs.map((t) => (
             <button key={t} className={t === tab ? "active" : ""} onClick={() => setTab(t)}>
               {t}
             </button>
           ))}
         </nav>
+        <div className="session">
+          <span>{user?.email}</span>
+          <button onClick={() => logout()}>Log out</button>
+        </div>
       </header>
       <main>
         {tab === "Alerts" && <AlertsView />}
         {tab === "File Events" && <FileEventsView />}
         {tab === "Storage" && <StorageView />}
         {tab === "Data Risk" && <DataRiskView />}
+        {tab === "Users" && <UsersView />}
       </main>
     </div>
+  );
+}
+
+function AppShell() {
+  const { user, loading } = useAuth();
+  if (loading) return null;
+  return user ? <Dashboard /> : <LoginView />;
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppShell />
+    </AuthProvider>
   );
 }

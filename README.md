@@ -28,11 +28,15 @@ packages/
 pnpm install
 pnpm db:up           # starts Postgres via docker compose
 pnpm db:migrate       # applies Prisma schema
+cp packages/backend/.env.example packages/backend/.env  # set a real JWT_SECRET/ADMIN_PASSWORD before anything but local dev
+pnpm db:seed          # creates the first ADMIN user from ADMIN_EMAIL/ADMIN_PASSWORD in that .env
 pnpm dev:backend      # http://localhost:4000
 pnpm dev:classification
 pnpm dev:agent        # set WATCH_PATH env var to the directory to monitor
-pnpm dev:dashboard    # http://localhost:5173
+pnpm dev:dashboard    # http://localhost:5173 — log in with ADMIN_EMAIL/ADMIN_PASSWORD
 ```
+
+Dashboard endpoints (`/events`, `/alerts`, `/storage`, `/classification-*`, `/users`) require login; agent endpoints (`/agents/register`, `/ingest/*`) don't and never will — see [ARCHITECTURE.md](./ARCHITECTURE.md#authrbac).
 
 ### SMB connector (dev)
 
@@ -54,4 +58,4 @@ pnpm smb:down # when done
 
 ## Status
 
-Early scaffold — a thin vertical slice runs end to end (agent → backend ingest → rules/classification → dashboard) for both local paths and SMB shares, but cloud storage connectors, detection rules, and auth are still minimal. Not production-ready.
+Early scaffold — a thin vertical slice runs end to end (agent → backend ingest → rules/classification → dashboard) for both local paths and SMB shares, with cookie/JWT auth and two-role RBAC (ADMIN/VIEWER) gating the dashboard API. Cloud storage connectors, ML-based classification, and automated response actions are still open. Not production-ready.

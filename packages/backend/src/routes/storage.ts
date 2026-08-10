@@ -8,6 +8,8 @@ const querySchema = z.object({
 });
 
 export async function storageRoutes(app: FastifyInstance) {
+  app.addHook("onRequest", app.authenticate);
+
   app.get("/storage", async (req) => {
     const { agentId, limit } = querySchema.parse(req.query);
 
