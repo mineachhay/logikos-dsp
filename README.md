@@ -56,6 +56,25 @@ pnpm dev:agent
 pnpm smb:down # when done
 ```
 
+### Microsoft 365 connector (setup)
+
+Watches a OneDrive/SharePoint drive via Microsoft Graph (see [ARCHITECTURE.md](./ARCHITECTURE.md) for the design, and — importantly — that **this connector hasn't been verified against a real tenant yet**, only against Microsoft's documented API contract). One-time Azure AD setup:
+
+1. In the [Azure Portal](https://portal.azure.com) → Microsoft Entra ID → App registrations, register a new app.
+2. Under **API permissions**, add **Microsoft Graph → Application permissions** → `Files.Read.All` (and `Sites.Read.All` if watching a SharePoint document library rather than a personal OneDrive). Click **Grant admin consent**.
+3. Under **Certificates & secrets**, create a new client secret — copy its value immediately, it's not shown again.
+4. Note the **Application (client) ID**, **Directory (tenant) ID**, and the client secret from steps above.
+5. Find the `driveId` to watch: with an admin token, `GET https://graph.microsoft.com/v1.0/me/drive` (for a specific user's OneDrive: `/users/{id}/drive`) or `GET https://graph.microsoft.com/v1.0/sites/{site-id}/drive` (for a SharePoint document library) — the [Graph Explorer](https://developer.microsoft.com/en-us/graph/graph-explorer) is the easiest way to run these once signed in as an admin.
+
+```bash
+SOURCE_TYPE=m365 \
+M365_TENANT_ID=<tenant-id> \
+M365_CLIENT_ID=<client-id> \
+M365_CLIENT_SECRET=<client-secret> \
+M365_DRIVE_ID=<drive-id> \
+pnpm dev:agent
+```
+
 ## Running tests
 
 `packages/agent` and `packages/classification` run pure-logic unit tests with no external services. `packages/backend` needs a dedicated test database (one-time setup):
@@ -72,4 +91,4 @@ pnpm test    # runs every package's suite (pnpm -r test); packages without one a
 
 ## Status
 
-Early scaffold — a thin vertical slice runs end to end (agent → backend ingest → rules/classification → dashboard) for both local paths and SMB shares, with cookie/JWT auth and two-role RBAC (ADMIN/VIEWER) gating the dashboard API, classification combining regex pattern matching with a local NER model (person/org/location detection, no data leaves the machine), an automated test suite, and approve-first response actions (webhook notification for HIGH/CRITICAL alerts; file quarantine for local-path sensitive-data alerts, via the agent polling for approved commands). Cloud storage connectors, SMB quarantine, and production packaging are still open. Not production-ready.
+Early scaffold — a thin vertical slice runs end to end (agent → backend ingest → rules/classification → dashboard) for local paths, SMB shares, and (unverified against a live tenant — see above) Microsoft 365 drives, with cookie/JWT auth and two-role RBAC (ADMIN/VIEWER) gating the dashboard API, classification combining regex pattern matching with a local NER model (person/org/location detection, no data leaves the machine), an automated test suite, and approve-first response actions (webhook notification for HIGH/CRITICAL alerts; file quarantine for local-path sensitive-data alerts, via the agent polling for approved commands). A Google Drive connector, SMB/M365 quarantine, and production packaging are still open. Not production-ready.
