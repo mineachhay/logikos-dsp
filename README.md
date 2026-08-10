@@ -6,7 +6,7 @@ logikos-dsp covers the four core DSP capabilities:
 
 - **File audit / FIM** — real-time file create/modify/delete/rename/permission events from watched paths.
 - **Data risk assessment** — content classification of files (PII/PCI-style pattern matches, plus local named-entity recognition for names/organizations/locations) to flag sensitive data sitting in the wrong place.
-- **Ransomware / anomaly detection** — rate- and pattern-based detection of mass file changes, with alerting and an approve-first webhook notification response.
+- **Ransomware / anomaly detection** — rate- and pattern-based detection of mass file changes, with alerting and approve-first response actions (webhook notification; file quarantine for sensitive-data alerts on local paths).
 - **Disk / storage analysis** — periodic storage usage snapshots per watched path.
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for how the pieces fit together and why.
@@ -72,4 +72,4 @@ pnpm test    # runs every package's suite (pnpm -r test); packages without one a
 
 ## Status
 
-Early scaffold — a thin vertical slice runs end to end (agent → backend ingest → rules/classification → dashboard) for both local paths and SMB shares, with cookie/JWT auth and two-role RBAC (ADMIN/VIEWER) gating the dashboard API, classification combining regex pattern matching with a local NER model (person/org/location detection, no data leaves the machine), and an approve-first webhook notification response action for HIGH/CRITICAL alerts. Cloud storage connectors and file quarantine are still open. Not production-ready.
+Early scaffold — a thin vertical slice runs end to end (agent → backend ingest → rules/classification → dashboard) for both local paths and SMB shares, with cookie/JWT auth and two-role RBAC (ADMIN/VIEWER) gating the dashboard API, classification combining regex pattern matching with a local NER model (person/org/location detection, no data leaves the machine), an automated test suite, and approve-first response actions (webhook notification for HIGH/CRITICAL alerts; file quarantine for local-path sensitive-data alerts, via the agent polling for approved commands). Cloud storage connectors, SMB quarantine, and production packaging are still open. Not production-ready.

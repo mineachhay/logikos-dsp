@@ -55,6 +55,7 @@ export const config = {
   hostname: os.hostname(),
   storageScanIntervalMs: Number(process.env.STORAGE_SCAN_INTERVAL_MS ?? 60_000),
   smbScanIntervalMs: Number(process.env.SMB_SCAN_INTERVAL_MS ?? 30_000),
+  quarantinePollIntervalMs: Number(process.env.QUARANTINE_POLL_INTERVAL_MS ?? 10_000),
   eventFlushIntervalMs: Number(process.env.EVENT_FLUSH_INTERVAL_MS ?? 500),
   eventBatchSize: 50,
   maxContentSampleBytes: CLASSIFICATION_JOB_MAX_SAMPLE_BYTES,

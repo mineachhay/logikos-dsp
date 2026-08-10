@@ -71,8 +71,8 @@ export async function createUser(email: string, password: string, role: Role): P
 
 export interface ResponseAction {
   id: string;
-  type: "WEBHOOK_NOTIFICATION";
-  status: "PENDING" | "REJECTED" | "EXECUTED" | "FAILED";
+  type: "WEBHOOK_NOTIFICATION" | "FILE_QUARANTINE";
+  status: "PENDING" | "APPROVED" | "REJECTED" | "EXECUTED" | "FAILED";
   resultMessage: string | null;
 }
 

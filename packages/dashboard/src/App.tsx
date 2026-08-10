@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { usePolling } from "./usePolling.js";
 import { patchAlertStatus, approveResponseAction, rejectResponseAction } from "./api.js";
-import type { Alert, FileEvent, StorageSnapshot, ClassificationMatch } from "./api.js";
+import type { Alert, FileEvent, StorageSnapshot, ClassificationMatch, ResponseAction } from "./api.js";
 import { AuthProvider, useAuth } from "./auth.js";
 import LoginView from "./LoginView.js";
 import UsersView from "./UsersView.js";
@@ -10,6 +10,51 @@ const BASE_TABS = ["Alerts", "File Events", "Storage", "Data Risk"] as const;
 
 function SeverityBadge({ severity }: { severity: Alert["severity"] }) {
   return <span className={`badge badge-${severity.toLowerCase()}`}>{severity}</span>;
+}
+
+const RESPONSE_ACTION_LABELS: Record<ResponseAction["type"], string> = {
+  WEBHOOK_NOTIFICATION: "notification",
+  FILE_QUARANTINE: "quarantine",
+};
+
+function ResponseActionRow({
+  action,
+  canApprove,
+  busy,
+  onApprove,
+  onReject,
+}: {
+  action: ResponseAction;
+  canApprove: boolean;
+  busy: boolean;
+  onApprove: () => void;
+  onReject: () => void;
+}) {
+  const label = RESPONSE_ACTION_LABELS[action.type];
+
+  if (action.status === "PENDING") {
+    if (!canApprove) return <div>{label}: pending approval</div>;
+    return (
+      <div className="response-actions">
+        <button disabled={busy} onClick={onApprove}>
+          Approve {label}
+        </button>
+        <button disabled={busy} onClick={onReject}>
+          Reject
+        </button>
+      </div>
+    );
+  }
+
+  if (action.status === "APPROVED") {
+    return <div title={action.resultMessage ?? undefined}>{label}: approved, waiting for agent</div>;
+  }
+
+  return (
+    <div title={action.resultMessage ?? undefined}>
+      {label}: {action.status.toLowerCase()}
+    </div>
+  );
 }
 
 function AlertsView() {
@@ -63,43 +108,36 @@ function AlertsView() {
         </tr>
       </thead>
       <tbody>
-        {data.map((a) => {
-          const action = a.responseActions[0];
-          return (
-            <tr key={a.id}>
-              <td><SeverityBadge severity={a.severity} /></td>
-              <td>{a.type}</td>
-              <td>{a.message}</td>
-              <td>{a.agent?.hostname ?? "—"}</td>
-              <td>{a.status}</td>
-              <td>{new Date(a.createdAt).toLocaleString()}</td>
-              <td>
-                {a.status === "OPEN" && user?.role === "ADMIN" && (
-                  <button disabled={busyId === a.id} onClick={() => acknowledge(a.id)}>
-                    Acknowledge
-                  </button>
-                )}
-              </td>
-              <td>
-                {!action && "—"}
-                {action?.status === "PENDING" && user?.role === "ADMIN" && (
-                  <span className="response-actions">
-                    <button disabled={busyId === action.id} onClick={() => approve(action.id)}>
-                      Approve notification
-                    </button>
-                    <button disabled={busyId === action.id} onClick={() => reject(action.id)}>
-                      Reject
-                    </button>
-                  </span>
-                )}
-                {action?.status === "PENDING" && user?.role !== "ADMIN" && "Pending approval"}
-                {action && action.status !== "PENDING" && (
-                  <span title={action.resultMessage ?? undefined}>{action.status}</span>
-                )}
-              </td>
-            </tr>
-          );
-        })}
+        {data.map((a) => (
+          <tr key={a.id}>
+            <td><SeverityBadge severity={a.severity} /></td>
+            <td>{a.type}</td>
+            <td>{a.message}</td>
+            <td>{a.agent?.hostname ?? "—"}</td>
+            <td>{a.status}</td>
+            <td>{new Date(a.createdAt).toLocaleString()}</td>
+            <td>
+              {a.status === "OPEN" && user?.role === "ADMIN" && (
+                <button disabled={busyId === a.id} onClick={() => acknowledge(a.id)}>
+                  Acknowledge
+                </button>
+              )}
+            </td>
+            <td>
+              {a.responseActions.length === 0 && "—"}
+              {a.responseActions.map((action) => (
+                <ResponseActionRow
+                  key={action.id}
+                  action={action}
+                  canApprove={user?.role === "ADMIN"}
+                  busy={busyId === action.id}
+                  onApprove={() => approve(action.id)}
+                  onReject={() => reject(action.id)}
+                />
+              ))}
+            </td>
+          </tr>
+        ))}
       </tbody>
     </table>
   );

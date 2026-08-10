@@ -4,6 +4,7 @@ import type { FileEventInput, FileEventType } from "@logikos-dsp/shared";
 import { config } from "./config.js";
 import { postEvents } from "./client.js";
 import { isSampleable } from "./contentSampling.js";
+import { QUARANTINE_DIR_NAME } from "./quarantinePath.js";
 
 let queue: FileEventInput[] = [];
 
@@ -53,6 +54,9 @@ export function startWatcher(): void {
   const watcher = chokidar.watch(config.watchPath, {
     ignoreInitial: true, // don't emit "created" for every file that already existed at startup
     awaitWriteFinish: { stabilityThreshold: 300, pollInterval: 100 },
+    // Quarantine moves files into this subfolder — excluded so that never
+    // shows up as a spurious "created" event.
+    ignored: `**/${QUARANTINE_DIR_NAME}/**`,
   });
 
   // chokidar reports moves as unlink+add and doesn't expose permission-only

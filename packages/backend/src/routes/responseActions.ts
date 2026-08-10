@@ -4,7 +4,7 @@ import { prisma } from "../db.js";
 import { sendWebhookNotification } from "../responseActions/webhook.js";
 
 const listQuerySchema = z.object({
-  status: z.enum(["PENDING", "REJECTED", "EXECUTED", "FAILED"]).optional(),
+  status: z.enum(["PENDING", "APPROVED", "REJECTED", "EXECUTED", "FAILED"]).optional(),
   limit: z.coerce.number().int().positive().max(500).default(100),
 });
 
@@ -32,6 +32,21 @@ export async function responseActionRoutes(app: FastifyInstance) {
       if (!action) return reply.code(404).send({ error: "response action not found" });
       if (action.status !== "PENDING") {
         return reply.code(409).send({ error: `action already ${action.status.toLowerCase()}` });
+      }
+
+      // WEBHOOK_NOTIFICATION executes synchronously right here — the backend
+      // can make the HTTP call itself. FILE_QUARANTINE can't: only the agent
+      // process has filesystem access to the watched directory, so approval
+      // just marks it APPROVED and the agent's next poll
+      // (GET /agent-commands) picks it up and reports back via
+      // POST /agent-commands/:id/complete, which is what actually sets
+      // EXECUTED/FAILED for that action type. See ARCHITECTURE.md.
+      if (action.type === "FILE_QUARANTINE") {
+        const updated = await prisma.responseAction.update({
+          where: { id: action.id },
+          data: { status: "APPROVED", approvedByUserId: req.user.id, approvedAt: new Date() },
+        });
+        return reply.send(updated);
       }
 
       const result = await sendWebhookNotification(action.alert);

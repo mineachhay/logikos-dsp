@@ -39,3 +39,30 @@ export async function postStorageSnapshot(snapshot: StorageSnapshotInput): Promi
     console.error(`failed to post storage snapshot: ${res.status} ${await res.text()}`);
   }
 }
+
+export interface QuarantineCommand {
+  id: string;
+  path: string;
+}
+
+export async function fetchQuarantineCommands(): Promise<QuarantineCommand[]> {
+  const url = new URL(`${config.backendUrl}/agent-commands`);
+  url.searchParams.set("agentKey", config.agentKey);
+  const res = await fetch(url);
+  if (!res.ok) {
+    console.error(`failed to fetch quarantine commands: ${res.status} ${await res.text()}`);
+    return [];
+  }
+  return res.json();
+}
+
+export async function completeQuarantineCommand(id: string, success: boolean, message: string): Promise<void> {
+  const res = await fetch(`${config.backendUrl}/agent-commands/${id}/complete`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ agentKey: config.agentKey, success, message }),
+  });
+  if (!res.ok) {
+    console.error(`failed to report quarantine command ${id}: ${res.status} ${await res.text()}`);
+  }
+}

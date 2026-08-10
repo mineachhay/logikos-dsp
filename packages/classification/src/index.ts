@@ -51,9 +51,11 @@ async function processJob(jobId: string): Promise<void> {
   const { rows } = await pool.query(
     `SELECT "FileEvent"."path" AS path,
             "FileEvent"."contentSample" AS content_sample,
-            "FileEvent"."agentId" AS agent_id
+            "FileEvent"."agentId" AS agent_id,
+            "Agent"."watchedRoot" AS agent_watched_root
      FROM "ClassificationJob"
      JOIN "FileEvent" ON "FileEvent"."id" = "ClassificationJob"."fileEventId"
+     JOIN "Agent" ON "Agent"."id" = "FileEvent"."agentId"
      WHERE "ClassificationJob"."id" = $1`,
     [jobId],
   );
@@ -100,15 +102,26 @@ async function processJob(jobId: string): Promise<void> {
         ],
       );
 
-      // HIGH alerts get a suggested response action, but it only fires once
+      // HIGH alerts get suggested response actions, but nothing fires until
       // an ADMIN approves it via POST /response-actions/:id/approve — see
-      // ARCHITECTURE.md's "approve-first, always" note.
+      // ARCHITECTURE.md's "approve-first, always" note. Quarantine is only
+      // ever suggested for local-path agents — the SMB connector is
+      // deliberately read-only (watchedRoot starts with "smb://" for those).
       if (severity === "HIGH") {
         await pool.query(
           `INSERT INTO "ResponseAction" ("id","alertId","type","status","createdAt")
            VALUES ($1,$2,'WEBHOOK_NOTIFICATION','PENDING',now())`,
           [randomUUID(), alertId],
         );
+
+        const isLocalAgent = !(row.agent_watched_root as string).startsWith("smb://");
+        if (isLocalAgent) {
+          await pool.query(
+            `INSERT INTO "ResponseAction" ("id","alertId","type","status","createdAt")
+             VALUES ($1,$2,'FILE_QUARANTINE','PENDING',now())`,
+            [randomUUID(), alertId],
+          );
+        }
       }
     }
 

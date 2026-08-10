@@ -151,10 +151,12 @@ model Alert {
 
 enum ResponseActionType {
   WEBHOOK_NOTIFICATION
+  FILE_QUARANTINE
 }
 
 enum ResponseActionStatus {
   PENDING
+  APPROVED
   REJECTED
   EXECUTED
   FAILED
