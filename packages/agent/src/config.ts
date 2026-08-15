@@ -2,11 +2,11 @@ import os from "node:os";
 import { createHash } from "node:crypto";
 import { CLASSIFICATION_JOB_MAX_SAMPLE_BYTES } from "@logikos-dsp/shared";
 
-type SourceType = "local" | "smb" | "m365";
+type SourceType = "local" | "smb" | "m365" | "gdrive";
 
 const sourceType = (process.env.SOURCE_TYPE ?? "local") as SourceType;
-if (sourceType !== "local" && sourceType !== "smb" && sourceType !== "m365") {
-  console.error(`SOURCE_TYPE must be "local", "smb", or "m365", got "${sourceType}"`);
+if (sourceType !== "local" && sourceType !== "smb" && sourceType !== "m365" && sourceType !== "gdrive") {
+  console.error(`SOURCE_TYPE must be "local", "smb", "m365", or "gdrive", got "${sourceType}"`);
   process.exit(1);
 }
 
@@ -50,6 +50,25 @@ if (sourceType === "m365") {
   }
 }
 
+const gdrive = {
+  clientEmail: process.env.GDRIVE_CLIENT_EMAIL,
+  // Service-account JSON key files have real newlines in `private_key`;
+  // env vars can't carry those directly, so the standard convention (also
+  // used by most Google client libraries) is `\n` escape sequences in the
+  // env var value, un-escaped here.
+  privateKey: process.env.GDRIVE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+  folderId: process.env.GDRIVE_FOLDER_ID,
+};
+if (sourceType === "gdrive") {
+  const missing = (["clientEmail", "privateKey", "folderId"] as const).filter((k) => !gdrive[k]);
+  if (missing.length > 0) {
+    console.error(
+      `SOURCE_TYPE=gdrive requires GDRIVE_${missing.map((k) => k.replace(/[A-Z]/g, (c) => `_${c}`).toUpperCase()).join(", GDRIVE_")}`,
+    );
+    process.exit(1);
+  }
+}
+
 // Deterministic per (host, source) so restarting the agent re-registers under
 // the same key instead of minting a new Agent row every time.
 const sourceDescriptor =
@@ -57,7 +76,9 @@ const sourceDescriptor =
     ? `local:${watchPath}`
     : sourceType === "smb"
       ? `smb:${smb.host}:${smb.share}:${smb.subPath ?? ""}`
-      : `m365:${m365.driveId}:${m365.subPath ?? ""}`;
+      : sourceType === "m365"
+        ? `m365:${m365.driveId}:${m365.subPath ?? ""}`
+        : `gdrive:${gdrive.folderId}`;
 const derivedKey = `agent-${createHash("sha256").update(`${os.hostname()}:${sourceDescriptor}`).digest("hex").slice(0, 24)}`;
 
 // Sent to the backend as Agent.watchedRoot — display only, never includes credentials.
@@ -66,7 +87,9 @@ const watchedRootLabel =
     ? (watchPath as string)
     : sourceType === "smb"
       ? `smb://${smb.host}/${smb.share}${smb.subPath ? `/${smb.subPath.replace(/^\/+/, "")}` : ""}`
-      : `m365://${m365.driveId}${m365.subPath ? `/${m365.subPath.replace(/^\/+/, "")}` : ""}`;
+      : sourceType === "m365"
+        ? `m365://${m365.driveId}${m365.subPath ? `/${m365.subPath.replace(/^\/+/, "")}` : ""}`
+        : `gdrive://${gdrive.folderId}`;
 
 export const config = {
   backendUrl: process.env.BACKEND_URL ?? "http://localhost:4000",
@@ -75,11 +98,13 @@ export const config = {
   watchedRootLabel,
   smb: smb as { host: string; share: string; subPath?: string; username: string; password: string; domain?: string; port?: number },
   m365: m365 as { tenantId: string; clientId: string; clientSecret: string; driveId: string; subPath?: string },
+  gdrive: gdrive as { clientEmail: string; privateKey: string; folderId: string },
   agentKey: process.env.AGENT_KEY ?? derivedKey,
   hostname: os.hostname(),
   storageScanIntervalMs: Number(process.env.STORAGE_SCAN_INTERVAL_MS ?? 60_000),
   smbScanIntervalMs: Number(process.env.SMB_SCAN_INTERVAL_MS ?? 30_000),
   m365ScanIntervalMs: Number(process.env.M365_SCAN_INTERVAL_MS ?? 60_000),
+  gdriveScanIntervalMs: Number(process.env.GDRIVE_SCAN_INTERVAL_MS ?? 60_000),
   quarantinePollIntervalMs: Number(process.env.QUARANTINE_POLL_INTERVAL_MS ?? 10_000),
   eventFlushIntervalMs: Number(process.env.EVENT_FLUSH_INTERVAL_MS ?? 500),
   eventBatchSize: 50,

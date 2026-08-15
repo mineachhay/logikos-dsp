@@ -4,6 +4,7 @@ import { startWatcher } from "./watcher.js";
 import { startStorageScan } from "./storageScan.js";
 import { SmbSource } from "./sources/smb.js";
 import { M365Source } from "./sources/m365.js";
+import { GoogleDriveSource } from "./sources/googledrive.js";
 import { runDiffLoop } from "./snapshotDiff.js";
 import { startQuarantinePolling } from "./quarantine.js";
 
@@ -19,9 +20,12 @@ async function main() {
   } else if (config.sourceType === "smb") {
     const source = new SmbSource(config.smb);
     runDiffLoop(source, config.smbScanIntervalMs);
-  } else {
+  } else if (config.sourceType === "m365") {
     const source = new M365Source(config.m365);
     runDiffLoop(source, config.m365ScanIntervalMs);
+  } else {
+    const source = new GoogleDriveSource(config.gdrive);
+    runDiffLoop(source, config.gdriveScanIntervalMs);
   }
 }
 

@@ -75,6 +75,25 @@ M365_DRIVE_ID=<drive-id> \
 pnpm dev:agent
 ```
 
+### Google Drive connector (setup)
+
+Watches a Google Drive folder via the Drive API (see [ARCHITECTURE.md](./ARCHITECTURE.md) for the design — same caveat as Microsoft 365 above: **this connector hasn't been verified against a real Google account yet**, only against Google's documented API contract). One-time Google Cloud setup:
+
+1. In the [Google Cloud Console](https://console.cloud.google.com) → IAM & Admin → Service Accounts, create a new service account (no roles/permissions needed at the project level — access is granted per-folder in step 3).
+2. On that service account, **Keys** → **Add key** → **Create new key** (JSON) — downloads a JSON file containing `client_email` and `private_key`.
+3. In Google Drive, share the folder to watch with the service account's `client_email` (Viewer access) — exactly like sharing it with another person. No Workspace admin/domain-wide delegation needed, personal Google accounts work the same way.
+4. Get the folder's ID from its URL: `https://drive.google.com/drive/folders/<folder-id>`.
+
+```bash
+SOURCE_TYPE=gdrive \
+GDRIVE_CLIENT_EMAIL=<client_email from the JSON key> \
+GDRIVE_PRIVATE_KEY=<private_key from the JSON key, \n sequences intact> \
+GDRIVE_FOLDER_ID=<folder-id> \
+pnpm dev:agent
+```
+
+Native Google Docs/Sheets/Slides inside the watched folder are listed (so they show up in File Events and Storage) but not content-scanned — they have no binary representation to sample (see ARCHITECTURE.md).
+
 ## Deployment
 
 Each service has its own Dockerfile (`packages/*/Dockerfile`); `docker-compose.yml` wires all of them together with Postgres for a single-host deployment. This is separate from `pnpm db:up` above, which only starts Postgres for local dev and still works unchanged.
@@ -110,4 +129,4 @@ pnpm test    # runs every package's suite (pnpm -r test); packages without one a
 
 ## Status
 
-Early scaffold — a thin vertical slice runs end to end (agent → backend ingest → rules/classification → dashboard) for local paths, SMB shares, and (unverified against a live tenant — see above) Microsoft 365 drives, with cookie/JWT auth and two-role RBAC (ADMIN/VIEWER) gating the dashboard API, classification combining regex pattern matching with a local NER model (person/org/location detection, no data leaves the machine), an automated test suite, and approve-first response actions (webhook notification for HIGH/CRITICAL alerts; file quarantine for local-path sensitive-data alerts, via the agent polling for approved commands). Every service now has a Dockerfile and deploys together via `docker compose` (see Deployment above) — verified end to end through real container networking, not just individual `docker build`s. A Google Drive connector and SMB/M365 quarantine are still open. No native low-footprint agent yet (still Node/chokidar — see ARCHITECTURE.md). Not yet hardened for production (no TLS termination, secrets management, or backup story documented).
+Early scaffold — a thin vertical slice runs end to end (agent → backend ingest → rules/classification → dashboard) for local paths, SMB shares, and (unverified against a live tenant/account — see above) Microsoft 365 and Google Drive, with cookie/JWT auth and two-role RBAC (ADMIN/VIEWER) gating the dashboard API, classification combining regex pattern matching with a local NER model (person/org/location detection, no data leaves the machine), an automated test suite, and approve-first response actions (webhook notification for HIGH/CRITICAL alerts; file quarantine for local-path sensitive-data alerts, via the agent polling for approved commands). Every service now has a Dockerfile and deploys together via `docker compose` (see Deployment above) — verified end to end through real container networking, not just individual `docker build`s. SMB/M365/Google Drive quarantine are still open (all three connectors stay read-only). No native low-footprint agent yet (still Node/chokidar — see ARCHITECTURE.md). Not yet hardened for production (no TLS termination, secrets management, or backup story documented).
