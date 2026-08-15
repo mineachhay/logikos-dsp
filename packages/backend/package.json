@@ -15,6 +15,10 @@
   "prisma": {
     "seed": "tsx prisma/seed.ts"
   },
+  "files": [
+    "dist",
+    "prisma"
+  ],
   "dependencies": {
     "@fastify/cookie": "9.4.0",
     "@fastify/cors": "^9.0.1",
@@ -23,11 +27,11 @@
     "@prisma/client": "^5.20.0",
     "bcryptjs": "^3.0.3",
     "fastify": "^4.28.1",
+    "prisma": "^5.20.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^22.7.5",
-    "prisma": "^5.20.0",
     "tsx": "^4.19.1",
     "typescript": "^5.6.3",
     "vite": "^5.4.8",

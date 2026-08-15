@@ -1,3 +1,7 @@
+# Dev workflow (`pnpm db:up`) targets just the `postgres` service and is
+# unaffected by the services below. `docker compose up` with no service
+# name brings up the full product — backend, agent, classification,
+# dashboard — for a single-host deployment or a from-scratch demo.
 services:
   postgres:
     image: postgres:16-alpine
@@ -15,5 +19,71 @@ services:
       timeout: 5s
       retries: 10
 
+  backend:
+    build:
+      context: .
+      dockerfile: packages/backend/Dockerfile
+    # Secrets (JWT_SECRET, ADMIN_EMAIL/PASSWORD, RESPONSE_WEBHOOK_URL) come
+    # from the same .env dev already uses — see README's Quickstart for how
+    # to create it. DATABASE_URL is overridden below: .env's copy points at
+    # `localhost`, which is wrong inside the compose network (services
+    # reach each other by service name).
+    env_file:
+      - packages/backend/.env
+    environment:
+      DATABASE_URL: postgresql://logikos:logikos@postgres:5432/logikos_dsp
+      PORT: 4000
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  agent:
+    build:
+      context: .
+      dockerfile: packages/agent/Dockerfile
+    environment:
+      BACKEND_URL: http://backend:4000
+      WATCH_PATH: /data
+      # SOURCE_TYPE/SMB_*/M365_* — set here to point the agent at a real
+      # share instead of the local bind mount below; see README.
+    volumes:
+      - ${WATCH_PATH_HOST:-./data/watched}:/data
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  classification:
+    build:
+      context: .
+      dockerfile: packages/classification/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://logikos:logikos@postgres:5432/logikos_dsp
+    volumes:
+      - classification_cache:/app/.cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: packages/dashboard/Dockerfile
+      args:
+        # Must be reachable from the browser, not from inside the compose
+        # network — see packages/dashboard/Dockerfile. Override for any
+        # deployment where the backend isn't on localhost:4000 from the
+        # browser's point of view.
+        VITE_BACKEND_URL: ${DASHBOARD_BACKEND_URL:-http://localhost:4000}
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
 volumes:
   logikos_dsp_pgdata:
+  classification_cache:

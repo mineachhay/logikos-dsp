@@ -75,6 +75,25 @@ M365_DRIVE_ID=<drive-id> \
 pnpm dev:agent
 ```
 
+## Deployment
+
+Each service has its own Dockerfile (`packages/*/Dockerfile`); `docker-compose.yml` wires all of them together with Postgres for a single-host deployment. This is separate from `pnpm db:up` above, which only starts Postgres for local dev and still works unchanged.
+
+```bash
+cp packages/backend/.env.example packages/backend/.env  # real JWT_SECRET/ADMIN_PASSWORD/RESPONSE_WEBHOOK_URL — required, not just for local dev this time
+docker compose up -d --build
+docker compose exec backend node_modules/.bin/prisma migrate deploy   # first deployment only — the backend image also runs this on every start, so this line is just to seed sooner
+docker compose exec backend sh -c 'ADMIN_EMAIL=... ADMIN_PASSWORD=... node_modules/.bin/tsx prisma/seed.ts'
+```
+
+The dashboard (`http://localhost:8080` by default) needs to reach the backend from your **browser**, not from inside the Docker network — if the backend isn't reachable at `http://localhost:4000` from wherever you open the dashboard (a different host, a reverse proxy, HTTPS), rebuild it with the real URL: `DASHBOARD_BACKEND_URL=https://dsp.example.com docker compose up -d --build dashboard`.
+
+The agent watches `./data/watched` on the host by default (bind-mounted into the container) — point `WATCH_PATH_HOST` at a real directory instead, or set `SOURCE_TYPE`/`SMB_*`/`M365_*` in `docker-compose.yml`'s `agent` service to watch a share instead of a local path (see the SMB/M365 sections above for what each connector needs).
+
+The classification worker's NER model (~100MB) downloads on first start into a named volume (`classification_cache`) so it persists across restarts — same one-time ~20-30s cost as local dev, just paid once per deployment instead of once per developer machine.
+
+See [ARCHITECTURE.md](./ARCHITECTURE.md#production-packaging) for the packaging design and the bugs it surfaced (Prisma Client silently not generating from a workspace-root install, an OpenSSL version-detection issue that only breaks at runtime).
+
 ## Running tests
 
 `packages/agent` and `packages/classification` run pure-logic unit tests with no external services. `packages/backend` needs a dedicated test database (one-time setup):
@@ -91,4 +110,4 @@ pnpm test    # runs every package's suite (pnpm -r test); packages without one a
 
 ## Status
 
-Early scaffold — a thin vertical slice runs end to end (agent → backend ingest → rules/classification → dashboard) for local paths, SMB shares, and (unverified against a live tenant — see above) Microsoft 365 drives, with cookie/JWT auth and two-role RBAC (ADMIN/VIEWER) gating the dashboard API, classification combining regex pattern matching with a local NER model (person/org/location detection, no data leaves the machine), an automated test suite, and approve-first response actions (webhook notification for HIGH/CRITICAL alerts; file quarantine for local-path sensitive-data alerts, via the agent polling for approved commands). A Google Drive connector, SMB/M365 quarantine, and production packaging are still open. Not production-ready.
+Early scaffold — a thin vertical slice runs end to end (agent → backend ingest → rules/classification → dashboard) for local paths, SMB shares, and (unverified against a live tenant — see above) Microsoft 365 drives, with cookie/JWT auth and two-role RBAC (ADMIN/VIEWER) gating the dashboard API, classification combining regex pattern matching with a local NER model (person/org/location detection, no data leaves the machine), an automated test suite, and approve-first response actions (webhook notification for HIGH/CRITICAL alerts; file quarantine for local-path sensitive-data alerts, via the agent polling for approved commands). Every service now has a Dockerfile and deploys together via `docker compose` (see Deployment above) — verified end to end through real container networking, not just individual `docker build`s. A Google Drive connector and SMB/M365 quarantine are still open. No native low-footprint agent yet (still Node/chokidar — see ARCHITECTURE.md). Not yet hardened for production (no TLS termination, secrets management, or backup story documented).

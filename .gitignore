@@ -12,3 +12,4 @@ build/
 coverage/
 /.smb-test-data/
 /packages/classification/.cache/
+/data/

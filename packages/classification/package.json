@@ -9,6 +9,9 @@
     "start": "node --env-file=.env dist/index.js",
     "test": "vitest run"
   },
+  "files": [
+    "dist"
+  ],
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
     "@logikos-dsp/shared": "workspace:*",
