@@ -1,0 +1,8 @@
+{
+  "name": "run-logikos-dsp-driver",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "playwright-core": "1.59.1"
+  }
+}
