@@ -5,20 +5,35 @@ body {
   background: #0f1115;
   color: #e6e6e6;
 }
-.app { max-width: 1100px; margin: 0 auto; padding: 24px; }
-header { display: flex; align-items: center; gap: 24px; margin-bottom: 24px; }
-h1 { font-size: 20px; margin: 0; }
-nav { display: flex; gap: 8px; }
-nav button {
-  background: #1c1f26;
-  color: #ccc;
-  border: 1px solid #2a2e37;
-  border-radius: 6px;
-  padding: 6px 12px;
-  cursor: pointer;
-  font-size: 13px;
+
+/* App shell: fixed sidebar + scrollable main column, module-grouped nav
+   (mirrors ManageEngine DataSecurity Plus's left-sidebar layout — see
+   App.tsx's NAV_GROUPS comment for why the groups aren't a literal 1:1
+   mapping onto its module names). */
+.app-shell { display: flex; min-height: 100vh; }
+.sidebar {
+  width: 220px; flex: none; background: #14161b; border-right: 1px solid #22252c;
+  padding: 20px 12px; display: flex; flex-direction: column; gap: 4px;
 }
-nav button.active { background: #2f6fed; color: white; border-color: #2f6fed; }
+.sidebar h1 { font-size: 16px; margin: 0 8px 16px; }
+.sidebar nav { display: flex; flex-direction: column; gap: 14px; }
+.nav-group { display: flex; flex-direction: column; gap: 2px; }
+.nav-group-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: #626a76;
+  padding: 0 8px; margin-bottom: 4px;
+}
+.sidebar nav button {
+  background: none; color: #ccc; border: none; border-radius: 6px; padding: 7px 8px;
+  cursor: pointer; font-size: 13px; text-align: left; width: 100%;
+}
+.sidebar nav button:hover { background: #1c1f26; }
+.sidebar nav button.active { background: #2f6fed; color: white; }
+
+.main-column { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.topbar { display: flex; justify-content: flex-end; padding: 14px 24px; border-bottom: 1px solid #191c22; }
+main { padding: 24px; max-width: 1200px; }
+
+h1 { font-size: 20px; margin: 0; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #22252c; }
 th { color: #999; font-weight: 500; text-transform: uppercase; font-size: 11px; letter-spacing: 0.04em; }
@@ -32,7 +47,7 @@ button { font: inherit; }
 .badge-high { background: #4a2323; color: #e58a8a; }
 .badge-critical { background: #5c1a1a; color: #ff8080; }
 
-.session { margin-left: auto; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #aab4c8; }
+.session { display: flex; align-items: center; gap: 12px; font-size: 13px; color: #aab4c8; }
 .session button { background: #1c1f26; color: #ccc; border: 1px solid #2a2e37; border-radius: 6px; padding: 4px 10px; cursor: pointer; }
 
 .response-actions { display: flex; gap: 6px; }
@@ -111,3 +126,13 @@ th.sortable { cursor: pointer; user-select: none; }
 th.sortable:hover { color: #ccc; }
 .sort-arrow { display: inline-block; margin-left: 4px; font-size: 8px; opacity: 0.25; }
 .sort-arrow.active { opacity: 1; color: #3987e5; }
+
+/* Compliance view */
+.compliance-disclaimer {
+  background: #1c1f26; border: 1px solid #2a2e37; border-left: 3px solid #fab219;
+  border-radius: 6px; padding: 10px 14px; font-size: 12px; color: #aab4c8; margin: 0;
+}
+.framework-desc { font-size: 12px; color: #898781; margin: 0 0 12px; }
+.framework-stats { display: flex; gap: 20px; font-size: 12px; color: #aab4c8; margin-bottom: 12px; }
+.stat-value-sm { font-size: 18px; font-weight: 600; color: #e6e6e6; margin-right: 4px; }
+.framework-more { font-size: 11px; color: #898781; margin: 8px 0 0; }

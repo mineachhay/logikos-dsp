@@ -6,10 +6,24 @@ import { AuthProvider, useAuth } from "./auth.js";
 import LoginView from "./LoginView.js";
 import UsersView from "./UsersView.js";
 import OverviewView from "./OverviewView.js";
+import ComplianceView from "./ComplianceView.js";
 import { downloadCsv } from "./csv.js";
 import { useSort, SortableHeader, TableToolbar } from "./tableControls.js";
 
-const BASE_TABS = ["Overview", "Alerts", "File Events", "Storage", "Data Risk"] as const;
+// Grouped to mirror ManageEngine DataSecurity Plus's module-based sidebar
+// (File Audit / Data Risk Assessment / Disk Analysis, each with its own
+// sub-nav) rather than force an exact 1:1 mapping onto module names that
+// don't quite fit this product's data model — logikos-dsp's Alerts view
+// covers both ransomware-rate and sensitive-data alerts together rather
+// than splitting into a separate "Ransomware Protection" module, so the
+// grouping below reflects what this product actually has, not DataSecurity
+// Plus's exact taxonomy.
+const NAV_GROUPS: { label: string | null; items: readonly string[] }[] = [
+  { label: null, items: ["Overview"] },
+  { label: "File Audit", items: ["Alerts", "File Events"] },
+  { label: "Data Risk Assessment", items: ["Data Risk", "Compliance"] },
+  { label: "Disk Analysis", items: ["Storage"] },
+];
 
 function SeverityBadge({ severity }: { severity: Alert["severity"] }) {
   return <span className={`badge badge-${severity.toLowerCase()}`}>{severity}</span>;
@@ -467,33 +481,43 @@ function formatBytes(bytes: number): string {
 
 function Dashboard() {
   const { user, logout } = useAuth();
-  const tabs = user?.role === "ADMIN" ? [...BASE_TABS, "Users" as const] : BASE_TABS;
+  const groups = user?.role === "ADMIN" ? [...NAV_GROUPS, { label: "Administration", items: ["Users"] }] : NAV_GROUPS;
   const [tab, setTab] = useState<string>("Overview");
 
   return (
-    <div className="app">
-      <header>
+    <div className="app-shell">
+      <aside className="sidebar">
         <h1>logikos-dsp</h1>
         <nav>
-          {tabs.map((t) => (
-            <button key={t} className={t === tab ? "active" : ""} onClick={() => setTab(t)}>
-              {t}
-            </button>
+          {groups.map((g) => (
+            <div className="nav-group" key={g.label ?? "root"}>
+              {g.label && <div className="nav-group-label">{g.label}</div>}
+              {g.items.map((t) => (
+                <button key={t} className={t === tab ? "active" : ""} onClick={() => setTab(t)}>
+                  {t}
+                </button>
+              ))}
+            </div>
           ))}
         </nav>
-        <div className="session">
-          <span>{user?.email}</span>
-          <button onClick={() => logout()}>Log out</button>
+      </aside>
+      <div className="main-column">
+        <div className="topbar">
+          <div className="session">
+            <span>{user?.email}</span>
+            <button onClick={() => logout()}>Log out</button>
+          </div>
         </div>
-      </header>
-      <main>
-        {tab === "Overview" && <OverviewView />}
-        {tab === "Alerts" && <AlertsView />}
-        {tab === "File Events" && <FileEventsView />}
-        {tab === "Storage" && <StorageView />}
-        {tab === "Data Risk" && <DataRiskView />}
-        {tab === "Users" && <UsersView />}
-      </main>
+        <main>
+          {tab === "Overview" && <OverviewView />}
+          {tab === "Alerts" && <AlertsView />}
+          {tab === "File Events" && <FileEventsView />}
+          {tab === "Storage" && <StorageView />}
+          {tab === "Data Risk" && <DataRiskView />}
+          {tab === "Compliance" && <ComplianceView />}
+          {tab === "Users" && <UsersView />}
+        </main>
+      </div>
     </div>
   );
 }
