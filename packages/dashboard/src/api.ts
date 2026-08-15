@@ -120,3 +120,16 @@ export interface ClassificationMatch {
   path: string;
   createdAt: string;
 }
+
+export interface Overview {
+  alerts: {
+    openBySeverity: Partial<Record<Alert["severity"], number>>;
+    openTotal: number;
+  };
+  agents: { total: number; activeLast24h: number };
+  storage: { totalBytes: string; fileCount: number };
+  eventsLast24h: number;
+  alertTrend: { date: string; count: number }[];
+  matchesByPattern: { patternType: string; count: number }[];
+  recentAlerts: Alert[];
+}

@@ -5,8 +5,9 @@ import type { Alert, FileEvent, StorageSnapshot, ClassificationMatch, ResponseAc
 import { AuthProvider, useAuth } from "./auth.js";
 import LoginView from "./LoginView.js";
 import UsersView from "./UsersView.js";
+import OverviewView from "./OverviewView.js";
 
-const BASE_TABS = ["Alerts", "File Events", "Storage", "Data Risk"] as const;
+const BASE_TABS = ["Overview", "Alerts", "File Events", "Storage", "Data Risk"] as const;
 
 function SeverityBadge({ severity }: { severity: Alert["severity"] }) {
   return <span className={`badge badge-${severity.toLowerCase()}`}>{severity}</span>;
@@ -252,7 +253,7 @@ function formatBytes(bytes: number): string {
 function Dashboard() {
   const { user, logout } = useAuth();
   const tabs = user?.role === "ADMIN" ? [...BASE_TABS, "Users" as const] : BASE_TABS;
-  const [tab, setTab] = useState<string>("Alerts");
+  const [tab, setTab] = useState<string>("Overview");
 
   return (
     <div className="app">
@@ -271,6 +272,7 @@ function Dashboard() {
         </div>
       </header>
       <main>
+        {tab === "Overview" && <OverviewView />}
         {tab === "Alerts" && <AlertsView />}
         {tab === "File Events" && <FileEventsView />}
         {tab === "Storage" && <StorageView />}

@@ -12,6 +12,7 @@ import { alertRoutes } from "./routes/alerts.js";
 import { storageRoutes } from "./routes/storage.js";
 import { classificationRoutes } from "./routes/classification.js";
 import { responseActionRoutes } from "./routes/responseActions.js";
+import { overviewRoutes } from "./routes/overview.js";
 
 /**
  * Builds and returns the Fastify instance without binding a port, so tests
@@ -38,6 +39,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(storageRoutes);
   await app.register(classificationRoutes);
   await app.register(responseActionRoutes);
+  await app.register(overviewRoutes);
 
   return app;
 }
