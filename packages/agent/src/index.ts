@@ -14,8 +14,6 @@ async function main() {
   if (config.sourceType === "local") {
     startWatcher();
     startStorageScan();
-    // Quarantine needs direct filesystem write access to the watched root,
-    // which only a local-path agent has — SMB and M365 both stay read-only.
     startQuarantinePolling(config.quarantinePollIntervalMs);
   } else if (config.sourceType === "smb") {
     const source = new SmbSource(config.smb);

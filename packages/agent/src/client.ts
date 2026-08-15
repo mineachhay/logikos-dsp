@@ -42,7 +42,14 @@ export async function postStorageSnapshot(snapshot: StorageSnapshotInput): Promi
 
 export interface QuarantineCommand {
   id: string;
-  path: string;
+  /**
+   * One path for a SENSITIVE_DATA_EXPOSED-triggered quarantine, several for
+   * a RANSOMWARE_RATE burst (every file the rule saw touched in the window
+   * — see ARCHITECTURE.md). Always an array so the agent has one code path
+   * for both instead of a single-path special case plus a separate
+   * multi-path one.
+   */
+  paths: string[];
 }
 
 export async function fetchQuarantineCommands(): Promise<QuarantineCommand[]> {

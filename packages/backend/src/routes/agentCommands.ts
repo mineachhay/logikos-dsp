@@ -28,12 +28,18 @@ export async function agentCommandRoutes(app: FastifyInstance) {
       include: { alert: true },
     });
 
+    // SENSITIVE_DATA_EXPOSED alerts carry a single metadata.path (one file
+    // to act on); RANSOMWARE_RATE alerts carry metadata.affectedPaths (a
+    // burst has no single file — see rules/ransomwareRate.ts). Normalized
+    // to the same `paths: string[]` shape either way so the agent has one
+    // code path for both.
     const commands = actions
       .map((action) => {
-        const metadata = action.alert.metadata as { path?: string } | null;
-        return metadata?.path ? { id: action.id, path: metadata.path } : null;
+        const metadata = action.alert.metadata as { path?: string; affectedPaths?: string[] } | null;
+        const paths = metadata?.affectedPaths ?? (metadata?.path ? [metadata.path] : []);
+        return paths.length > 0 ? { id: action.id, paths } : null;
       })
-      .filter((c): c is { id: string; path: string } => c !== null);
+      .filter((c): c is { id: string; paths: string[] } => c !== null);
 
     return reply.send(commands);
   });

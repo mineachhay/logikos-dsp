@@ -92,7 +92,30 @@ describe("GET /agent-commands", () => {
 
     expect(res.statusCode).toBe(200);
     const commands = res.json();
-    expect(commands).toEqual([{ id: expect.any(String), path: "/tmp/test/secret.txt" }]);
+    expect(commands).toEqual([{ id: expect.any(String), paths: ["/tmp/test/secret.txt"] }]);
+  });
+
+  it("normalizes a RANSOMWARE_RATE burst's metadata.affectedPaths into the same paths[] shape", async () => {
+    const agent = await prisma.agent.create({
+      data: { key: `agent-${randomUUID()}`, hostname: "test-host", watchedRoot: "/tmp/test" },
+    });
+    const alert = await prisma.alert.create({
+      data: {
+        type: "RANSOMWARE_RATE",
+        severity: "CRITICAL",
+        message: "test burst",
+        agentId: agent.id,
+        metadata: { affectedPaths: ["/tmp/test/a.txt", "/tmp/test/b.txt"] },
+      },
+    });
+    await prisma.responseAction.create({
+      data: { alertId: alert.id, type: "FILE_QUARANTINE", status: "APPROVED" },
+    });
+
+    const app = await buildApp({ logger: false });
+    const res = await app.inject({ method: "GET", url: `/agent-commands?agentKey=${agent.key}` });
+
+    expect(res.json()).toEqual([{ id: expect.any(String), paths: ["/tmp/test/a.txt", "/tmp/test/b.txt"] }]);
   });
 
   it("404s for an unknown agent key", async () => {

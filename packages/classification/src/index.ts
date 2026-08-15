@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { pool } from "./db.js";
 import { findSensitivePatterns } from "./patterns.js";
 import { findNamedEntities, preloadNerModel } from "./ner.js";
-import { isLocalWatchedRoot } from "./watchedRoot.js";
+import { supportsQuarantine } from "@logikos-dsp/shared";
 
 const PATTERN_TYPE_MAP: Record<string, string> = {
   ssn: "SSN",
@@ -105,11 +105,10 @@ async function processJob(jobId: string): Promise<void> {
 
       // HIGH alerts get suggested response actions, but nothing fires until
       // an ADMIN approves it via POST /response-actions/:id/approve — see
-      // ARCHITECTURE.md's "approve-first, always" note. Quarantine is only
-      // ever suggested for local-path agents — every cloud/network connector
-      // (SMB, M365, ...) registers a watchedRoot with a "scheme://" prefix
-      // and is deliberately read-only; a bare filesystem path never contains
-      // "://", so this generalizes cleanly to any future connector too.
+      // ARCHITECTURE.md's "approve-first, always" note. Quarantine is
+      // suggested for local-path and SMB agents (both can write); M365 and
+      // Google Drive stay excluded (read-only OAuth scopes) — see
+      // watchedRoot.ts's supportsQuarantine.
       if (severity === "HIGH") {
         await pool.query(
           `INSERT INTO "ResponseAction" ("id","alertId","type","status","createdAt")
@@ -117,7 +116,7 @@ async function processJob(jobId: string): Promise<void> {
           [randomUUID(), alertId],
         );
 
-        if (isLocalWatchedRoot(row.agent_watched_root as string)) {
+        if (supportsQuarantine(row.agent_watched_root as string)) {
           await pool.query(
             `INSERT INTO "ResponseAction" ("id","alertId","type","status","createdAt")
              VALUES ($1,$2,'FILE_QUARANTINE','PENDING',now())`,

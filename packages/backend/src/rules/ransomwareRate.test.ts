@@ -4,12 +4,12 @@ import { RANSOMWARE_RATE_THRESHOLD } from "@logikos-dsp/shared";
 import { prisma } from "../db.js";
 import { checkRansomwareRate } from "./ransomwareRate.js";
 
-async function seedAgent() {
+async function seedAgent(watchedRoot = "/tmp/test") {
   return prisma.agent.create({
     data: {
       key: `agent-${randomUUID()}`,
       hostname: "test-host",
-      watchedRoot: "/tmp/test",
+      watchedRoot,
     },
   });
 }
@@ -37,8 +37,8 @@ describe("checkRansomwareRate", () => {
     expect(alerts).toHaveLength(0);
   });
 
-  it("raises a CRITICAL alert with a suggested response action once the threshold is crossed", async () => {
-    const agent = await seedAgent();
+  it("raises a CRITICAL alert with webhook + quarantine response actions for a write-capable agent", async () => {
+    const agent = await seedAgent("/tmp/test");
     await seedFileEvents(agent.id, RANSOMWARE_RATE_THRESHOLD);
 
     await checkRansomwareRate(agent.id);
@@ -50,9 +50,24 @@ describe("checkRansomwareRate", () => {
     expect(alerts).toHaveLength(1);
     expect(alerts[0].type).toBe("RANSOMWARE_RATE");
     expect(alerts[0].severity).toBe("CRITICAL");
-    expect(alerts[0].responseActions).toHaveLength(1);
-    expect(alerts[0].responseActions[0].type).toBe("WEBHOOK_NOTIFICATION");
-    expect(alerts[0].responseActions[0].status).toBe("PENDING");
+    const types = alerts[0].responseActions.map((a) => a.type).sort();
+    expect(types).toEqual(["FILE_QUARANTINE", "WEBHOOK_NOTIFICATION"]);
+    expect(alerts[0].responseActions.every((a) => a.status === "PENDING")).toBe(true);
+    const metadata = alerts[0].metadata as { affectedPaths: string[] };
+    expect(metadata.affectedPaths).toHaveLength(RANSOMWARE_RATE_THRESHOLD);
+  });
+
+  it("only suggests webhook notification (no quarantine) for a read-only connector like M365", async () => {
+    const agent = await seedAgent("m365://b!abc123/Shared/Finance");
+    await seedFileEvents(agent.id, RANSOMWARE_RATE_THRESHOLD);
+
+    await checkRansomwareRate(agent.id);
+
+    const alerts = await prisma.alert.findMany({
+      where: { agentId: agent.id },
+      include: { responseActions: true },
+    });
+    expect(alerts[0].responseActions.map((a) => a.type)).toEqual(["WEBHOOK_NOTIFICATION"]);
   });
 
   it("does not raise a duplicate alert within the same open window", async () => {

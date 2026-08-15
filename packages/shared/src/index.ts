@@ -43,6 +43,26 @@ export type AlertStatus = "open" | "acknowledged" | "resolved";
 
 export const CLASSIFICATION_JOB_MAX_SAMPLE_BYTES = 8192;
 
+/**
+ * Whether a watchedRoot's connector can write back to what it watches —
+ * used by both the classification worker (does a HIGH sensitive-data alert
+ * get a FILE_QUARANTINE suggestion?) and the backend's ransomware-rate rule
+ * (does a CRITICAL burst alert get one too?). A bare local filesystem path
+ * never contains "://" and is the only case that qualifies today. SMB
+ * shares ("smb://host/share") were tried and reverted — see
+ * packages/agent/src/sources/smb.ts's file-level comment and
+ * ARCHITECTURE.md's "SMB quarantine" note: the v9u-smb2 library's
+ * write-path requests hardcode an ACL-modification right that a properly-
+ * secured Samba server correctly denies to a normal share user, confirmed
+ * against this project's own test container. Cloud connectors (M365,
+ * Google Drive) stay excluded for a different, simpler reason: both
+ * request read-only OAuth scopes, deliberately, since classification never
+ * needs write access to the thing it's protecting.
+ */
+export function supportsQuarantine(watchedRoot: string): boolean {
+  return !watchedRoot.includes("://");
+}
+
 /** Event-rate threshold for the ransomware/anomaly rule. */
 export const RANSOMWARE_RATE_WINDOW_SECONDS = 60;
 export const RANSOMWARE_RATE_THRESHOLD = 50; // events from one agent within the window

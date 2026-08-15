@@ -29,6 +29,18 @@ export interface SmbSourceConfig {
 // the underlying implementation always sets it. Rather than fight either
 // issue, this loads the package via createRequire and declares only the
 // surface actually used here, checked against the real implementation.
+//
+// Read-only by design, and not just as a v1 scope cut: this library's
+// write-path message builders (mkdir/rename, see messages/create.js and
+// messages/create_folder.js) hardcode WRITE_DAC into every CREATE request's
+// DesiredAccess — a right to modify an object's ACL, not just its content.
+// A properly-secured Samba server correctly denies that to a normal
+// (non-admin) share user, so `client.rename()`/`client.mkdir()` fail with
+// STATUS_ACCESS_DENIED even when the account has real read/write file
+// permissions — confirmed against this project's own test Samba container
+// (see ARCHITECTURE.md's SMB quarantine note), not assumed. Read operations
+// (readdir/readFile) go through a different, unaffected request builder
+// (messages/open.js), which is why those have always worked fine.
 const require = createRequire(import.meta.url);
 
 interface SmbFileStats {

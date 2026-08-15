@@ -1,8 +1,16 @@
 import {
   RANSOMWARE_RATE_THRESHOLD,
   RANSOMWARE_RATE_WINDOW_SECONDS,
+  supportsQuarantine,
 } from "@logikos-dsp/shared";
 import { prisma } from "../db.js";
+
+// A burst can touch far more files than anyone should approve-and-review in
+// one click; capped so metadata stays bounded and the quarantine command
+// list stays reviewable. Not a claim that files beyond this cap are safe —
+// just that this rule doesn't try to be the tool that quarantines a
+// 10,000-file burst unattended. See ARCHITECTURE.md.
+const MAX_QUARANTINE_PATHS = 200;
 
 /**
  * Naive rate-based ransomware/anomaly heuristic: if one agent reports more
@@ -33,20 +41,43 @@ export async function checkRansomwareRate(agentId: string): Promise<void> {
   });
   if (existing) return;
 
+  // Unlike a SENSITIVE_DATA_EXPOSED alert (exactly one file), a rate burst
+  // has no single file to act on — but it does have a *set* of them: every
+  // path this agent reported as created/modified within the window (not
+  // deleted — nothing to quarantine there, the file's already gone).
+  // Deduped since the same path can appear more than once in a burst
+  // (edited repeatedly), capped so one alert can't demand reviewing an
+  // unbounded list.
+  const agent = await prisma.agent.findUnique({ where: { id: agentId } });
+  const recentEvents = await prisma.fileEvent.findMany({
+    where: { agentId, occurredAt: { gte: windowStart }, eventType: { in: ["CREATED", "MODIFIED"] } },
+    select: { path: true },
+    orderBy: { occurredAt: "desc" },
+  });
+  const affectedPaths = [...new Set(recentEvents.map((e) => e.path))].slice(0, MAX_QUARANTINE_PATHS);
+
   const alert = await prisma.alert.create({
     data: {
       type: "RANSOMWARE_RATE",
       severity: "CRITICAL",
       agentId,
       message: `${count} file events from this agent in the last ${RANSOMWARE_RATE_WINDOW_SECONDS}s (threshold ${RANSOMWARE_RATE_THRESHOLD}) — possible ransomware or bulk-delete activity.`,
-      metadata: { count, windowSeconds: RANSOMWARE_RATE_WINDOW_SECONDS },
+      metadata: { count, windowSeconds: RANSOMWARE_RATE_WINDOW_SECONDS, affectedPaths },
     },
   });
 
-  // CRITICAL alerts get a suggested response action, but it only fires once
+  // CRITICAL alerts get suggested response actions, but nothing fires until
   // an ADMIN approves it via POST /response-actions/:id/approve — see
-  // ARCHITECTURE.md's "approve-first, always" note.
+  // ARCHITECTURE.md's "approve-first, always" note. Quarantine is only
+  // suggested when there's actually something to quarantine on a
+  // write-capable connector — same supportsQuarantine check the
+  // classification worker uses for SENSITIVE_DATA_EXPOSED alerts.
   await prisma.responseAction.create({
     data: { alertId: alert.id, type: "WEBHOOK_NOTIFICATION" },
   });
+  if (affectedPaths.length > 0 && agent && supportsQuarantine(agent.watchedRoot)) {
+    await prisma.responseAction.create({
+      data: { alertId: alert.id, type: "FILE_QUARANTINE" },
+    });
+  }
 }
