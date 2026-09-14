@@ -22,6 +22,7 @@ export async function alertRoutes(app: FastifyInstance) {
       take: limit,
       include: {
         agent: { select: { hostname: true, watchedRoot: true } },
+        source: { select: { id: true, kind: true, rootLabel: true, fileServer: { select: { name: true } } } },
         responseActions: true,
       },
     });

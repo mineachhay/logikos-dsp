@@ -7,6 +7,7 @@ import { M365Source } from "./sources/m365.js";
 import { GoogleDriveSource } from "./sources/googledrive.js";
 import { runDiffLoop } from "./snapshotDiff.js";
 import { startQuarantinePolling } from "./quarantine.js";
+import { startManagedSources } from "./managedSources.js";
 
 async function main() {
   await registerAgent();
@@ -25,6 +26,9 @@ async function main() {
     const source = new GoogleDriveSource(config.gdrive);
     runDiffLoop(source, config.gdriveScanIntervalMs);
   }
+
+  // Whatever the env configures, also scan the shares assigned from the dashboard.
+  startManagedSources();
 }
 
 main().catch((err) => {

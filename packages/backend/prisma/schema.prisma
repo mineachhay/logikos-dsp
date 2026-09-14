@@ -80,16 +80,125 @@ model Agent {
   secretHash   String?
   /// Set by an ADMIN; a revoked agent can neither ingest nor re-register.
   revokedAt    DateTime?
+  /// Reported at registration. "managed-sources" = it polls /agent-sync and
+  /// can scan dashboard-configured shares; the Go agent doesn't send it.
+  capabilities String[] @default([])
+
+  sources          Source[]
+  connectionTests  ConnectionTest[]
+  fileEvents       FileEvent[]
+  storageSnapshots StorageSnapshot[]
+  alerts           Alert[]
+}
+
+enum SourceKind {
+  LOCAL
+  SMB
+  M365
+  GDRIVE
+}
+
+/// An SMB server configured from the dashboard. Its shares are Source rows.
+model FileServer {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  host        String
+  port        Int?
+  domain      String?
+  username    String
+  /// AES-256-GCM, see src/crypto/credentials.ts. Never selected into a
+  /// dashboard response; decrypted only for the agent a share is assigned to.
+  passwordEnc String
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  shares          Source[]
+  connectionTests ConnectionTest[]
+}
+
+/// One watched root. Either an agent's own env-configured root (fileServerId
+/// null, created at registration) or a dashboard-managed SMB share.
+/// FileEvent/StorageSnapshot/Alert hang off this rather than off Agent, so one
+/// agent can watch many shares without their events or rules mixing.
+model Source {
+  id              String      @id @default(uuid())
+  kind            SourceKind
+  /// Display root: "/data", "smb://host/share/sub", "m365://..." — what
+  /// Agent.watchedRoot is for an agent's own source.
+  rootLabel       String
+  agentId         String?
+  agent           Agent?      @relation(fields: [agentId], references: [id])
+  fileServerId    String?
+  /// Restrict: deleting a server is an explicit, audited, history-removing
+  /// operation in routes/fileServers.ts. SetNull would silently turn its
+  /// shares into rows that look like an agent's own source.
+  fileServer      FileServer? @relation(fields: [fileServerId], references: [id], onDelete: Restrict)
+  shareName       String?
+  /// Normalized: no leading/trailing slashes, "/" separators, "" for the share root.
+  subPath         String      @default("")
+  scanIntervalSec Int         @default(300)
+  enabled         Boolean     @default(true)
+  lastScanAt      DateTime?
+  lastScanError   String?
+  lastFileCount   Int?
+  lastTotalBytes  BigInt?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
 
   fileEvents       FileEvent[]
   storageSnapshots StorageSnapshot[]
   alerts           Alert[]
+
+  @@unique([fileServerId, shareName, subPath])
+  @@index([agentId])
+}
+
+enum ConnectionTestStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
+/// "Test connection" from the dashboard. The backend can't reach file
+/// servers, so the assigned agent picks this up on its next sync and reports.
+model ConnectionTest {
+  id           String               @id @default(uuid())
+  fileServerId String
+  fileServer   FileServer           @relation(fields: [fileServerId], references: [id], onDelete: Cascade)
+  agentId      String
+  agent        Agent                @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  shareName    String
+  subPath      String               @default("")
+  status       ConnectionTestStatus @default(PENDING)
+  message      String?
+  createdAt    DateTime             @default(now())
+  completedAt  DateTime?
+
+  @@index([agentId, status])
+}
+
+/// Who changed monitoring configuration. Written by dashboard routes; the
+/// email is copied so the entry survives the user being deleted.
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String?
+  userEmail  String
+  action     String
+  targetType String
+  targetId   String?
+  details    Json?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
 }
 
 model FileEvent {
   id             String        @id @default(uuid())
   agentId        String
   agent          Agent         @relation(fields: [agentId], references: [id])
+  sourceId       String
+  source         Source        @relation(fields: [sourceId], references: [id])
   eventType      FileEventType
   path           String
   previousPath   String?
@@ -101,18 +210,22 @@ model FileEvent {
   classificationJob ClassificationJob?
 
   @@index([agentId, occurredAt])
+  @@index([sourceId, occurredAt])
 }
 
 model StorageSnapshot {
   id         String   @id @default(uuid())
   agentId    String
   agent      Agent    @relation(fields: [agentId], references: [id])
+  sourceId   String
+  source     Source   @relation(fields: [sourceId], references: [id])
   rootPath   String
   totalBytes BigInt
   fileCount  Int
   takenAt    DateTime
 
   @@index([agentId, takenAt])
+  @@index([sourceId, takenAt])
 }
 
 model ClassificationJob {
@@ -145,6 +258,8 @@ model Alert {
   status    AlertStatus   @default(OPEN)
   agentId   String?
   agent     Agent?        @relation(fields: [agentId], references: [id])
+  sourceId  String?
+  source    Source?       @relation(fields: [sourceId], references: [id])
   message   String
   metadata  Json?
   createdAt DateTime      @default(now())

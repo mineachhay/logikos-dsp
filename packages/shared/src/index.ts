@@ -11,6 +11,8 @@ export type FileEventType =
 
 export interface FileEventInput {
   agentKey: string;
+  /** Omitted = the agent's own env-configured source; set = a dashboard-managed share it was assigned. */
+  sourceId?: string;
   eventType: FileEventType;
   path: string;
   previousPath?: string; // set on "renamed"
@@ -30,6 +32,8 @@ export interface AgentRegisterInput {
   key: string;
   hostname: string;
   watchedRoot: string;
+  /** e.g. MANAGED_SOURCES_CAPABILITY. Omitted by agents that don't poll /agent-sync (the Go agent). */
+  capabilities?: string[];
 }
 
 export interface AgentRegisterResponse {
@@ -40,6 +44,8 @@ export interface AgentRegisterResponse {
 }
 
 export interface StorageSnapshotInput {
+  /** Omitted = the agent's own env-configured source; set = a dashboard-managed share it was assigned. */
+  sourceId?: string;
   agentKey: string;
   rootPath: string;
   totalBytes: number;
@@ -85,3 +91,66 @@ export function supportsQuarantine(watchedRoot: string): boolean {
 /** Event-rate threshold for the ransomware/anomaly rule. */
 export const RANSOMWARE_RATE_WINDOW_SECONDS = 60;
 export const RANSOMWARE_RATE_THRESHOLD = 50; // events from one agent within the window
+
+/**
+ * Dashboard-managed SMB shares, as GET /agent-sync hands them to an agent.
+ * The password is decrypted server-side for the assigned agent only.
+ */
+export interface ManagedSmbSource {
+  id: string;
+  kind: "SMB";
+  rootLabel: string;
+  host: string;
+  port?: number;
+  domain?: string;
+  username: string;
+  password: string;
+  share: string;
+  subPath: string;
+  scanIntervalSec: number;
+}
+
+export interface PendingConnectionTest {
+  id: string;
+  host: string;
+  port?: number;
+  domain?: string;
+  username: string;
+  password: string;
+  share: string;
+  subPath: string;
+}
+
+export interface AgentSyncResponse {
+  sources: ManagedSmbSource[];
+  connectionTests: PendingConnectionTest[];
+}
+
+/** Capability an agent reports at registration when it implements /agent-sync. */
+export const MANAGED_SOURCES_CAPABILITY = "managed-sources";
+
+/**
+ * Canonical form of a share subfolder: "/" separators, no leading/trailing
+ * slashes, "" for the share root. Returns null for anything that tries to
+ * escape the share ("..") — the value ends up in SMB paths on the agent.
+ */
+export function normalizeSubPath(raw: string | undefined | null): string | null {
+  const parts = (raw ?? "").replace(/\\/g, "/").split("/").filter((p) => p.length > 0 && p !== ".");
+  if (parts.some((p) => p === "..")) return null;
+  return parts.join("/");
+}
+
+/** The display root for an SMB share — same format SmbSource.describe() produces. */
+export function smbRootLabel(host: string, share: string, subPath: string): string {
+  return `smb://${host}/${share}${subPath ? `/${subPath}` : ""}`;
+}
+
+export type SourceKindName = "LOCAL" | "SMB" | "M365" | "GDRIVE";
+
+/** Kind of an agent's own env-configured root, from the watchedRoot it registers with. */
+export function sourceKindFromRoot(watchedRoot: string): SourceKindName {
+  if (watchedRoot.startsWith("smb://")) return "SMB";
+  if (watchedRoot.startsWith("m365://")) return "M365";
+  if (watchedRoot.startsWith("gdrive://")) return "GDRIVE";
+  return "LOCAL";
+}

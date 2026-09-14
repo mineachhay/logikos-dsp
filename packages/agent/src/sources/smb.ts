@@ -70,6 +70,19 @@ function toSmbPath(relPath: string): string {
   return relPath.split("/").filter(Boolean).join("\\");
 }
 
+// Per SMB operation, not per walk: a large share legitimately takes a long
+// time overall, but a single readdir that hangs (server gone mid-scan, a
+// firewall dropping packets) must not hold a scan slot forever.
+const SMB_OPERATION_TIMEOUT_MS = Number(process.env.SMB_OPERATION_TIMEOUT_MS ?? 60_000);
+
+function withTimeout<T>(promise: Promise<T>, what: string, ms = SMB_OPERATION_TIMEOUT_MS): Promise<T> {
+  let timer: NodeJS.Timeout;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} timed out after ${ms / 1000}s`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 export class SmbSource implements Source {
   private client: Smb2Client;
   private rootSmbPath: string;
@@ -97,7 +110,7 @@ export class SmbSource implements Source {
   }
 
   private async walk(smbDir: string, relDir: string, out: FileNode[]): Promise<void> {
-    const entries = await this.client.readdir(smbDir, { stats: true });
+    const entries = await withTimeout(this.client.readdir(smbDir, { stats: true }), `readdir ${smbDir || "\\"}`);
     for (const entry of entries) {
       const relPath = relDir ? `${relDir}/${entry.name}` : entry.name;
       const smbPath = smbDir ? `${smbDir}\\${entry.name}` : entry.name;
@@ -111,11 +124,21 @@ export class SmbSource implements Source {
 
   async readSample(relPath: string, maxBytes: number): Promise<Buffer | undefined> {
     try {
-      const buf = await this.client.readFile(toSmbPath(relPath));
+      const buf = await withTimeout(this.client.readFile(toSmbPath(relPath)), `read ${relPath}`);
       return buf.subarray(0, maxBytes);
     } catch {
       return undefined; // file may have been deleted/moved between the scan and this read
     }
+  }
+
+  /**
+   * "Test connection" from the dashboard: log on and list the watch root,
+   * without walking it. Resolves to a short description of what it saw.
+   */
+  async testConnection(timeoutMs = 20_000): Promise<string> {
+    const entries = await withTimeout(this.client.readdir(this.rootSmbPath, { stats: true }), "connection", timeoutMs);
+    const folders = entries.filter((e) => e.isDirectory()).length;
+    return `connected to ${this.describe()} — ${folders} folder(s), ${entries.length - folders} file(s) at the top level`;
   }
 
   disconnect(): void {

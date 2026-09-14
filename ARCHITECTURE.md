@@ -73,9 +73,12 @@ This required **no backend or dashboard changes** — `Agent.watchedRoot`, `File
 
 ## Core entities (Prisma schema, `packages/backend/prisma/schema.prisma`)
 
-- `Agent` — a registered watcher (host + watched root).
-- `FileEvent` — one filesystem event (create/modify/delete/rename/permission_change) from an agent.
-- `StorageSnapshot` — periodic size/file-count rollup for an agent's watched root.
+- `Agent` — a registered watcher (host + its own env-configured watched root).
+- `Source` — one watched root: an agent's own (created at registration) or a dashboard-managed SMB share. Events, snapshots and alerts hang off it. See "Dashboard-managed file servers".
+- `FileServer` — an SMB server configured in the dashboard (host, account, encrypted password); its shares are `Source` rows.
+- `ConnectionTest`, `AuditLog` — a "test connection" request for an agent to run, and who changed monitoring configuration.
+- `FileEvent` — one filesystem event (create/modify/delete/rename/permission_change), from an agent, on a source.
+- `StorageSnapshot` — periodic size/file-count rollup for a source.
 - `ClassificationJob` — queued "scan this file" work item, created on file create/modify events.
 - `ClassificationMatch` — a sensitivity-pattern hit (type: SSN/credit-card/email/etc, with a redacted sample) for a file.
 - `Alert` — a raised alert (ransomware-rate, sensitive-data-exposed, ...), with severity and status.
@@ -187,6 +190,24 @@ Every feature up to this point was verified by hand — live processes, curl scr
 Two details exist because of how backup stories usually fail. The dump is written to a `.partial` name and renamed only after `pg_restore --list` has read it back, so a truncated file can never be pruned-to as if it were good. And `deploy/restore.sh verify` restores into a throwaway database and diffs its row counts against the live one, so "we have backups" stays a testable claim rather than an assumption — verified here against a real dump: 9 tables, 9 enum types, 17 indexes and a byte-identical password hash.
 
 Not solved: the dumps live on the same disk as the database. That covers operator error and bad migrations, not loss of the host — an off-box copy is the remaining gap, deliberately left as a deployment concern rather than something this repo pretends to solve.
+
+## Dashboard-managed file servers
+
+**Configuration lives in the backend; scanning stays in the agent.** Before this, an SMB share was watched by starting an agent with `SOURCE_TYPE=smb` and `SMB_*` env vars — one agent process per share, configured on the agent host. Now ADMINs add file servers and their shares under Administration → File Servers, and an agent polls `GET /agent-sync` (every 10s) for the shares assigned to it, reconciling one snapshot-diff loop per share. The obvious alternative — the backend scanning SMB itself — was rejected: it would put file-server reachability and share credentials in the internet-facing process, which is exactly what the agent/backend split exists to avoid, and it would stop a second agent on another network segment from ever taking over some shares. The agent already had every piece needed (`SmbSource`, `snapshotDiff.ts`); what changed is where its list of sources comes from.
+
+**`Source` became the unit that events hang off, not `Agent`.** One agent watching many shares breaks the assumption that an agent has one watched root: the ransomware-rate rule counted per agent (one busy share would have hidden, or manufactured, a burst on another), `supportsQuarantine` read `Agent.watchedRoot`, and the dashboard labelled everything by hostname. `FileEvent`/`StorageSnapshot` now carry a required `sourceId` and `Alert` an optional one; the rule and the quarantine check work per source. `agentId` stays on those rows, meaning "which agent reported it" — still what quarantine commands and agent auth key on. An agent's own env-configured root is also a `Source` (the one with no `fileServerId`), created or relabelled at every registration, so there is one model rather than a special case. The migration creates that default source for each existing agent and backfills every existing row before setting `NOT NULL`; it was run against a restored production dump before being trusted.
+
+**Ingest stays backward compatible.** `sourceId` is optional on the wire: omitted means the agent's default source, which is what the Go agent and any older TypeScript build send. A `sourceId` is accepted only if that source is currently assigned to the authenticated agent, and a batch may carry only one. Agents advertise `capabilities: ["managed-sources"]` at registration; shares can only be assigned to an agent that did, so the dashboard can't silently give a share to the Go agent, which would never scan it.
+
+**Share passwords are encrypted at rest and write-only.** AES-256-GCM (`crypto/credentials.ts`), key from `SOURCE_CREDENTIALS_KEY` in the backend's env, never in the database — a dump alone doesn't reveal share passwords. The API never returns them (the dashboard shows a blank "leave blank to keep" field), audit entries record `passwordReplaced: true` rather than any value, and the only place they're decrypted is `/agent-sync`, for the agent the share is assigned to. The consequence to plan for: **the key has to be backed up separately from the dumps**, or a restored database has credentials nobody can decrypt. Transport between agent and backend is the compose network today; an agent on another host would need TLS in front of `/agent-sync` before this is acceptable.
+
+**Change detection on the agent keeps baselines where it can.** `sourceReconcile.ts` (pure, tested) splits changes into restart (anything about *how to connect*: host, account, password, share, subfolder — the baseline is discarded, so the first scan afterwards seeds rather than reports, and changes made in that gap aren't reported) and re-time (interval only — the loop keeps its baseline). Scans are a `setTimeout` chain, not `setInterval`, so a walk longer than its interval never overlaps itself; a limiter caps concurrent walks (`MAX_CONCURRENT_SCANS`, default 2); every SMB operation has a 60s timeout so a server that disappears mid-walk can't hold a slot forever. After each scan the agent reports `lastScanAt`/file count/size or a translated error (`STATUS_LOGON_FAILURE` → "logon failed — check username, password and domain") — that's the dashboard's status column.
+
+**"Test connection" goes through the agent**, because the backend can't reach file servers by design: the dashboard creates a `ConnectionTest`, the agent picks it up on its next sync, logs on and lists the share root (no walk), and reports. Tests the agent never picks up are failed after 90s rather than spinning.
+
+**Disable keeps history; Delete removes it, and is confirmed by typing the name.** Disabling a server or share just stops scanning. Deleting removes the source's file events, classification results, snapshots, alerts and their response actions in one transaction — deliberately, since that's what an admin asking to delete a server usually means, and the counts are recorded in the audit log. The `Source → FileServer` FK is `RESTRICT`, not `SET NULL`: nulling it would have silently turned a deleted server's shares into rows indistinguishable from an agent's own source.
+
+**What SMB monitoring honestly is, stated in the UI too:** periodic rescans (changes appear within one interval), no user attribution (a rescan sees *what* changed, not *who* — DataSecurity Plus gets that from Windows Security event logs, which this doesn't read), cost proportional to share size (each scan walks the whole tree), and read-only (no quarantine — see "SMB quarantine"). Verified end to end against a real Samba server: connection tests for good/bad password and a missing share, a share scan, a new file with PII-shaped content becoming a source-attributed HIGH alert with only a notification suggested, disable stopping the loop, a wrong password surfacing as the share's error and clearing when fixed, delete removing its history, and the whole add/test/add-share flow through the dashboard.
 
 ## Telegram notifications
 

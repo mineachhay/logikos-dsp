@@ -27,7 +27,11 @@ export async function responseActionRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const action = await prisma.responseAction.findUnique({
         where: { id: req.params.id },
-        include: { alert: { include: { agent: { select: { hostname: true, watchedRoot: true } } } } },
+        include: {
+          alert: {
+            include: { agent: { select: { hostname: true, watchedRoot: true } }, source: { select: { rootLabel: true } } },
+          },
+        },
       });
       if (!action) return reply.code(404).send({ error: "response action not found" });
       if (action.status !== "PENDING") {
@@ -49,7 +53,15 @@ export async function responseActionRoutes(app: FastifyInstance) {
         return reply.send(updated);
       }
 
-      const result = await sendWebhookNotification(action.alert);
+      // Name the share the alert is about, not the agent's own watch root —
+      // one agent can scan many shares.
+      const { alert } = action;
+      const result = await sendWebhookNotification({
+        ...alert,
+        agent: alert.agent
+          ? { hostname: alert.agent.hostname, watchedRoot: alert.source?.rootLabel ?? alert.agent.watchedRoot }
+          : null,
+      });
 
       const updated = await prisma.responseAction.update({
         where: { id: action.id },

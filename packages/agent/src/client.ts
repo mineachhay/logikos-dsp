@@ -1,4 +1,5 @@
-import type { AgentRegisterInput, AgentRegisterResponse, FileEventInput, StorageSnapshotInput } from "@logikos-dsp/shared";
+import { MANAGED_SOURCES_CAPABILITY } from "@logikos-dsp/shared";
+import type { AgentRegisterInput, AgentRegisterResponse, AgentSyncResponse, FileEventInput, StorageSnapshotInput } from "@logikos-dsp/shared";
 import { config } from "./config.js";
 import { createAgentSession } from "./agentSession.js";
 
@@ -10,6 +11,7 @@ async function register(): Promise<string> {
       key: config.agentKey,
       hostname: config.hostname,
       watchedRoot: config.watchedRootLabel,
+      capabilities: [MANAGED_SOURCES_CAPABILITY],
     } satisfies AgentRegisterInput),
   });
   if (!res.ok) {
@@ -78,5 +80,33 @@ export async function completeQuarantineCommand(id: string, success: boolean, me
   const res = await postJson(`/agent-commands/${id}/complete`, { agentKey: config.agentKey, success, message });
   if (!res.ok) {
     console.error(`failed to report quarantine command ${id}: ${res.status} ${await res.text()}`);
+  }
+}
+
+export async function fetchAgentSync(): Promise<AgentSyncResponse | null> {
+  const url = new URL(`${config.backendUrl}/agent-sync`);
+  url.searchParams.set("agentKey", config.agentKey);
+  const res = await session.request((authorization) => fetch(url, { headers: { authorization } }));
+  if (!res.ok) {
+    console.error(`failed to sync managed sources: ${res.status} ${await res.text()}`);
+    return null;
+  }
+  return (await res.json()) as AgentSyncResponse;
+}
+
+export async function reportSourceStatus(
+  sourceId: string,
+  status: { ok: true; fileCount: number; totalBytes: number } | { ok: false; error: string },
+): Promise<void> {
+  const res = await postJson(`/agent-sync/sources/${sourceId}/status`, { agentKey: config.agentKey, ...status });
+  if (!res.ok) {
+    console.error(`failed to report status for source ${sourceId}: ${res.status} ${await res.text()}`);
+  }
+}
+
+export async function completeConnectionTest(id: string, success: boolean, message: string): Promise<void> {
+  const res = await postJson(`/agent-sync/connection-tests/${id}/complete`, { agentKey: config.agentKey, success, message });
+  if (!res.ok) {
+    console.error(`failed to report connection test ${id}: ${res.status} ${await res.text()}`);
   }
 }

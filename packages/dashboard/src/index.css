@@ -96,7 +96,7 @@ button { font: inherit; }
 .chart-table th, .chart-table td { text-align: left; padding: 4px 8px; border-bottom: 1px solid #22252c; }
 
 .bar-chart { display: flex; flex-direction: column; gap: 8px; }
-.bar-row { display: grid; grid-template-columns: 90px 1fr; align-items: center; gap: 8px; font-size: 12px; }
+.bar-row { display: grid; grid-template-columns: minmax(90px, 180px) 1fr; align-items: center; gap: 8px; font-size: 12px; }
 .bar-label { color: #aab4c8; text-transform: lowercase; }
 .bar-track { position: relative; height: 20px; background: #14161b; border-radius: 4px; }
 .bar-fill { position: relative; height: 100%; border-radius: 4px; min-width: 2px; display: flex; align-items: center; justify-content: flex-end; }
@@ -136,3 +136,38 @@ th.sortable:hover { color: #ccc; }
 .framework-stats { display: flex; gap: 20px; font-size: 12px; color: #aab4c8; margin-bottom: 12px; }
 .stat-value-sm { font-size: 18px; font-weight: 600; color: #e6e6e6; margin-right: 4px; }
 .framework-more { font-size: 11px; color: #898781; margin: 8px 0 0; }
+
+/* File servers (Administration) */
+.file-servers-view { display: flex; flex-direction: column; gap: 16px; }
+.fs-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.fs-toolbar p { margin: 0; }
+.muted { color: #898781; }
+.btn { background: #2f6fed; color: white; border: none; border-radius: 6px; padding: 7px 12px; cursor: pointer; font-size: 13px; }
+.btn:disabled { opacity: 0.6; cursor: default; }
+.btn-secondary { background: #1c1f26; color: #ccc; border: 1px solid #2a2e37; }
+.btn-link { background: none; border: none; color: #6fa0ff; cursor: pointer; font-size: 12px; padding: 2px 4px; }
+.btn-link:disabled { color: #626a76; cursor: default; }
+.danger { color: #ef6f6f; }
+.fs-card { background: #14161b; border: 1px solid #22252c; border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.fs-card-disabled { opacity: 0.75; }
+.fs-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.fs-header h3 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+.fs-header p { margin: 0; font-size: 12px; }
+.fs-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.fs-form { display: flex; flex-direction: column; gap: 10px; }
+.fs-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.fs-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #aab4c8; }
+.fs-form input, .fs-form select {
+  background: #1c1f26; color: #e6e6e6; border: 1px solid #2a2e37; border-radius: 6px; padding: 7px 9px; font-size: 13px;
+}
+.fs-hint { font-size: 12px; margin: 0; }
+.fs-shares td { vertical-align: top; }
+.fs-status { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fs-row-actions { white-space: nowrap; text-align: right; }
+.fs-subrow td { border-bottom: none; padding-top: 0; }
+.fs-add-share { align-self: flex-start; font-size: 13px; }
+.test-result { margin: 0; font-size: 12px; }
+.test-ok { color: #5fcf8a; }
+.test-fail { color: #ef6f6f; }
+.fs-audit h3 { font-size: 13px; font-weight: 500; color: #ccc; margin: 8px 0; }
+.bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

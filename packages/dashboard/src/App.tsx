@@ -1,11 +1,13 @@
 import { useMemo, useState } from "react";
 import { usePolling } from "./usePolling.js";
 import { patchAlertStatus, approveResponseAction, rejectResponseAction } from "./api.js";
+import { sourceName } from "./api.js";
 import type { Alert, FileEvent, StorageSnapshot, ClassificationMatch, ResponseAction } from "./api.js";
 import { AuthProvider, useAuth } from "./auth.js";
 import LoginView from "./LoginView.js";
 import UsersView from "./UsersView.js";
 import AgentsView from "./AgentsView.js";
+import FileServersView from "./FileServersView.js";
 import OverviewView from "./OverviewView.js";
 import ComplianceView from "./ComplianceView.js";
 import { downloadCsv } from "./csv.js";
@@ -116,7 +118,7 @@ function AlertsView() {
     return data.filter((a) => {
       if (severityFilter && a.severity !== severityFilter) return false;
       if (statusFilter && a.status !== statusFilter) return false;
-      if (q && !`${a.message} ${a.type} ${a.agent?.hostname ?? ""}`.toLowerCase().includes(q)) return false;
+      if (q && !`${a.message} ${a.type} ${sourceName(a)}`.toLowerCase().includes(q)) return false;
       return true;
     });
   }, [data, search, severityFilter, statusFilter]);
@@ -134,7 +136,7 @@ function AlertsView() {
       <TableToolbar
         search={search}
         onSearch={setSearch}
-        searchPlaceholder="Search message, type, agent…"
+        searchPlaceholder="Search message, type, source…"
         resultCount={sorted?.length ?? 0}
         filters={
           <>
@@ -156,7 +158,7 @@ function AlertsView() {
           downloadCsv(
             "alerts.csv",
             ["Severity", "Type", "Message", "Agent", "Status", "When"],
-            (sorted ?? []).map((a) => [a.severity, a.type, a.message, a.agent?.hostname ?? "", a.status, a.createdAt]),
+            (sorted ?? []).map((a) => [a.severity, a.type, a.message, sourceName(a), a.status, a.createdAt]),
           )
         }
       />
@@ -169,7 +171,7 @@ function AlertsView() {
               <SortableHeader label="Severity" columnKey="severity" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <SortableHeader label="Type" columnKey="type" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <th>Message</th>
-              <th>Agent</th>
+              <th>Source</th>
               <SortableHeader label="Status" columnKey="status" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <SortableHeader label="When" columnKey="createdAt" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <th />
@@ -182,7 +184,7 @@ function AlertsView() {
                 <td><SeverityBadge severity={a.severity} /></td>
                 <td>{a.type}</td>
                 <td>{a.message}</td>
-                <td>{a.agent?.hostname ?? "—"}</td>
+                <td title={a.source?.rootLabel}>{sourceName(a)}</td>
                 <td>{a.status}</td>
                 <td>{new Date(a.createdAt).toLocaleString()}</td>
                 <td>
@@ -224,7 +226,7 @@ function FileEventsView() {
     const q = search.trim().toLowerCase();
     return data.filter((e) => {
       if (typeFilter && e.eventType !== typeFilter) return false;
-      if (q && !`${e.path} ${e.agent.hostname}`.toLowerCase().includes(q)) return false;
+      if (q && !`${e.path} ${sourceName(e)}`.toLowerCase().includes(q)) return false;
       return true;
     });
   }, [data, search, typeFilter]);
@@ -240,7 +242,7 @@ function FileEventsView() {
       <TableToolbar
         search={search}
         onSearch={setSearch}
-        searchPlaceholder="Search path, agent…"
+        searchPlaceholder="Search path, source…"
         resultCount={sorted?.length ?? 0}
         filters={
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
@@ -253,8 +255,8 @@ function FileEventsView() {
         onExport={() =>
           downloadCsv(
             "file-events.csv",
-            ["Type", "Path", "Size", "Agent", "When"],
-            (sorted ?? []).map((e) => [e.eventType, e.path, e.sizeBytes ?? "", e.agent.hostname, e.occurredAt]),
+            ["Type", "Path", "Size", "Source", "When"],
+            (sorted ?? []).map((e) => [e.eventType, e.path, e.sizeBytes ?? "", sourceName(e), e.occurredAt]),
           )
         }
       />
@@ -267,7 +269,7 @@ function FileEventsView() {
               <SortableHeader label="Type" columnKey="eventType" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <SortableHeader label="Path" columnKey="path" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <SortableHeader label="Size" columnKey="sizeBytes" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <th>Agent</th>
+              <th>Source</th>
               <SortableHeader label="When" columnKey="occurredAt" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
             </tr>
           </thead>
@@ -277,7 +279,7 @@ function FileEventsView() {
                 <td>{e.eventType}</td>
                 <td className="path">{e.path}</td>
                 <td>{e.sizeBytes ?? "—"}</td>
-                <td>{e.agent.hostname}</td>
+                <td title={e.source?.rootLabel}>{sourceName(e)}</td>
                 <td>{new Date(e.occurredAt).toLocaleString()}</td>
               </tr>
             ))}
@@ -288,11 +290,11 @@ function FileEventsView() {
   );
 }
 
-/** Latest snapshot per agent, by rootPath — same "latest, not summed" rule as the backend's /overview aggregation. */
-function latestByAgent(data: StorageSnapshot[]): StorageSnapshot[] {
+/** Latest snapshot per source — same "latest, not summed" rule as the backend's /overview aggregation. */
+function latestBySource(data: StorageSnapshot[]): StorageSnapshot[] {
   const latest = new Map<string, StorageSnapshot>();
   for (const s of data) {
-    const key = `${s.agent.hostname}:${s.rootPath}`;
+    const key = s.source?.id ?? `${s.agent.hostname}:${s.rootPath}`;
     const existing = latest.get(key);
     if (!existing || new Date(s.takenAt) > new Date(existing.takenAt)) latest.set(key, s);
   }
@@ -300,7 +302,7 @@ function latestByAgent(data: StorageSnapshot[]): StorageSnapshot[] {
 }
 
 function StorageBreakdownChart({ data }: { data: StorageSnapshot[] }) {
-  const rows = latestByAgent(data).sort((a, b) => Number(b.totalBytes) - Number(a.totalBytes));
+  const rows = latestBySource(data).sort((a, b) => Number(b.totalBytes) - Number(a.totalBytes));
   const max = Math.max(1, ...rows.map((r) => Number(r.totalBytes)));
 
   if (rows.length === 0) return null;
@@ -313,8 +315,8 @@ function StorageBreakdownChart({ data }: { data: StorageSnapshot[] }) {
           const labelFits = pct >= 20;
           const label = formatBytes(Number(r.totalBytes));
           return (
-            <div className="bar-row" key={`${r.agent.hostname}:${r.rootPath}`}>
-              <div className="bar-label" title={r.rootPath}>{r.agent.hostname}</div>
+            <div className="bar-row" key={r.source?.id ?? `${r.agent.hostname}:${r.rootPath}`}>
+              <div className="bar-label" title={r.rootPath}>{sourceName(r)}</div>
               <div className="bar-track">
                 <div className="bar-fill" style={{ width: `${pct}%`, background: "#3987e5" }}>
                   {labelFits && <span className="bar-value bar-value-inside">{label}</span>}
@@ -339,7 +341,7 @@ function StorageView() {
     if (!data) return null;
     const q = search.trim().toLowerCase();
     if (!q) return data;
-    return data.filter((s) => `${s.rootPath} ${s.agent.hostname}`.toLowerCase().includes(q));
+    return data.filter((s) => `${s.rootPath} ${sourceName(s)}`.toLowerCase().includes(q));
   }, [data, search]);
 
   const { sorted, sortKey, sortDir, toggleSort } = useSort<StorageSnapshot>(filtered, "takenAt", "desc");
@@ -354,13 +356,13 @@ function StorageView() {
       <TableToolbar
         search={search}
         onSearch={setSearch}
-        searchPlaceholder="Search path, agent…"
+        searchPlaceholder="Search path, source…"
         resultCount={sorted?.length ?? 0}
         onExport={() =>
           downloadCsv(
             "storage-snapshots.csv",
-            ["Root path", "Total bytes", "File count", "Agent", "Taken at"],
-            (sorted ?? []).map((s) => [s.rootPath, s.totalBytes, s.fileCount, s.agent.hostname, s.takenAt]),
+            ["Root path", "Total bytes", "File count", "Source", "Taken at"],
+            (sorted ?? []).map((s) => [s.rootPath, s.totalBytes, s.fileCount, sourceName(s), s.takenAt]),
           )
         }
       />
@@ -375,7 +377,7 @@ function StorageView() {
                   comparison would sort it lexicographically ("1000" before "200"), not numerically. */}
               <th>Total size</th>
               <SortableHeader label="File count" columnKey="fileCount" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <th>Agent</th>
+              <th>Source</th>
               <SortableHeader label="Taken at" columnKey="takenAt" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
             </tr>
           </thead>
@@ -385,7 +387,7 @@ function StorageView() {
                 <td className="path">{s.rootPath}</td>
                 <td>{formatBytes(Number(s.totalBytes))}</td>
                 <td>{s.fileCount}</td>
-                <td>{s.agent.hostname}</td>
+                <td>{sourceName(s)}</td>
                 <td>{new Date(s.takenAt).toLocaleString()}</td>
               </tr>
             ))}
@@ -482,7 +484,7 @@ function formatBytes(bytes: number): string {
 
 function Dashboard() {
   const { user, logout } = useAuth();
-  const groups = user?.role === "ADMIN" ? [...NAV_GROUPS, { label: "Administration", items: ["Agents", "Users"] }] : NAV_GROUPS;
+  const groups = user?.role === "ADMIN" ? [...NAV_GROUPS, { label: "Administration", items: ["File Servers", "Agents", "Users"] }] : NAV_GROUPS;
   const [tab, setTab] = useState<string>("Overview");
 
   return (
@@ -516,6 +518,7 @@ function Dashboard() {
           {tab === "Storage" && <StorageView />}
           {tab === "Data Risk" && <DataRiskView />}
           {tab === "Compliance" && <ComplianceView />}
+          {tab === "File Servers" && <FileServersView />}
           {tab === "Agents" && <AgentsView />}
           {tab === "Users" && <UsersView />}
         </main>

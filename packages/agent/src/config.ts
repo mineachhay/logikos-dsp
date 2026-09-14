@@ -115,6 +115,11 @@ export const config = {
   m365ScanIntervalMs: Number(process.env.M365_SCAN_INTERVAL_MS ?? 60_000),
   gdriveScanIntervalMs: Number(process.env.GDRIVE_SCAN_INTERVAL_MS ?? 60_000),
   quarantinePollIntervalMs: Number(process.env.QUARANTINE_POLL_INTERVAL_MS ?? 10_000),
+  // Dashboard-managed shares (managedSources.ts): how often to pick up
+  // configuration changes and connection tests, and how many share walks may
+  // run at once.
+  agentSyncIntervalMs: Number(process.env.AGENT_SYNC_INTERVAL_MS ?? 10_000),
+  maxConcurrentScans: Math.max(1, Number(process.env.MAX_CONCURRENT_SCANS ?? 2)),
   eventFlushIntervalMs: Number(process.env.EVENT_FLUSH_INTERVAL_MS ?? 500),
   eventBatchSize: 50,
   maxContentSampleBytes: CLASSIFICATION_JOB_MAX_SAMPLE_BYTES,

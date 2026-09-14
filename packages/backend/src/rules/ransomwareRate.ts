@@ -13,27 +13,30 @@ import { prisma } from "../db.js";
 const MAX_QUARANTINE_PATHS = 200;
 
 /**
- * Naive rate-based ransomware/anomaly heuristic: if one agent reports more
- * than RANSOMWARE_RATE_THRESHOLD file events within RANSOMWARE_RATE_WINDOW_SECONDS,
- * raise (or refresh) a critical alert. This is intentionally simple — real
- * ransomware detection also weighs extension-rewrite patterns and entropy
- * changes, which belong in a follow-up rule, not a rewrite of this one.
+ * Naive rate-based ransomware/anomaly heuristic: if one source (a watched root
+ * or share) reports more than RANSOMWARE_RATE_THRESHOLD file events within
+ * RANSOMWARE_RATE_WINDOW_SECONDS, raise a critical alert. Per source, not per
+ * agent: one agent can scan many shares, and a busy share shouldn't make
+ * another share's quiet activity look like a burst (or hide its own). This is
+ * intentionally simple — real ransomware detection also weighs
+ * extension-rewrite patterns and entropy changes, which belong in a follow-up
+ * rule, not a rewrite of this one.
  */
-export async function checkRansomwareRate(agentId: string): Promise<void> {
+export async function checkRansomwareRate(sourceId: string): Promise<void> {
   const windowStart = new Date(Date.now() - RANSOMWARE_RATE_WINDOW_SECONDS * 1000);
 
   const count = await prisma.fileEvent.count({
-    where: { agentId, occurredAt: { gte: windowStart } },
+    where: { sourceId, occurredAt: { gte: windowStart } },
   });
 
   if (count < RANSOMWARE_RATE_THRESHOLD) return;
 
   // Avoid spamming a new alert every single event once past threshold:
   // only create one if there isn't already an open ransomware-rate alert
-  // for this agent from within the current window.
+  // for this source from within the current window.
   const existing = await prisma.alert.findFirst({
     where: {
-      agentId,
+      sourceId,
       type: "RANSOMWARE_RATE",
       status: "OPEN",
       createdAt: { gte: windowStart },
@@ -41,16 +44,18 @@ export async function checkRansomwareRate(agentId: string): Promise<void> {
   });
   if (existing) return;
 
+  const source = await prisma.source.findUnique({ where: { id: sourceId } });
+  if (!source) return;
+
   // Unlike a SENSITIVE_DATA_EXPOSED alert (exactly one file), a rate burst
   // has no single file to act on — but it does have a *set* of them: every
-  // path this agent reported as created/modified within the window (not
+  // path this source reported as created/modified within the window (not
   // deleted — nothing to quarantine there, the file's already gone).
   // Deduped since the same path can appear more than once in a burst
   // (edited repeatedly), capped so one alert can't demand reviewing an
   // unbounded list.
-  const agent = await prisma.agent.findUnique({ where: { id: agentId } });
   const recentEvents = await prisma.fileEvent.findMany({
-    where: { agentId, occurredAt: { gte: windowStart }, eventType: { in: ["CREATED", "MODIFIED"] } },
+    where: { sourceId, occurredAt: { gte: windowStart }, eventType: { in: ["CREATED", "MODIFIED"] } },
     select: { path: true },
     orderBy: { occurredAt: "desc" },
   });
@@ -60,8 +65,9 @@ export async function checkRansomwareRate(agentId: string): Promise<void> {
     data: {
       type: "RANSOMWARE_RATE",
       severity: "CRITICAL",
-      agentId,
-      message: `${count} file events from this agent in the last ${RANSOMWARE_RATE_WINDOW_SECONDS}s (threshold ${RANSOMWARE_RATE_THRESHOLD}) — possible ransomware or bulk-delete activity.`,
+      agentId: source.agentId,
+      sourceId,
+      message: `${count} file events on ${source.rootLabel} in the last ${RANSOMWARE_RATE_WINDOW_SECONDS}s (threshold ${RANSOMWARE_RATE_THRESHOLD}) — possible ransomware or bulk-delete activity.`,
       metadata: { count, windowSeconds: RANSOMWARE_RATE_WINDOW_SECONDS, affectedPaths },
     },
   });
@@ -70,12 +76,12 @@ export async function checkRansomwareRate(agentId: string): Promise<void> {
   // an ADMIN approves it via POST /response-actions/:id/approve — see
   // ARCHITECTURE.md's "approve-first, always" note. Quarantine is only
   // suggested when there's actually something to quarantine on a
-  // write-capable connector — same supportsQuarantine check the
+  // write-capable source — same supportsQuarantine check the
   // classification worker uses for SENSITIVE_DATA_EXPOSED alerts.
   await prisma.responseAction.create({
     data: { alertId: alert.id, type: "WEBHOOK_NOTIFICATION" },
   });
-  if (affectedPaths.length > 0 && agent && supportsQuarantine(agent.watchedRoot)) {
+  if (affectedPaths.length > 0 && supportsQuarantine(source.rootLabel)) {
     await prisma.responseAction.create({
       data: { alertId: alert.id, type: "FILE_QUARANTINE" },
     });

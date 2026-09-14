@@ -77,6 +77,9 @@ services:
       BACKEND_URL: http://backend:4000
       WATCH_PATH: /data
       AGENT_ENROLL_TOKEN: ${AGENT_ENROLL_TOKEN:-}
+      # SMB's NTLM auth hashes with DES/MD4, which OpenSSL 3 only offers from its
+      # legacy provider. Needed for dashboard-managed shares, not just SOURCE_TYPE=smb.
+      NODE_OPTIONS: --openssl-legacy-provider
       # SOURCE_TYPE/SMB_*/M365_* — set here to point the agent at a real
       # share instead of the local bind mount below; see README.
     volumes:

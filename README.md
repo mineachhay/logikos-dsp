@@ -39,9 +39,37 @@ pnpm dev:dashboard    # http://localhost:5173 — log in with ADMIN_EMAIL/ADMIN_
 
 Dashboard endpoints (`/events`, `/alerts`, `/storage`, `/classification-*`, `/agents`, `/users`) require login. Agent endpoints don't use logins; they use machine credentials instead: an agent registers with `AGENT_ENROLL_TOKEN` and gets back its own secret for everything else, re-registering by itself if that secret stops working. Admins can revoke an agent from **Administration → Agents**. See [ARCHITECTURE.md](./ARCHITECTURE.md#agent-authentication).
 
-### SMB connector (dev)
+## File servers (SMB) from the dashboard
 
-Watches a real SMB/CIFS share instead of a local path (see [ARCHITECTURE.md](./ARCHITECTURE.md) for why it uses periodic snapshot diffing rather than real-time events). Point it at a real file server, or spin up a local test share:
+Admins add SMB file servers under **Administration → File Servers**, then the
+shares (and optionally a folder inside each) to watch. The agent picks up
+changes within ~10 seconds — no restart, no env vars:
+
+1. **Add file server** — name, host (`fs01.corp.local` or an IP), optional port
+   and domain, and a **read-only** account. The password is encrypted at rest
+   and never shown again; editing a server with the password left blank keeps it.
+2. **Add share** — share name, optional folder, scan schedule, and which agent
+   scans it. **Test connection** has the agent log on and list the folder.
+3. The share's **status** shows the last scan, file count and size, or the error.
+
+**Disable** stops scanning and keeps all history. **Delete** also deletes every
+event, alert and snapshot collected from it, and asks you to type the name.
+Every change is recorded under **Recent changes**.
+
+What to expect from SMB monitoring: changes appear within one scan interval
+(each scan walks the whole share, so large shares want longer intervals), events
+say *what* changed but not *who*, and quarantine isn't available for shares.
+
+Requirements: the backend needs `SOURCE_CREDENTIALS_KEY` (32 bytes,
+`openssl rand -base64 32`) — **back it up somewhere other than the database
+dumps**, since restored share passwords can't be decrypted without it. The agent
+needs `NODE_OPTIONS=--openssl-legacy-provider` (set in `docker-compose.yml`)
+because SMB's NTLM logon uses DES/MD4. Only the TypeScript agent scans managed
+shares; the Go agent watches its own `WATCH_PATH` only.
+
+### SMB connector via env (dev)
+
+Watches one SMB/CIFS share configured on the agent itself, instead of a local path (see [ARCHITECTURE.md](./ARCHITECTURE.md) for why it uses periodic snapshot diffing rather than real-time events). Point it at a real file server, or spin up a local test share:
 
 ```bash
 pnpm smb:up   # starts a test Samba share (dperson/samba) at localhost:445, backed by ./.smb-test-data
@@ -234,7 +262,9 @@ secret no longer matches the restored row, so it gets a 401 and re-registers.
 operator error, a bad migration or a corrupted table, but not loss of the host
 or its disk. Copying `BACKUP_DIR` off-box is the remaining gap. Not covered
 either: the gitignored `.env` files — losing `JWT_SECRET` only invalidates
-existing sessions, but the values are not reproducible from the repo.
+existing sessions, but **losing `SOURCE_CREDENTIALS_KEY` makes every stored
+file-server password unrecoverable** (re-enter them in the dashboard), and none
+of the values are reproducible from the repo.
 
 ## Running tests
 

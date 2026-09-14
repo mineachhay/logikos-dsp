@@ -3,6 +3,9 @@ import type { FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import { ZodError } from "zod";
 import { requireEnrollToken } from "./auth/agentAuth.js";
+import { requireCredentialsKey } from "./crypto/credentials.js";
+import { agentSyncRoutes } from "./routes/agentSync.js";
+import { fileServerRoutes } from "./routes/fileServers.js";
 import { registerAuth } from "./auth/plugin.js";
 import { authRoutes } from "./routes/auth.js";
 import { userRoutes } from "./routes/users.js";
@@ -33,6 +36,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
 
   // Fail at startup, like JWT_SECRET, rather than on the first registration.
   requireEnrollToken();
+  requireCredentialsKey();
 
   // Every route validates with `schema.parse()`, which throws ZodError. Without
   // this, a malformed request came back as a 500 carrying the raw Zod dump.
@@ -59,6 +63,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(agentRoutes);
   await app.register(ingestRoutes);
   await app.register(agentCommandRoutes);
+  await app.register(agentSyncRoutes);
   // Dashboard-facing: each of these gates itself behind app.authenticate internally.
   await app.register(eventRoutes);
   await app.register(alertRoutes);
@@ -66,6 +71,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(classificationRoutes);
   await app.register(responseActionRoutes);
   await app.register(overviewRoutes);
+  await app.register(fileServerRoutes);
 
   return app;
 }

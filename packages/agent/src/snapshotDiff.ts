@@ -6,8 +6,22 @@ import { isSampleable } from "./contentSampling.js";
 import { diffSnapshots } from "./diff.js";
 import type { Baseline } from "./diff.js";
 
+export interface DiffLoopOptions {
+  /** Set for dashboard-managed shares; omitted for the agent's own env-configured source. */
+  sourceId?: string;
+  /** Wraps each walk, e.g. managedSources.ts's concurrency limiter. */
+  runScan?: <T>(scan: () => Promise<T>) => Promise<T>;
+  onScanComplete?: (result: { ok: true; fileCount: number; totalBytes: number } | { ok: false; error: unknown }) => void;
+}
+
+export interface DiffLoop {
+  stop(): void;
+  setInterval(intervalMs: number): void;
+}
+
 async function buildEvent(
   source: Source,
+  sourceId: string | undefined,
   eventType: FileEventType,
   path: string,
   stats: Baseline,
@@ -19,6 +33,7 @@ async function buildEvent(
   }
   return {
     agentKey: config.agentKey,
+    sourceId,
     eventType,
     path,
     sizeBytes: stats.sizeBytes,
@@ -34,10 +49,17 @@ async function buildEvent(
  * periodic storage scan run independently. Like chokidar's ignoreInitial,
  * the very first walk seeds the baseline without emitting events, so an
  * agent restart doesn't replay the share's entire existing contents as
- * "created".
+ * "created". `isStopped` is checked after the walk so a share removed
+ * mid-scan doesn't post into a source the backend no longer has.
  */
-async function scanOnce(source: Source, baseline: Map<string, Baseline> | null): Promise<Map<string, Baseline>> {
+async function scanOnce(
+  source: Source,
+  baseline: Map<string, Baseline> | null,
+  sourceId: string | undefined,
+  isStopped: () => boolean,
+): Promise<{ baseline: Map<string, Baseline>; fileCount: number; totalBytes: number } | null> {
   const nodes = await source.listTree();
+  if (isStopped()) return null;
   const current = new Map<string, Baseline>();
   for (const node of nodes) {
     current.set(node.path, { sizeBytes: node.sizeBytes, mtimeMs: node.mtimeMs });
@@ -48,14 +70,15 @@ async function scanOnce(source: Source, baseline: Map<string, Baseline> | null):
     const events: FileEventInput[] = [];
 
     for (const path of diff.created) {
-      events.push(await buildEvent(source, "created", path, current.get(path)!));
+      events.push(await buildEvent(source, sourceId, "created", path, current.get(path)!));
     }
     for (const path of diff.modified) {
-      events.push(await buildEvent(source, "modified", path, current.get(path)!));
+      events.push(await buildEvent(source, sourceId, "modified", path, current.get(path)!));
     }
     for (const path of diff.deleted) {
       events.push({
         agentKey: config.agentKey,
+        sourceId,
         eventType: "deleted",
         path,
         occurredAt: new Date().toISOString(),
@@ -66,33 +89,65 @@ async function scanOnce(source: Source, baseline: Map<string, Baseline> | null):
       await postEvents(events.slice(i, i + config.eventBatchSize));
     }
     if (events.length > 0) {
-      console.log(`snapshot diff: ${events.length} file event(s)`);
+      console.log(`${source.describe()}: ${events.length} file event(s)`);
     }
   }
 
   const totalBytes = nodes.reduce((sum, n) => sum + n.sizeBytes, 0);
   await postStorageSnapshot({
     agentKey: config.agentKey,
+    sourceId,
     rootPath: source.describe(),
     totalBytes,
     fileCount: nodes.length,
     takenAt: new Date().toISOString(),
   });
-  console.log(`storage snapshot: ${nodes.length} files, ${totalBytes} bytes`);
+  console.log(`${source.describe()}: storage snapshot ${nodes.length} files, ${totalBytes} bytes`);
 
-  return current;
+  return { baseline: current, fileCount: nodes.length, totalBytes };
 }
 
-export function runDiffLoop(source: Source, intervalMs: number): void {
+/**
+ * Scans now, then `intervalMs` after each scan *finishes* — a setTimeout
+ * chain rather than setInterval, so a walk that takes longer than the
+ * interval (a large share) never overlaps itself.
+ */
+export function startDiffLoop(source: Source, intervalMs: number, opts: DiffLoopOptions = {}): DiffLoop {
   let baseline: Map<string, Baseline> | null = null;
+  let stopped = false;
+  let timer: NodeJS.Timeout | undefined;
+  let interval = intervalMs;
+  const runScan = opts.runScan ?? ((scan) => scan());
 
   async function tick() {
-    baseline = await scanOnce(source, baseline);
+    try {
+      const result = await runScan(() => scanOnce(source, baseline, opts.sourceId, () => stopped));
+      if (result) {
+        baseline = result.baseline;
+        opts.onScanComplete?.({ ok: true, fileCount: result.fileCount, totalBytes: result.totalBytes });
+      }
+    } catch (err) {
+      console.error(`${source.describe()}: snapshot scan failed`, err);
+      if (!stopped) opts.onScanComplete?.({ ok: false, error: err });
+    } finally {
+      if (!stopped) timer = setTimeout(tick, interval);
+    }
   }
 
   console.log(`watching ${source.describe()} via periodic snapshot diff (every ${intervalMs}ms)`);
-  tick().catch((err) => console.error("initial snapshot scan failed", err));
-  setInterval(() => {
-    tick().catch((err) => console.error("snapshot scan failed", err));
-  }, intervalMs);
+  void tick();
+  return {
+    stop() {
+      stopped = true;
+      clearTimeout(timer);
+    },
+    setInterval(ms: number) {
+      interval = ms;
+    },
+  };
+}
+
+/** The agent's own env-configured source (SOURCE_TYPE=smb/m365/gdrive). */
+export function runDiffLoop(source: Source, intervalMs: number): void {
+  startDiffLoop(source, intervalMs);
 }

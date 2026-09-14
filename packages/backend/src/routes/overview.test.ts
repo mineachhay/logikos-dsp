@@ -15,9 +15,11 @@ async function loginAsViewer(app: FastifyInstance): Promise<string> {
 }
 
 async function seedAgent(hostname = "test-host") {
-  return prisma.agent.create({
+  const agent = await prisma.agent.create({
     data: { key: `agent-${randomUUID()}`, hostname, watchedRoot: "/tmp/test" },
   });
+  const source = await prisma.source.create({ data: { kind: "LOCAL", rootLabel: "/tmp/test", agentId: agent.id } });
+  return { ...agent, sourceId: source.id };
 }
 
 describe("GET /overview", () => {
@@ -43,7 +45,7 @@ describe("GET /overview", () => {
     expect(body.alerts.openTotal).toBe(3);
   });
 
-  it("sums only the latest storage snapshot per agent, not every snapshot ever taken", async () => {
+  it("sums only the latest storage snapshot per source, not every snapshot ever taken", async () => {
     const app = await buildApp({ logger: false });
     const cookie = await loginAsViewer(app);
     const agentA = await seedAgent("host-a");
@@ -52,13 +54,13 @@ describe("GET /overview", () => {
     // Two snapshots for agentA at different times — only the later one
     // (200 bytes) should count, not both summed to 300.
     await prisma.storageSnapshot.create({
-      data: { agentId: agentA.id, rootPath: "/a", totalBytes: 100n, fileCount: 1, takenAt: new Date("2026-01-01T00:00:00Z") },
+      data: { agentId: agentA.id, sourceId: agentA.sourceId, rootPath: "/a", totalBytes: 100n, fileCount: 1, takenAt: new Date("2026-01-01T00:00:00Z") },
     });
     await prisma.storageSnapshot.create({
-      data: { agentId: agentA.id, rootPath: "/a", totalBytes: 200n, fileCount: 2, takenAt: new Date("2026-01-02T00:00:00Z") },
+      data: { agentId: agentA.id, sourceId: agentA.sourceId, rootPath: "/a", totalBytes: 200n, fileCount: 2, takenAt: new Date("2026-01-02T00:00:00Z") },
     });
     await prisma.storageSnapshot.create({
-      data: { agentId: agentB.id, rootPath: "/b", totalBytes: 50n, fileCount: 5, takenAt: new Date("2026-01-01T00:00:00Z") },
+      data: { agentId: agentB.id, sourceId: agentB.sourceId, rootPath: "/b", totalBytes: 50n, fileCount: 5, takenAt: new Date("2026-01-01T00:00:00Z") },
     });
 
     const res = await app.inject({ method: "GET", url: "/overview", headers: { cookie } });
@@ -72,7 +74,7 @@ describe("GET /overview", () => {
     const cookie = await loginAsViewer(app);
     const agent = await seedAgent();
     const event = await prisma.fileEvent.create({
-      data: { agentId: agent.id, eventType: "CREATED", path: "/tmp/test/f.txt", occurredAt: new Date() },
+      data: { agentId: agent.id, sourceId: agent.sourceId, eventType: "CREATED", path: "/tmp/test/f.txt", occurredAt: new Date() },
     });
     const job = await prisma.classificationJob.create({ data: { fileEventId: event.id, status: "DONE" } });
     await prisma.classificationMatch.create({

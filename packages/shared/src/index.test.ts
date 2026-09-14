@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { supportsQuarantine } from "./index.js";
+import { normalizeSubPath, smbRootLabel, sourceKindFromRoot, supportsQuarantine } from "./index.js";
 
 describe("supportsQuarantine", () => {
   it("supports a bare filesystem path", () => {
@@ -20,5 +20,33 @@ describe("supportsQuarantine", () => {
 
   it("excludes any other scheme-prefixed watchedRoot, not just today's three", () => {
     expect(supportsQuarantine("s3://bucket/prefix")).toBe(false);
+  });
+});
+
+describe("normalizeSubPath", () => {
+  it("canonicalizes separators and trims slashes", () => {
+    expect(normalizeSubPath("\\finance\\exports\\")).toBe("finance/exports");
+    expect(normalizeSubPath("/a//b/./c/")).toBe("a/b/c");
+    expect(normalizeSubPath("")).toBe("");
+    expect(normalizeSubPath(undefined)).toBe("");
+  });
+
+  it("rejects paths that climb out of the share", () => {
+    expect(normalizeSubPath("finance/../../etc")).toBeNull();
+    expect(normalizeSubPath("..")).toBeNull();
+  });
+});
+
+describe("smbRootLabel / sourceKindFromRoot", () => {
+  it("formats the share root like SmbSource.describe()", () => {
+    expect(smbRootLabel("fs01", "finance", "")).toBe("smb://fs01/finance");
+    expect(smbRootLabel("fs01", "finance", "q1/exports")).toBe("smb://fs01/finance/q1/exports");
+  });
+
+  it("derives a source kind from a watched root", () => {
+    expect(sourceKindFromRoot("/data")).toBe("LOCAL");
+    expect(sourceKindFromRoot("smb://fs01/finance")).toBe("SMB");
+    expect(sourceKindFromRoot("m365://b!x")).toBe("M365");
+    expect(sourceKindFromRoot("gdrive://abc")).toBe("GDRIVE");
   });
 });

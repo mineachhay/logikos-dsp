@@ -69,6 +69,114 @@ export async function createUser(email: string, password: string, role: Role): P
   return postJson<ManagedUser>("/users", { email, password, role });
 }
 
+export interface SourceRef {
+  id: string;
+  kind: "LOCAL" | "SMB" | "M365" | "GDRIVE";
+  rootLabel: string;
+  fileServer: { name: string } | null;
+}
+
+/** What to call the place an event/alert/snapshot came from: "Finance FS · finance/q1" for a managed share, else the agent. */
+export function sourceName(item: { source?: SourceRef | null; agent?: { hostname: string } | null }): string {
+  const { source, agent } = item;
+  if (source?.fileServer) return `${source.fileServer.name} · ${source.rootLabel.replace(/^smb:\/\/[^/]+\//, "")}`;
+  return agent?.hostname ?? "—";
+}
+
+/** Like fetch-and-parse, but surfaces the backend's own error message (validation, conflicts) instead of just a status. */
+async function requestJson<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method,
+    credentials: "include",
+    headers: body === undefined ? undefined : { "content-type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const payload = await res.json().catch(() => null);
+  if (!res.ok) {
+    const issues = (payload?.issues as { path: string; message: string }[] | undefined)
+      ?.map((i) => (i.path ? `${i.path}: ${i.message}` : i.message))
+      .join("; ");
+    throw new Error(issues || payload?.error || `${method} ${path} -> ${res.status}`);
+  }
+  return payload as T;
+}
+
+export interface FileServer {
+  id: string;
+  name: string;
+  host: string;
+  port: number | null;
+  domain: string | null;
+  username: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  shares: Share[];
+}
+
+export interface Share {
+  id: string;
+  fileServerId: string;
+  shareName: string;
+  subPath: string;
+  rootLabel: string;
+  scanIntervalSec: number;
+  enabled: boolean;
+  agentId: string | null;
+  agent: { id: string; hostname: string } | null;
+  lastScanAt: string | null;
+  lastScanError: string | null;
+  lastFileCount: number | null;
+  lastTotalBytes: string | null;
+}
+
+export interface FileServerInput {
+  name: string;
+  host: string;
+  port: number | null;
+  domain: string | null;
+  username: string;
+  password?: string;
+}
+
+export interface ShareInput {
+  shareName: string;
+  subPath: string;
+  scanIntervalSec: number;
+  agentId: string;
+}
+
+export interface ConnectionTest {
+  id: string;
+  status: "PENDING" | "SUCCEEDED" | "FAILED";
+  message: string | null;
+}
+
+export interface AuditEntry {
+  id: string;
+  userEmail: string;
+  action: string;
+  targetType: string;
+  details: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export const fileServersApi = {
+  create: (input: FileServerInput) => requestJson<FileServer>("POST", "/file-servers", input),
+  update: (id: string, input: Partial<FileServerInput>) => requestJson<FileServer>("PATCH", `/file-servers/${id}`, input),
+  setEnabled: (id: string, enabled: boolean) => requestJson<FileServer>("POST", `/file-servers/${id}/${enabled ? "enable" : "disable"}`, {}),
+  remove: (id: string, confirm: string) =>
+    requestJson<{ deleted: Record<string, number> }>("DELETE", `/file-servers/${id}?confirm=${encodeURIComponent(confirm)}`),
+  addShare: (serverId: string, input: ShareInput) => requestJson<Share>("POST", `/file-servers/${serverId}/shares`, input),
+  updateShare: (id: string, input: Partial<ShareInput>) => requestJson<Share>("PATCH", `/shares/${id}`, input),
+  setShareEnabled: (id: string, enabled: boolean) => requestJson<Share>("POST", `/shares/${id}/${enabled ? "enable" : "disable"}`, {}),
+  removeShare: (id: string, confirm: string) =>
+    requestJson<{ deleted: Record<string, number> }>("DELETE", `/shares/${id}?confirm=${encodeURIComponent(confirm)}`),
+  startTest: (serverId: string, input: { shareName: string; subPath: string; agentId: string }) =>
+    requestJson<ConnectionTest>("POST", `/file-servers/${serverId}/connection-tests`, input),
+  getTest: (id: string) => requestJson<ConnectionTest>("GET", `/connection-tests/${id}`),
+};
+
 export interface ManagedAgent {
   id: string;
   key: string;
@@ -77,6 +185,7 @@ export interface ManagedAgent {
   createdAt: string;
   lastSeenAt: string;
   revokedAt: string | null;
+  capabilities: string[];
 }
 
 export async function revokeAgent(id: string): Promise<ManagedAgent> {
@@ -102,6 +211,7 @@ export interface Alert {
   message: string;
   createdAt: string;
   agent: { hostname: string; watchedRoot: string } | null;
+  source: SourceRef | null;
   responseActions: ResponseAction[];
 }
 
@@ -120,6 +230,7 @@ export interface FileEvent {
   sizeBytes: number | null;
   occurredAt: string;
   agent: { hostname: string; watchedRoot: string };
+  source: SourceRef | null;
 }
 
 export interface StorageSnapshot {
@@ -129,6 +240,7 @@ export interface StorageSnapshot {
   fileCount: number;
   takenAt: string;
   agent: { hostname: string; watchedRoot: string };
+  source: SourceRef | null;
 }
 
 export interface ClassificationMatch {

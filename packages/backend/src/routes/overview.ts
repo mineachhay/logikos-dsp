@@ -46,20 +46,20 @@ export async function overviewRoutes(app: FastifyInstance) {
         where: { status: "OPEN" },
         orderBy: [{ severity: "desc" }, { createdAt: "desc" }],
         take: RECENT_ALERTS_LIMIT,
-        include: { agent: { select: { hostname: true } } },
+        include: { agent: { select: { hostname: true } }, source: { select: { rootLabel: true } } },
       }),
-      // Latest StorageSnapshot per agent, summed — Prisma has no
+      // Latest StorageSnapshot per source, summed — Prisma has no
       // "latest row per group" query, so this is two queries (which
-      // agent+timestamp pairs are latest, then fetch those specific
+      // source+timestamp pairs are latest, then fetch those specific
       // rows) rather than reaching for raw SQL in an otherwise
       // Prisma-only package.
       prisma.storageSnapshot
-        .groupBy({ by: ["agentId"], _max: { takenAt: true } })
+        .groupBy({ by: ["sourceId"], _max: { takenAt: true } })
         .then((latest) =>
           latest.length === 0
             ? []
             : prisma.storageSnapshot.findMany({
-                where: { OR: latest.map((l) => ({ agentId: l.agentId, takenAt: l._max.takenAt! })) },
+                where: { OR: latest.map((l) => ({ sourceId: l.sourceId, takenAt: l._max.takenAt! })) },
               }),
         ),
       prisma.fileEvent.count({ where: { occurredAt: { gte: new Date(now.getTime() - dayMs) } } }),

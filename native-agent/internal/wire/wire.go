@@ -25,7 +25,11 @@ const (
 // SizeBytes=0 specifically would be indistinguishable from "no size" vs
 // "an empty file."
 type FileEvent struct {
-	AgentKey      string        `json:"agentKey"`
+	AgentKey string `json:"agentKey"`
+	// SourceID is only set by agents that scan dashboard-managed shares
+	// (packages/agent); this agent only reports its own WATCH_PATH, so it
+	// leaves it empty and the backend uses the agent's default source.
+	SourceID      string        `json:"sourceId,omitempty"`
 	EventType     FileEventType `json:"eventType"`
 	Path          string        `json:"path"`
 	PreviousPath  *string       `json:"previousPath,omitempty"`
@@ -37,6 +41,7 @@ type FileEvent struct {
 // StorageSnapshot matches StorageSnapshotInput (packages/shared/src/index.ts).
 type StorageSnapshot struct {
 	AgentKey   string `json:"agentKey"`
+	SourceID   string `json:"sourceId,omitempty"` // see FileEvent.SourceID
 	RootPath   string `json:"rootPath"`
 	TotalBytes int64  `json:"totalBytes"`
 	FileCount  int    `json:"fileCount"`
@@ -48,6 +53,9 @@ type RegisterRequest struct {
 	Key         string `json:"key"`
 	Hostname    string `json:"hostname"`
 	WatchedRoot string `json:"watchedRoot"`
+	// Capabilities stays empty: this agent doesn't poll /agent-sync, so the
+	// dashboard won't offer it for managed shares.
+	Capabilities []string `json:"capabilities,omitempty"`
 }
 
 // RegisterResponse matches AgentRegisterResponse (packages/shared/src/index.ts).

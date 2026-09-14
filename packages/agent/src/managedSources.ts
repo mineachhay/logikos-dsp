@@ -1,0 +1,106 @@
+import type { ManagedSmbSource, PendingConnectionTest } from "@logikos-dsp/shared";
+import { config } from "./config.js";
+import { completeConnectionTest, fetchAgentSync, reportSourceStatus } from "./client.js";
+import { SmbSource } from "./sources/smb.js";
+import { startDiffLoop, type DiffLoop } from "./snapshotDiff.js";
+import { connectionKey, createLimiter, describeSmbError, planReconcile, type RunningSource } from "./sourceReconcile.js";
+
+/**
+ * Dashboard-managed SMB shares. Polls GET /agent-sync, and reconciles one
+ * snapshot-diff loop per assigned share against it (sourceReconcile.ts decides
+ * what changes). Runs alongside whatever the agent's own env configures —
+ * the local watcher in the bundled container.
+ */
+
+interface Running extends RunningSource {
+  loop: DiffLoop;
+  source: SmbSource;
+}
+
+const running = new Map<string, Running>();
+const limiter = createLimiter(config.maxConcurrentScans);
+const testsInFlight = new Set<string>();
+
+function toSmbConfig(s: Pick<ManagedSmbSource, "host" | "port" | "domain" | "username" | "password" | "share" | "subPath">) {
+  return {
+    host: s.host,
+    port: s.port,
+    domain: s.domain,
+    username: s.username,
+    password: s.password,
+    share: s.share,
+    subPath: s.subPath || undefined,
+  };
+}
+
+function start(spec: ManagedSmbSource): void {
+  const source = new SmbSource(toSmbConfig(spec));
+  const loop = startDiffLoop(source, spec.scanIntervalSec * 1000, {
+    sourceId: spec.id,
+    runScan: (scan) => limiter.run(scan),
+    onScanComplete: (result) => {
+      const status = result.ok
+        ? { ok: true as const, fileCount: result.fileCount, totalBytes: result.totalBytes }
+        : { ok: false as const, error: describeSmbError(result.error) };
+      reportSourceStatus(spec.id, status).catch((err) => console.error("status report failed", err));
+    },
+  });
+  running.set(spec.id, { loop, source, connectionKey: connectionKey(spec), scanIntervalSec: spec.scanIntervalSec });
+}
+
+function stop(id: string): void {
+  const entry = running.get(id);
+  if (!entry) return;
+  entry.loop.stop();
+  try {
+    entry.source.disconnect();
+  } catch {
+    // already disconnected
+  }
+  running.delete(id);
+  console.log(`stopped managed source ${id}`);
+}
+
+async function runConnectionTest(test: PendingConnectionTest): Promise<void> {
+  if (testsInFlight.has(test.id)) return;
+  testsInFlight.add(test.id);
+  const source = new SmbSource(toSmbConfig(test));
+  try {
+    const message = await source.testConnection();
+    await completeConnectionTest(test.id, true, message);
+  } catch (err) {
+    await completeConnectionTest(test.id, false, describeSmbError(err));
+  } finally {
+    try {
+      source.disconnect();
+    } catch {
+      // never connected
+    }
+    testsInFlight.delete(test.id);
+  }
+}
+
+async function syncOnce(): Promise<void> {
+  const sync = await fetchAgentSync();
+  if (!sync) return; // transport or auth problem, already logged; keep what's running
+
+  const plan = planReconcile(running, sync.sources);
+  for (const id of plan.stop) stop(id);
+  for (const spec of plan.start) start(spec);
+  for (const spec of plan.retime) {
+    const entry = running.get(spec.id)!;
+    entry.loop.setInterval(spec.scanIntervalSec * 1000);
+    entry.scanIntervalSec = spec.scanIntervalSec;
+  }
+
+  for (const test of sync.connectionTests) {
+    void runConnectionTest(test);
+  }
+}
+
+export function startManagedSources(): void {
+  console.log(`syncing dashboard-managed sources every ${config.agentSyncIntervalMs}ms (max ${config.maxConcurrentScans} concurrent scans)`);
+  const tick = () => syncOnce().catch((err) => console.error("managed source sync failed", err));
+  void tick();
+  setInterval(tick, config.agentSyncIntervalMs);
+}

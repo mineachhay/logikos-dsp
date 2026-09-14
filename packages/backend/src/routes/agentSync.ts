@@ -1,0 +1,116 @@
+import type { FastifyInstance } from "fastify";
+import { z } from "zod";
+import type { AgentSyncResponse } from "@logikos-dsp/shared";
+import { prisma } from "../db.js";
+import { authenticateAgent } from "../auth/agentAuth.js";
+import { decryptSecret } from "../crypto/credentials.js";
+
+const statusSchema = z.object({
+  agentKey: z.string().min(8),
+  ok: z.boolean(),
+  error: z.string().max(2000).optional(),
+  fileCount: z.number().int().nonnegative().optional(),
+  totalBytes: z.number().int().nonnegative().optional(),
+});
+
+const testCompleteSchema = z.object({
+  agentKey: z.string().min(8),
+  success: z.boolean(),
+  message: z.string().min(1).max(2000),
+});
+
+/**
+ * Agent-facing (auth/agentAuth.ts, never the user JWT). Agents with the
+ * managed-sources capability poll GET /agent-sync for the dashboard-configured
+ * shares assigned to them, reconcile their running scans against it, and run
+ * any pending connection tests. This is the only place share passwords are
+ * decrypted, and only for the agent the share is assigned to.
+ */
+export async function agentSyncRoutes(app: FastifyInstance) {
+  app.get("/agent-sync", async (req, reply) => {
+    const { agentKey } = z.object({ agentKey: z.string().min(8) }).parse(req.query);
+    const agent = await authenticateAgent(req, reply, agentKey);
+    if (!agent) return reply;
+
+    const [sources, tests] = await Promise.all([
+      prisma.source.findMany({
+        where: { agentId: agent.id, enabled: true, fileServer: { enabled: true } },
+        include: { fileServer: true },
+        orderBy: { createdAt: "asc" },
+      }),
+      prisma.connectionTest.findMany({
+        where: { agentId: agent.id, status: "PENDING" },
+        include: { fileServer: true },
+        orderBy: { createdAt: "asc" },
+      }),
+    ]);
+
+    const response: AgentSyncResponse = {
+      sources: sources.map((s) => ({
+        id: s.id,
+        kind: "SMB" as const,
+        rootLabel: s.rootLabel,
+        host: s.fileServer!.host,
+        port: s.fileServer!.port ?? undefined,
+        domain: s.fileServer!.domain ?? undefined,
+        username: s.fileServer!.username,
+        password: decryptSecret(s.fileServer!.passwordEnc),
+        share: s.shareName!,
+        subPath: s.subPath,
+        scanIntervalSec: s.scanIntervalSec,
+      })),
+      connectionTests: tests.map((t) => ({
+        id: t.id,
+        host: t.fileServer.host,
+        port: t.fileServer.port ?? undefined,
+        domain: t.fileServer.domain ?? undefined,
+        username: t.fileServer.username,
+        password: decryptSecret(t.fileServer.passwordEnc),
+        share: t.shareName,
+        subPath: t.subPath,
+      })),
+    };
+    return reply.send(response);
+  });
+
+  // Reported after every scan of a managed share — this is what the dashboard
+  // shows as "last scan / N files / error".
+  app.post<{ Params: { id: string } }>("/agent-sync/sources/:id/status", async (req, reply) => {
+    const body = statusSchema.parse(req.body);
+    const agent = await authenticateAgent(req, reply, body.agentKey);
+    if (!agent) return reply;
+
+    const source = await prisma.source.findUnique({ where: { id: req.params.id } });
+    if (!source || source.agentId !== agent.id) {
+      return reply.code(404).send({ error: "source not found" });
+    }
+    await prisma.source.update({
+      where: { id: source.id },
+      data: body.ok
+        ? {
+            lastScanAt: new Date(),
+            lastScanError: null,
+            lastFileCount: body.fileCount,
+            lastTotalBytes: body.totalBytes === undefined ? undefined : BigInt(body.totalBytes),
+          }
+        : { lastScanAt: new Date(), lastScanError: body.error ?? "scan failed" },
+    });
+    return reply.send({ ok: true });
+  });
+
+  app.post<{ Params: { id: string } }>("/agent-sync/connection-tests/:id/complete", async (req, reply) => {
+    const body = testCompleteSchema.parse(req.body);
+    const agent = await authenticateAgent(req, reply, body.agentKey);
+    if (!agent) return reply;
+
+    const test = await prisma.connectionTest.findUnique({ where: { id: req.params.id } });
+    if (!test || test.agentId !== agent.id || test.status !== "PENDING") {
+      return reply.code(404).send({ error: "connection test not found" });
+    }
+    await prisma.connectionTest.update({
+      where: { id: test.id },
+      data: { status: body.success ? "SUCCEEDED" : "FAILED", message: body.message, completedAt: new Date() },
+    });
+    return reply.send({ ok: true });
+  });
+}

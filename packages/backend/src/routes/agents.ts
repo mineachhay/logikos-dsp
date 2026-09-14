@@ -2,11 +2,14 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../db.js";
 import { generateAgentSecret, hashAgentSecret, isValidEnrollToken } from "../auth/agentAuth.js";
+import { upsertDefaultSource } from "../sources.js";
+import { recordAudit } from "../audit.js";
 
 const registerSchema = z.object({
   key: z.string().min(8),
   hostname: z.string().min(1),
   watchedRoot: z.string().min(1),
+  capabilities: z.array(z.string().max(64)).max(16).default([]),
 });
 
 // Never select secretHash into a response.
@@ -18,6 +21,7 @@ const agentPublicFields = {
   createdAt: true,
   lastSeenAt: true,
   revokedAt: true,
+  capabilities: true,
 } as const;
 
 export async function agentRoutes(app: FastifyInstance) {
@@ -46,9 +50,11 @@ export async function agentRoutes(app: FastifyInstance) {
         watchedRoot: body.watchedRoot,
         lastSeenAt: new Date(),
         secretHash,
+        capabilities: body.capabilities,
       },
       create: { ...body, secretHash },
     });
+    await upsertDefaultSource(agent);
 
     return reply.send({ id: agent.id, hostname: agent.hostname, watchedRoot: agent.watchedRoot, agentSecret });
   });
@@ -66,11 +72,13 @@ export async function agentRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const found = await prisma.agent.findUnique({ where: { id: req.params.id } });
       if (!found) return reply.code(404).send({ error: "agent not found" });
-      return prisma.agent.update({
+      const updated = await prisma.agent.update({
         where: { id: found.id },
         data: { revokedAt: new Date(), secretHash: null },
         select: agentPublicFields,
       });
+      await recordAudit(req, "agent.revoke", { type: "agent", id: found.id }, { hostname: found.hostname });
+      return updated;
     },
   );
 
@@ -82,7 +90,9 @@ export async function agentRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const found = await prisma.agent.findUnique({ where: { id: req.params.id } });
       if (!found) return reply.code(404).send({ error: "agent not found" });
-      return prisma.agent.update({ where: { id: found.id }, data: { revokedAt: null }, select: agentPublicFields });
+      const updated = await prisma.agent.update({ where: { id: found.id }, data: { revokedAt: null }, select: agentPublicFields });
+      await recordAudit(req, "agent.restore", { type: "agent", id: found.id }, { hostname: found.hostname });
+      return updated;
     },
   );
 }

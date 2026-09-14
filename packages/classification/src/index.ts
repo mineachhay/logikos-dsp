@@ -53,10 +53,11 @@ async function processJob(jobId: string): Promise<void> {
     `SELECT "FileEvent"."path" AS path,
             "FileEvent"."contentSample" AS content_sample,
             "FileEvent"."agentId" AS agent_id,
-            "Agent"."watchedRoot" AS agent_watched_root
+            "FileEvent"."sourceId" AS source_id,
+            "Source"."rootLabel" AS source_root
      FROM "ClassificationJob"
      JOIN "FileEvent" ON "FileEvent"."id" = "ClassificationJob"."fileEventId"
-     JOIN "Agent" ON "Agent"."id" = "FileEvent"."agentId"
+     JOIN "Source" ON "Source"."id" = "FileEvent"."sourceId"
      WHERE "ClassificationJob"."id" = $1`,
     [jobId],
   );
@@ -92,13 +93,14 @@ async function processJob(jobId: string): Promise<void> {
       const alertId = randomUUID();
       await pool.query(
         `INSERT INTO "Alert"
-           ("id","type","severity","status","agentId","message","metadata","createdAt","updatedAt")
-         VALUES ($1,'SENSITIVE_DATA_EXPOSED',$2,'OPEN',$3,$4,$5,now(),now())`,
+           ("id","type","severity","status","agentId","sourceId","message","metadata","createdAt","updatedAt")
+         VALUES ($1,'SENSITIVE_DATA_EXPOSED',$2,'OPEN',$3,$4,$5,$6,now(),now())`,
         [
           alertId,
           severity,
           row.agent_id,
-          `Sensitive data detected in ${row.path}: ${matches.map((m) => m.patternType).join(", ")}`,
+          row.source_id,
+          `Sensitive data detected in ${row.path} on ${row.source_root}: ${matches.map((m) => m.patternType).join(", ")}`,
           JSON.stringify({ path: row.path, patternTypes: matches.map((m) => m.patternType) }),
         ],
       );
@@ -116,7 +118,7 @@ async function processJob(jobId: string): Promise<void> {
           [randomUUID(), alertId],
         );
 
-        if (supportsQuarantine(row.agent_watched_root as string)) {
+        if (supportsQuarantine(row.source_root as string)) {
           await pool.query(
             `INSERT INTO "ResponseAction" ("id","alertId","type","status","createdAt")
              VALUES ($1,$2,'FILE_QUARANTINE','PENDING',now())`,

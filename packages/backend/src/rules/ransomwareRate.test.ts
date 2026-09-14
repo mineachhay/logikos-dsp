@@ -1,24 +1,29 @@
 import { describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
-import { RANSOMWARE_RATE_THRESHOLD } from "@logikos-dsp/shared";
+import { RANSOMWARE_RATE_THRESHOLD, sourceKindFromRoot } from "@logikos-dsp/shared";
 import { prisma } from "../db.js";
 import { checkRansomwareRate } from "./ransomwareRate.js";
 
 async function seedAgent(watchedRoot = "/tmp/test") {
-  return prisma.agent.create({
+  const agent = await prisma.agent.create({
     data: {
       key: `agent-${randomUUID()}`,
       hostname: "test-host",
       watchedRoot,
     },
   });
+  const source = await prisma.source.create({
+    data: { kind: sourceKindFromRoot(watchedRoot), rootLabel: watchedRoot, agentId: agent.id },
+  });
+  return { ...agent, sourceId: source.id };
 }
 
-async function seedFileEvents(agentId: string, count: number) {
+async function seedFileEvents(agent: { id: string; sourceId: string }, count: number) {
   const now = new Date();
   await prisma.fileEvent.createMany({
     data: Array.from({ length: count }, (_, i) => ({
-      agentId,
+      agentId: agent.id,
+      sourceId: agent.sourceId,
       eventType: "CREATED" as const,
       path: `/tmp/test/file-${i}.txt`,
       occurredAt: now,
@@ -29,9 +34,9 @@ async function seedFileEvents(agentId: string, count: number) {
 describe("checkRansomwareRate", () => {
   it("does not raise an alert below the threshold", async () => {
     const agent = await seedAgent();
-    await seedFileEvents(agent.id, RANSOMWARE_RATE_THRESHOLD - 1);
+    await seedFileEvents(agent, RANSOMWARE_RATE_THRESHOLD - 1);
 
-    await checkRansomwareRate(agent.id);
+    await checkRansomwareRate(agent.sourceId);
 
     const alerts = await prisma.alert.findMany({ where: { agentId: agent.id } });
     expect(alerts).toHaveLength(0);
@@ -39,9 +44,9 @@ describe("checkRansomwareRate", () => {
 
   it("raises a CRITICAL alert with webhook + quarantine response actions for a write-capable agent", async () => {
     const agent = await seedAgent("/tmp/test");
-    await seedFileEvents(agent.id, RANSOMWARE_RATE_THRESHOLD);
+    await seedFileEvents(agent, RANSOMWARE_RATE_THRESHOLD);
 
-    await checkRansomwareRate(agent.id);
+    await checkRansomwareRate(agent.sourceId);
 
     const alerts = await prisma.alert.findMany({
       where: { agentId: agent.id },
@@ -59,9 +64,9 @@ describe("checkRansomwareRate", () => {
 
   it("only suggests webhook notification (no quarantine) for a read-only connector like M365", async () => {
     const agent = await seedAgent("m365://b!abc123/Shared/Finance");
-    await seedFileEvents(agent.id, RANSOMWARE_RATE_THRESHOLD);
+    await seedFileEvents(agent, RANSOMWARE_RATE_THRESHOLD);
 
-    await checkRansomwareRate(agent.id);
+    await checkRansomwareRate(agent.sourceId);
 
     const alerts = await prisma.alert.findMany({
       where: { agentId: agent.id },
@@ -72,12 +77,27 @@ describe("checkRansomwareRate", () => {
 
   it("does not raise a duplicate alert within the same open window", async () => {
     const agent = await seedAgent();
-    await seedFileEvents(agent.id, RANSOMWARE_RATE_THRESHOLD);
+    await seedFileEvents(agent, RANSOMWARE_RATE_THRESHOLD);
 
-    await checkRansomwareRate(agent.id);
-    await checkRansomwareRate(agent.id);
+    await checkRansomwareRate(agent.sourceId);
+    await checkRansomwareRate(agent.sourceId);
 
     const alerts = await prisma.alert.findMany({ where: { agentId: agent.id } });
     expect(alerts).toHaveLength(1);
+  });
+
+  it("counts per source, so two quiet shares on one agent don't add up to a burst", async () => {
+    const agent = await seedAgent();
+    const share = await prisma.source.create({
+      data: { kind: "SMB", rootLabel: "smb://fs01/finance", agentId: agent.id },
+    });
+    const half = Math.ceil(RANSOMWARE_RATE_THRESHOLD / 2);
+    await seedFileEvents(agent, half);
+    await seedFileEvents({ id: agent.id, sourceId: share.id }, half);
+
+    await checkRansomwareRate(agent.sourceId);
+    await checkRansomwareRate(share.id);
+
+    expect(await prisma.alert.count()).toBe(0);
   });
 });
