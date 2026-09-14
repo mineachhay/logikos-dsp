@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import { assertTestDatabase } from "./assertTestDatabase.js";
 
 /**
  * Runs once before the whole suite. Relies on `pnpm test` invoking Node with
@@ -7,6 +8,7 @@ import { execSync } from "node:child_process";
  * idempotent, safe to run on every test invocation.
  */
 export async function setup(): Promise<void> {
+  assertTestDatabase();
   execSync("npx prisma migrate deploy", {
     cwd: new URL("..", import.meta.url).pathname,
     stdio: "inherit",

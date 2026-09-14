@@ -187,7 +187,10 @@ message (or add it to a group and post there), then read the chat id:
 curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getUpdates" | grep -o '"chat":{"id":-\?[0-9]*'
 ```
 
-Group ids are negative. `RESPONSE_WEBHOOK_URL` (a generic JSON POST — Slack,
+Group ids are negative. If Telegram upgrades the group to a supergroup (it does
+this on its own, e.g. when group settings change), the id changes to a
+`-100...` one and sends to the old id fail with "bot was kicked from the group
+chat" — read `getUpdates` again and use the new id. `RESPONSE_WEBHOOK_URL` (a generic JSON POST — Slack,
 n8n, anything) can be set alongside or instead; with both, the action is
 `EXECUTED` only if both succeed, and its result message records each. If you
 have no endpoint at all yet, point `RESPONSE_WEBHOOK_URL` at the bundled

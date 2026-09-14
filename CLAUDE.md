@@ -36,11 +36,11 @@ docker exec logikos-dsp-postgres-1 psql -U logikos -d postgres -c "CREATE DATABA
 cp packages/backend/.env.test.example packages/backend/.env.test
 ```
 
-`packages/backend/vitest.config.ts`'s `globalSetup` runs `prisma migrate deploy` on every invocation; `test/setup.ts` truncates tables per test. `fileParallelism: false` is deliberate — all files share that one database.
+`packages/backend/vitest.config.ts`'s `globalSetup` runs `prisma migrate deploy` on every invocation; `test/setup.ts` truncates tables per test. `fileParallelism: false` is deliberate — all files share that one database. Only `pnpm test` loads `.env.test`; bare `npx vitest` lets Prisma fall back to `packages/backend/.env`, so `test/assertTestDatabase.ts` aborts unless the database name ends in `_test` (that path has already wiped the dev database once).
 
 ```bash
 pnpm --filter @logikos-dsp/backend test                          # one package
-pnpm --filter @logikos-dsp/backend test src/routes/auth.test.ts  # one file
+pnpm --filter @logikos-dsp/backend test src/routes/auth.test.ts  # one file — never bare `npx vitest` (see below)
 cd native-agent && go test ./...                                 # Go agent
 ```
 
