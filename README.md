@@ -140,8 +140,26 @@ ENV
 docker compose up -d --build
 ```
 
-Also set `NODE_ENV=production` in `packages/backend/.env` — the session cookie's
+Also set `NODE_ENV=production` in the backend's env file — the session cookie's
 `Secure` flag is derived from it.
+
+Two more root `.env` settings are worth using on a proxied install:
+
+```bash
+# Bind backend/dashboard to the address the proxy connects to, so the proxy is
+# the only way in. For logikos-gateway (host.docker.internal) that's docker0:
+PUBLISH_ADDR=172.17.0.1
+# If this host is also used for development, give the deployment its own
+# secrets file so dev and prod don't share JWT_SECRET and NODE_ENV:
+BACKEND_ENV_FILE=.env.backend
+```
+
+Without `PUBLISH_ADDR`, ports publish on `0.0.0.0` — Docker's port rules bypass
+ufw — and anyone who can reach the host on `:4000` skips the proxy's blocks
+below and can forge `X-Forwarded-For`. With `BACKEND_ENV_FILE` set, point
+`packages/backend/.env` at a separate database (e.g. `logikos_dsp_dev`) and
+another port (`PORT=4001`, plus `VITE_BACKEND_URL=http://localhost:4001` in
+`packages/dashboard/.env.local` and `BACKEND_URL` for the agent).
 
 The vhost returns 403 for `/api/ingest/*`, `/api/agent-commands` and
 `/api/agents/register`. Those authenticate agents rather than users (and

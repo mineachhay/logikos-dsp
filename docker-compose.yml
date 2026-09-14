@@ -38,13 +38,23 @@ services:
     # to create it. DATABASE_URL is overridden below: .env's copy points at
     # `localhost`, which is wrong inside the compose network (services
     # reach each other by service name).
+    #
+    # BACKEND_ENV_FILE lets a host that also does dev work give the deployment
+    # its own secrets: otherwise `pnpm dev:backend` and this container share
+    # one JWT_SECRET and one NODE_ENV=production (which sets the cookie's
+    # Secure flag and breaks login over plain-http localhost).
     env_file:
-      - packages/backend/.env
+      - ${BACKEND_ENV_FILE:-packages/backend/.env}
     environment:
       DATABASE_URL: postgresql://logikos:logikos@postgres:5432/logikos_dsp
       PORT: 4000
     ports:
-      - "4000:4000"
+      # PUBLISH_ADDR: behind a reverse proxy, bind to the address the proxy
+      # connects to (e.g. the docker0 bridge for host.docker.internal) so the
+      # proxy is the only way in. On 0.0.0.0 anyone who can reach this host
+      # skips the proxy — its blocks on /ingest, /agent-commands and
+      # /agents/register, and the X-Forwarded-For that trustProxy believes.
+      - "${PUBLISH_ADDR:-0.0.0.0}:4000:4000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -95,7 +105,7 @@ services:
         # browser's point of view.
         VITE_BACKEND_URL: ${DASHBOARD_BACKEND_URL:-http://localhost:4000}
     ports:
-      - "8080:80"
+      - "${PUBLISH_ADDR:-0.0.0.0}:8080:80"
     depends_on:
       - backend
     restart: unless-stopped
