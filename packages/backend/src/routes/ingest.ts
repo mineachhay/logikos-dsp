@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../db.js";
 import { checkRansomwareRate } from "../rules/ransomwareRate.js";
+import { authenticateAgent } from "../auth/agentAuth.js";
 
 const fileEventTypeMap = {
   created: "CREATED",
@@ -31,37 +32,24 @@ const storageSnapshotSchema = z.object({
   takenAt: z.string(),
 });
 
-async function resolveAgent(agentKey: string) {
-  const agent = await prisma.agent.findUnique({ where: { key: agentKey } });
-  if (!agent) return null;
-  await prisma.agent.update({ where: { id: agent.id }, data: { lastSeenAt: new Date() } });
-  return agent;
-}
-
 export async function ingestRoutes(app: FastifyInstance) {
   app.post("/ingest/events", async (req, reply) => {
     const events = eventsBatchSchema.parse(
       Array.isArray(req.body) ? req.body : [req.body],
     );
 
-    // All events in a batch are expected to come from the same agent key,
-    // but resolve defensively rather than assume.
-    const agentCache = new Map<string, Awaited<ReturnType<typeof resolveAgent>>>();
-    const touchedAgentIds = new Set<string>();
+    // One credential authenticates one agent, so a batch may only carry that
+    // agent's key. (Before agent auth this resolved keys per event; accepting
+    // mixed keys now would let one agent's secret write as another.)
+    const agentKeys = new Set(events.map((e) => e.agentKey));
+    if (agentKeys.size !== 1) {
+      return reply.code(400).send({ error: "all events in a batch must share one agentKey" });
+    }
+    const agent = await authenticateAgent(req, reply, events[0].agentKey);
+    if (!agent) return reply;
+
     let created = 0;
-    let unknownAgentKeys = new Set<string>();
-
     for (const evt of events) {
-      let agent = agentCache.get(evt.agentKey);
-      if (agent === undefined) {
-        agent = await resolveAgent(evt.agentKey);
-        agentCache.set(evt.agentKey, agent);
-      }
-      if (!agent) {
-        unknownAgentKeys.add(evt.agentKey);
-        continue;
-      }
-
       const fileEvent = await prisma.fileEvent.create({
         data: {
           agentId: agent.id,
@@ -74,7 +62,6 @@ export async function ingestRoutes(app: FastifyInstance) {
         },
       });
       created++;
-      touchedAgentIds.add(agent.id);
 
       if ((evt.eventType === "created" || evt.eventType === "modified") && evt.contentSample) {
         await prisma.classificationJob.create({
@@ -83,23 +70,15 @@ export async function ingestRoutes(app: FastifyInstance) {
       }
     }
 
-    for (const agentId of touchedAgentIds) {
-      await checkRansomwareRate(agentId);
-    }
+    await checkRansomwareRate(agent.id);
 
-    if (unknownAgentKeys.size > 0 && created === 0) {
-      return reply.code(404).send({ error: "unknown agentKey", agentKeys: [...unknownAgentKeys] });
-    }
-
-    return reply.send({ created, unknownAgentKeys: [...unknownAgentKeys] });
+    return reply.send({ created });
   });
 
   app.post("/ingest/storage", async (req, reply) => {
     const body = storageSnapshotSchema.parse(req.body);
-    const agent = await resolveAgent(body.agentKey);
-    if (!agent) {
-      return reply.code(404).send({ error: "unknown agentKey" });
-    }
+    const agent = await authenticateAgent(req, reply, body.agentKey);
+    if (!agent) return reply;
 
     const snapshot = await prisma.storageSnapshot.create({
       data: {

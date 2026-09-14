@@ -4,6 +4,7 @@ import type { FastifyInstance } from "fastify";
 import { buildApp } from "../app.js";
 import { prisma } from "../db.js";
 import { hashPassword } from "../auth/passwords.js";
+import { seedAuthedAgent } from "../auth/agentFixtures.testutil.js";
 
 async function seedAdmin() {
   const email = `admin-${randomUUID()}@example.com`;
@@ -66,9 +67,7 @@ describe("POST /response-actions/:id/approve", () => {
 
 describe("GET /agent-commands", () => {
   it("returns an approved quarantine command for the owning agent, keyed by path from the alert", async () => {
-    const agent = await prisma.agent.create({
-      data: { key: `agent-${randomUUID()}`, hostname: "test-host", watchedRoot: "/tmp/test" },
-    });
+    const { agent, headers } = await seedAuthedAgent();
     const alert = await prisma.alert.create({
       data: {
         type: "SENSITIVE_DATA_EXPOSED",
@@ -88,7 +87,7 @@ describe("GET /agent-commands", () => {
     await prisma.responseAction.create({ data: { alertId: otherAlert.id, type: "FILE_QUARANTINE" } });
 
     const app = await buildApp({ logger: false });
-    const res = await app.inject({ method: "GET", url: `/agent-commands?agentKey=${agent.key}` });
+    const res = await app.inject({ method: "GET", url: `/agent-commands?agentKey=${agent.key}`, headers });
 
     expect(res.statusCode).toBe(200);
     const commands = res.json();
@@ -96,9 +95,7 @@ describe("GET /agent-commands", () => {
   });
 
   it("normalizes a RANSOMWARE_RATE burst's metadata.affectedPaths into the same paths[] shape", async () => {
-    const agent = await prisma.agent.create({
-      data: { key: `agent-${randomUUID()}`, hostname: "test-host", watchedRoot: "/tmp/test" },
-    });
+    const { agent, headers } = await seedAuthedAgent();
     const alert = await prisma.alert.create({
       data: {
         type: "RANSOMWARE_RATE",
@@ -113,14 +110,15 @@ describe("GET /agent-commands", () => {
     });
 
     const app = await buildApp({ logger: false });
-    const res = await app.inject({ method: "GET", url: `/agent-commands?agentKey=${agent.key}` });
+    const res = await app.inject({ method: "GET", url: `/agent-commands?agentKey=${agent.key}`, headers });
 
     expect(res.json()).toEqual([{ id: expect.any(String), paths: ["/tmp/test/a.txt", "/tmp/test/b.txt"] }]);
   });
 
-  it("404s for an unknown agent key", async () => {
+  it("401s for an unknown agent key, same as for a wrong secret", async () => {
     const app = await buildApp({ logger: false });
-    const res = await app.inject({ method: "GET", url: "/agent-commands?agentKey=nonexistent-key" });
-    expect(res.statusCode).toBe(404);
+    const { headers } = await seedAuthedAgent();
+    const res = await app.inject({ method: "GET", url: "/agent-commands?agentKey=nonexistent-key", headers });
+    expect(res.statusCode).toBe(401);
   });
 });

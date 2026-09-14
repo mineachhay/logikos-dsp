@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../db.js";
+import { authenticateAgent } from "../auth/agentAuth.js";
 
 const completeSchema = z.object({
   agentKey: z.string().min(8),
@@ -9,8 +10,8 @@ const completeSchema = z.object({
 });
 
 /**
- * Agent-facing: authenticated via Agent.key, not user login — same split as
- * ingest.ts. An agent polls here for FILE_QUARANTINE actions an ADMIN has
+ * Agent-facing: authenticated via the agent's own secret (auth/agentAuth.ts),
+ * not user login — same split as ingest.ts. An agent polls here for FILE_QUARANTINE actions an ADMIN has
  * already approved (via POST /response-actions/:id/approve), then reports
  * back what happened. Never gate these behind app.authenticate.
  */
@@ -18,10 +19,8 @@ export async function agentCommandRoutes(app: FastifyInstance) {
   app.get("/agent-commands", async (req, reply) => {
     const { agentKey } = z.object({ agentKey: z.string().min(8) }).parse(req.query);
 
-    const agent = await prisma.agent.findUnique({ where: { key: agentKey } });
-    if (!agent) {
-      return reply.code(404).send({ error: "unknown agentKey" });
-    }
+    const agent = await authenticateAgent(req, reply, agentKey);
+    if (!agent) return reply;
 
     const actions = await prisma.responseAction.findMany({
       where: { type: "FILE_QUARANTINE", status: "APPROVED", alert: { agentId: agent.id } },
@@ -46,12 +45,16 @@ export async function agentCommandRoutes(app: FastifyInstance) {
 
   app.post<{ Params: { id: string } }>("/agent-commands/:id/complete", async (req, reply) => {
     const body = completeSchema.parse(req.body);
+    const agent = await authenticateAgent(req, reply, body.agentKey);
+    if (!agent) return reply;
 
+    // An agent may only complete its own commands; someone else's is a 404,
+    // same as a nonexistent one.
     const action = await prisma.responseAction.findUnique({
       where: { id: req.params.id },
-      include: { alert: { include: { agent: true } } },
+      include: { alert: true },
     });
-    if (!action || action.alert.agent?.key !== body.agentKey) {
+    if (!action || action.alert.agentId !== agent.id) {
       return reply.code(404).send({ error: "command not found" });
     }
 

@@ -49,3 +49,13 @@ type RegisterRequest struct {
 	Hostname    string `json:"hostname"`
 	WatchedRoot string `json:"watchedRoot"`
 }
+
+// RegisterResponse matches AgentRegisterResponse (packages/shared/src/index.ts).
+// AgentSecret authenticates every later call and is rotated by each
+// registration.
+type RegisterResponse struct {
+	ID          string `json:"id"`
+	Hostname    string `json:"hostname"`
+	WatchedRoot string `json:"watchedRoot"`
+	AgentSecret string `json:"agentSecret"`
+}

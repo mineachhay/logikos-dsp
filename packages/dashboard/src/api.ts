@@ -69,6 +69,24 @@ export async function createUser(email: string, password: string, role: Role): P
   return postJson<ManagedUser>("/users", { email, password, role });
 }
 
+export interface ManagedAgent {
+  id: string;
+  key: string;
+  hostname: string;
+  watchedRoot: string;
+  createdAt: string;
+  lastSeenAt: string;
+  revokedAt: string | null;
+}
+
+export async function revokeAgent(id: string): Promise<ManagedAgent> {
+  return postJson<ManagedAgent>(`/agents/${id}/revoke`, {});
+}
+
+export async function restoreAgent(id: string): Promise<ManagedAgent> {
+  return postJson<ManagedAgent>(`/agents/${id}/restore`, {});
+}
+
 export interface ResponseAction {
   id: string;
   type: "WEBHOOK_NOTIFICATION" | "FILE_QUARANTINE";

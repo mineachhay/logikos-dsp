@@ -5,6 +5,7 @@ import type { Alert, FileEvent, StorageSnapshot, ClassificationMatch, ResponseAc
 import { AuthProvider, useAuth } from "./auth.js";
 import LoginView from "./LoginView.js";
 import UsersView from "./UsersView.js";
+import AgentsView from "./AgentsView.js";
 import OverviewView from "./OverviewView.js";
 import ComplianceView from "./ComplianceView.js";
 import { downloadCsv } from "./csv.js";
@@ -481,7 +482,7 @@ function formatBytes(bytes: number): string {
 
 function Dashboard() {
   const { user, logout } = useAuth();
-  const groups = user?.role === "ADMIN" ? [...NAV_GROUPS, { label: "Administration", items: ["Users"] }] : NAV_GROUPS;
+  const groups = user?.role === "ADMIN" ? [...NAV_GROUPS, { label: "Administration", items: ["Agents", "Users"] }] : NAV_GROUPS;
   const [tab, setTab] = useState<string>("Overview");
 
   return (
@@ -515,6 +516,7 @@ function Dashboard() {
           {tab === "Storage" && <StorageView />}
           {tab === "Data Risk" && <DataRiskView />}
           {tab === "Compliance" && <ComplianceView />}
+          {tab === "Agents" && <AgentsView />}
           {tab === "Users" && <UsersView />}
         </main>
       </div>

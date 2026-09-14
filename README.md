@@ -29,15 +29,15 @@ native-agent/      # Go rewrite of packages/agent's local-path watching only —
 pnpm install
 pnpm db:up           # starts Postgres via docker compose
 pnpm db:migrate       # applies Prisma schema
-cp packages/backend/.env.example packages/backend/.env  # set a real JWT_SECRET/ADMIN_PASSWORD/RESPONSE_WEBHOOK_URL before anything but local dev
+cp packages/backend/.env.example packages/backend/.env  # set a real JWT_SECRET/AGENT_ENROLL_TOKEN/ADMIN_PASSWORD/RESPONSE_WEBHOOK_URL before anything but local dev
 pnpm db:seed          # creates the first ADMIN user from ADMIN_EMAIL/ADMIN_PASSWORD in that .env
 pnpm dev:backend      # http://localhost:4000
 pnpm dev:classification  # first run downloads the local NER model (~100MB, cached after) — expect ~20-30s startup
-pnpm dev:agent        # set WATCH_PATH env var to the directory to monitor
+pnpm dev:agent        # set WATCH_PATH (directory to monitor) and AGENT_ENROLL_TOKEN (same value as the backend's)
 pnpm dev:dashboard    # http://localhost:5173 — log in with ADMIN_EMAIL/ADMIN_PASSWORD
 ```
 
-Dashboard endpoints (`/events`, `/alerts`, `/storage`, `/classification-*`, `/users`) require login; agent endpoints (`/agents/register`, `/ingest/*`) don't and never will — see [ARCHITECTURE.md](./ARCHITECTURE.md#authrbac).
+Dashboard endpoints (`/events`, `/alerts`, `/storage`, `/classification-*`, `/agents`, `/users`) require login. Agent endpoints don't use logins; they use machine credentials instead: an agent registers with `AGENT_ENROLL_TOKEN` and gets back its own secret for everything else, re-registering by itself if that secret stops working. Admins can revoke an agent from **Administration → Agents**. See [ARCHITECTURE.md](./ARCHITECTURE.md#agent-authentication).
 
 ### SMB connector (dev)
 
@@ -101,6 +101,7 @@ Each service has its own Dockerfile (`packages/*/Dockerfile`); `docker-compose.y
 
 ```bash
 cp packages/backend/.env.example packages/backend/.env  # real JWT_SECRET/ADMIN_PASSWORD/RESPONSE_WEBHOOK_URL — required, not just for local dev this time
+echo "AGENT_ENROLL_TOKEN=$(openssl rand -hex 32)" >> .env  # root .env: compose gives this one value to both backend and agent
 docker compose up -d --build
 docker compose exec backend node_modules/.bin/prisma migrate deploy   # first deployment only — the backend image also runs this on every start, so this line is just to seed sooner
 docker compose exec backend sh -c 'ADMIN_EMAIL=... ADMIN_PASSWORD=... node_modules/.bin/tsx prisma/seed.ts'
@@ -200,9 +201,9 @@ PATH=/usr/bin:/bin
 **Run `deploy/restore.sh verify` periodically.** It restores the newest dump
 into a throwaway database, prints its row counts beside the live ones, and drops
 it — an untested backup is a guess. `live` refuses to run without `--yes`,
-stops the services holding connections, and restarts them afterward, because the
-agent registers only at startup and would otherwise keep ingesting against an
-`Agent.key` the restored database no longer contains.
+stops the services holding connections (the restore needs them gone), and
+restarts them afterward. A running agent would recover by itself anyway — its
+secret no longer matches the restored row, so it gets a 401 and re-registers.
 
 **These dumps sit on the same disk as the database they protect**, which covers
 operator error, a bad migration or a corrupted table, but not loss of the host

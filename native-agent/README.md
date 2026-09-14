@@ -41,8 +41,13 @@ No CGO, no external runtime — the output is a single ~9MB binary.
 Same environment variables as `packages/agent`'s local mode:
 
 ```bash
-WATCH_PATH=/path/to/watch BACKEND_URL=http://localhost:4000 ./agent
+WATCH_PATH=/path/to/watch BACKEND_URL=http://localhost:4000 AGENT_ENROLL_TOKEN=... ./agent
 ```
+
+`AGENT_ENROLL_TOKEN` is required and must match the backend's. The agent
+registers with it, then authenticates with the per-agent secret the backend
+returns, re-registering by itself on a 401 — same rules as the TypeScript
+agent (`packages/agent/src/agentSession.ts`).
 
 Optional: `AGENT_KEY` (override the derived key — see `internal/config`'s
 `deriveKey` doc comment for why the default matches the TypeScript agent's
@@ -55,7 +60,9 @@ formula), `STORAGE_SCAN_INTERVAL_MS` (default 60000),
 go test ./...
 ```
 
-Covers the same pure-logic cases `packages/agent`'s test suite does
+`internal/client` tests the credential handling (rotation, concurrent 401s,
+throttling, revoked agents) against an `httptest` fake backend. Otherwise
+covers the same pure-logic cases `packages/agent`'s test suite does
 (`isSampleable`, `computeQuarantinePath`) — mirrored 1:1 so both
 implementations are provably consistent on filename/sampling decisions.
 Not covered by automated tests (same boundary the TypeScript agent draws):

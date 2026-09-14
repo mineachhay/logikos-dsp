@@ -84,8 +84,10 @@ case "$mode" in
 
     echo "--- restored ---"; counts "$DB"
     (cd "$COMPOSE_DIR" && docker compose start backend classification agent >/dev/null)
-    # The agent registers only at startup, so if the Agent row changed under it
-    # the running process would ingest against a key the server no longer knows.
+    # Agents would also recover on their own: the restored row's secretHash
+    # won't match the running agent's secret, so its next call 401s and it
+    # re-registers. Restarting just makes that happen now instead of on the
+    # next event.
     echo "OK — services restarted. Check: docker compose logs --since 60s agent"
     ;;
 

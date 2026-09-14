@@ -101,6 +101,7 @@ cp packages/backend/.env.test.example packages/backend/.env.test
 sed -i 's|^JWT_SECRET=.*|JWT_SECRET="dev-only-local-secret-a7f3c1e9b45d28f06c3a91e7d5b2408f"|' packages/backend/.env
 sed -i 's|^ADMIN_PASSWORD=.*|ADMIN_PASSWORD="DevAdmin123!"|' packages/backend/.env
 sed -i 's|^RESPONSE_WEBHOOK_URL=.*|RESPONSE_WEBHOOK_URL="http://localhost:9099/hook"|' packages/backend/.env
+echo "AGENT_ENROLL_TOKEN=\"$(openssl rand -hex 32)\"" >> packages/backend/.env   # agents need the same value
 echo 'DATABASE_URL="postgresql://logikos:logikos@localhost:5432/logikos_dsp"' > packages/classification/.env
 ```
 
@@ -141,6 +142,7 @@ timeout 60 bash -c 'until curl -sf http://localhost:4000/health -o /dev/null; do
   || tail -30 /tmp/backend.log
 
 mkdir -p /tmp/logikos-watch
+export $(grep ^AGENT_ENROLL_TOKEN packages/backend/.env | tr -d '"')   # agents register with it
 WATCH_PATH=/tmp/logikos-watch BACKEND_URL=http://localhost:4000 \
   pnpm --filter @logikos-dsp/agent dev > /tmp/agent.log 2>&1 & disown
 
@@ -258,6 +260,7 @@ It takes the same env vars as the TS agent's local mode. **Stop the TS agent
 first** — both derive the same `Agent.key` and would double-report:
 
 ```bash
+AGENT_ENROLL_TOKEN=$(grep ^AGENT_ENROLL_TOKEN packages/backend/.env | cut -d= -f2 | tr -d '"') \
 WATCH_PATH=/tmp/logikos-watch BACKEND_URL=http://localhost:4000 \
   /tmp/logikos-native-agent > /tmp/native-agent.log 2>&1 & disown
 sleep 6; cat /tmp/native-agent.log
@@ -312,7 +315,7 @@ Postgres is normally left running between sessions
 ```bash
 pnpm dev:backend         # → http://localhost:4000
 pnpm dev:classification  # background worker, no port
-WATCH_PATH=/some/dir pnpm dev:agent
+WATCH_PATH=/some/dir AGENT_ENROLL_TOKEN=<from packages/backend/.env> pnpm dev:agent
 pnpm dev:dashboard       # → http://localhost:5173
 ```
 

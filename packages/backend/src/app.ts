@@ -1,6 +1,8 @@
 import Fastify from "fastify";
 import type { FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
+import { ZodError } from "zod";
+import { requireEnrollToken } from "./auth/agentAuth.js";
 import { registerAuth } from "./auth/plugin.js";
 import { authRoutes } from "./routes/auth.js";
 import { userRoutes } from "./routes/users.js";
@@ -29,6 +31,22 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   // if the backend is ever exposed directly, a client could forge the header.
   const app = Fastify({ logger: opts.logger ?? true, trustProxy: true });
 
+  // Fail at startup, like JWT_SECRET, rather than on the first registration.
+  requireEnrollToken();
+
+  // Every route validates with `schema.parse()`, which throws ZodError. Without
+  // this, a malformed request came back as a 500 carrying the raw Zod dump.
+  // Set before any route plugin registers so they all inherit it.
+  app.setErrorHandler((error, _req, reply) => {
+    if (error instanceof ZodError) {
+      return reply.code(400).send({
+        error: "invalid request",
+        issues: error.issues.map((i) => ({ path: i.path.join("."), message: i.message })),
+      });
+    }
+    return reply.send(error);
+  });
+
   await app.register(cors, { origin: true, credentials: true });
   await registerAuth(app);
 
@@ -36,7 +54,8 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
 
   await app.register(authRoutes);
   await app.register(userRoutes);
-  // Agent-facing: authenticated via Agent.key, not user login. Never gate these behind app.authenticate.
+  // Agent-facing: authenticated by enroll token / per-agent secret (auth/agentAuth.ts), not user login.
+  // Never gate these behind app.authenticate. (agents.ts also holds the dashboard-side /agents routes.)
   await app.register(agentRoutes);
   await app.register(ingestRoutes);
   await app.register(agentCommandRoutes);

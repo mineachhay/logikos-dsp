@@ -20,6 +20,25 @@ export interface FileEventInput {
   contentSample?: string;
 }
 
+/**
+ * POST /agents/register — sent with `Authorization: Bearer <AGENT_ENROLL_TOKEN>`.
+ * Every other agent route takes `Authorization: Bearer <agentSecret>` from the
+ * response; the backend rotates it on each registration and answers 401 to a
+ * stale one (re-register) or 403 to a revoked agent (don't).
+ */
+export interface AgentRegisterInput {
+  key: string;
+  hostname: string;
+  watchedRoot: string;
+}
+
+export interface AgentRegisterResponse {
+  id: string;
+  hostname: string;
+  watchedRoot: string;
+  agentSecret: string;
+}
+
 export interface StorageSnapshotInput {
   agentKey: string;
   rootPath: string;

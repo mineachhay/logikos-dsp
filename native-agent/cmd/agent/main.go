@@ -46,7 +46,7 @@ const eventBatchSize = 50 // must match packages/agent/src/config.ts's eventBatc
 
 func main() {
 	cfg := config.Load()
-	c := client.New(cfg.BackendURL)
+	c := client.New(cfg.BackendURL, cfg.EnrollToken)
 
 	if err := c.Register(cfg.AgentKey, cfg.Hostname, cfg.WatchedRootLabel); err != nil {
 		log.Fatalf("agent failed to register: %v", err)

@@ -9,20 +9,145 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/logikos-dsp/native-agent/internal/wire"
 )
 
+// Client authenticates like packages/agent/src/agentSession.ts: Register
+// presents the enroll token and keeps the per-agent secret it returns; every
+// other call sends that secret, and a 401 triggers one re-registration and
+// retry (throttled), since the backend rotates the secret on each
+// registration. A 403 means the agent was revoked and is returned as-is.
 type Client struct {
-	baseURL string
-	http    *http.Client
+	baseURL     string
+	enrollToken string
+	http        *http.Client
+
+	minReregisterInterval time.Duration
+	now                   func() time.Time
+
+	regMu          sync.Mutex
+	mu             sync.Mutex
+	registration   wire.RegisterRequest
+	secret         string
+	lastReregister time.Time
 }
 
-func New(baseURL string) *Client {
-	return &Client{baseURL: baseURL, http: &http.Client{Timeout: 15 * time.Second}}
+func New(baseURL, enrollToken string) *Client {
+	return &Client{
+		baseURL:               baseURL,
+		enrollToken:           enrollToken,
+		http:                  &http.Client{Timeout: 15 * time.Second},
+		minReregisterInterval: 5 * time.Second,
+		now:                   time.Now,
+	}
+}
+
+// send builds a fresh request per attempt (a body reader can't be replayed).
+func (c *Client) send(method, path string, body []byte, bearer string) (*http.Response, error) {
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
+	req, err := http.NewRequest(method, c.baseURL+path, reader)
+	if err != nil {
+		return nil, err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	req.Header.Set("Authorization", "Bearer "+bearer)
+	return c.http.Do(req)
+}
+
+func statusError(method, path string, res *http.Response) error {
+	respBody, _ := io.ReadAll(res.Body)
+	return fmt.Errorf("%s %s: %d %s", method, path, res.StatusCode, string(respBody))
+}
+
+// Register mirrors packages/agent/src/client.ts's register — POST
+// /agents/register with the enroll token, idempotent on key, returning a
+// fresh agent secret that replaces any previous one.
+func (c *Client) Register(key, hostname, watchedRoot string) error {
+	c.mu.Lock()
+	c.registration = wire.RegisterRequest{Key: key, Hostname: hostname, WatchedRoot: watchedRoot}
+	c.mu.Unlock()
+	return c.register()
+}
+
+func (c *Client) register() error {
+	c.mu.Lock()
+	reg := c.registration
+	c.mu.Unlock()
+
+	buf, err := json.Marshal(reg)
+	if err != nil {
+		return fmt.Errorf("marshal register request: %w", err)
+	}
+	res, err := c.send(http.MethodPost, "/agents/register", buf, c.enrollToken)
+	if err != nil {
+		return fmt.Errorf("POST /agents/register: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode >= 300 {
+		return statusError(http.MethodPost, "/agents/register", res)
+	}
+	var out wire.RegisterResponse
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+		return fmt.Errorf("decode register response: %w", err)
+	}
+	if out.AgentSecret == "" {
+		return fmt.Errorf("register response carried no agentSecret")
+	}
+	c.mu.Lock()
+	c.secret = out.AgentSecret
+	c.mu.Unlock()
+	return nil
+}
+
+// do sends an authenticated request; the caller closes the returned body.
+func (c *Client) do(method, path string, body []byte) (*http.Response, error) {
+	c.mu.Lock()
+	used := c.secret
+	c.mu.Unlock()
+
+	res, err := c.send(method, path, body, used)
+	if err != nil || res.StatusCode != http.StatusUnauthorized {
+		return res, err
+	}
+
+	// regMu serializes 401 recovery: a request that queues behind an
+	// in-progress re-registration finds the secret already changed and just
+	// retries with it instead of registering again.
+	c.regMu.Lock()
+	c.mu.Lock()
+	stale := c.secret == used
+	throttled := stale && c.now().Sub(c.lastReregister) < c.minReregisterInterval
+	if stale && !throttled {
+		c.lastReregister = c.now()
+	}
+	c.mu.Unlock()
+	if stale && !throttled {
+		log.Printf("agent credentials rejected (401); re-registering")
+		if err := c.register(); err != nil {
+			log.Printf("re-registration failed: %v", err)
+		}
+	}
+	c.regMu.Unlock()
+
+	c.mu.Lock()
+	retry := c.secret
+	c.mu.Unlock()
+	if retry == used {
+		return res, nil
+	}
+	res.Body.Close()
+	return c.send(method, path, body, retry)
 }
 
 func (c *Client) postJSON(path string, body any) error {
@@ -30,26 +155,15 @@ func (c *Client) postJSON(path string, body any) error {
 	if err != nil {
 		return fmt.Errorf("marshal request body: %w", err)
 	}
-	res, err := c.http.Post(c.baseURL+path, "application/json", bytes.NewReader(buf))
+	res, err := c.do(http.MethodPost, path, buf)
 	if err != nil {
 		return fmt.Errorf("POST %s: %w", path, err)
 	}
 	defer res.Body.Close()
 	if res.StatusCode >= 300 {
-		respBody, _ := io.ReadAll(res.Body)
-		return fmt.Errorf("POST %s: %d %s", path, res.StatusCode, string(respBody))
+		return statusError(http.MethodPost, path, res)
 	}
 	return nil
-}
-
-// Register mirrors packages/agent/src/client.ts's registerAgent — POST
-// /agents/register, idempotent on key.
-func (c *Client) Register(key, hostname, watchedRoot string) error {
-	return c.postJSON("/agents/register", wire.RegisterRequest{
-		Key:         key,
-		Hostname:    hostname,
-		WatchedRoot: watchedRoot,
-	})
 }
 
 // PostEvents mirrors postEvents — POST /ingest/events. Caller is
@@ -78,8 +192,7 @@ type QuarantineCommand struct {
 // FetchQuarantineCommands mirrors fetchQuarantineCommands — GET
 // /agent-commands?agentKey=...
 func (c *Client) FetchQuarantineCommands(agentKey string) ([]QuarantineCommand, error) {
-	u := c.baseURL + "/agent-commands?" + url.Values{"agentKey": {agentKey}}.Encode()
-	res, err := c.http.Get(u)
+	res, err := c.do(http.MethodGet, "/agent-commands?"+url.Values{"agentKey": {agentKey}}.Encode(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("GET /agent-commands: %w", err)
 	}

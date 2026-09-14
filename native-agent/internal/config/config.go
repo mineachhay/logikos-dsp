@@ -16,6 +16,7 @@ import (
 
 type Config struct {
 	BackendURL               string
+	EnrollToken              string
 	WatchPath                string
 	WatchedRootLabel         string
 	AgentKey                 string
@@ -42,6 +43,11 @@ func Load() Config {
 	backendURL := os.Getenv("BACKEND_URL")
 	if backendURL == "" {
 		backendURL = "http://localhost:4000"
+	}
+
+	enrollToken := os.Getenv("AGENT_ENROLL_TOKEN")
+	if enrollToken == "" {
+		log.Fatal("AGENT_ENROLL_TOKEN environment variable is required (same value as the backend's)")
 	}
 
 	watchPath := os.Getenv("WATCH_PATH")
@@ -79,6 +85,7 @@ func Load() Config {
 
 	return Config{
 		BackendURL:               backendURL,
+		EnrollToken:              enrollToken,
 		WatchPath:                watchPath,
 		WatchedRootLabel:         watchPath,
 		AgentKey:                 agentKey,

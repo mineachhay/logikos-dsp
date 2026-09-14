@@ -48,6 +48,9 @@ services:
     environment:
       DATABASE_URL: postgresql://logikos:logikos@postgres:5432/logikos_dsp
       PORT: 4000
+      # From the root .env, shared with the agent service below so the two
+      # can't drift. Empty makes the backend refuse to start, with a message.
+      AGENT_ENROLL_TOKEN: ${AGENT_ENROLL_TOKEN:-}
     ports:
       # PUBLISH_ADDR: behind a reverse proxy, bind to the address the proxy
       # connects to (e.g. the docker0 bridge for host.docker.internal) so the
@@ -73,6 +76,7 @@ services:
     environment:
       BACKEND_URL: http://backend:4000
       WATCH_PATH: /data
+      AGENT_ENROLL_TOKEN: ${AGENT_ENROLL_TOKEN:-}
       # SOURCE_TYPE/SMB_*/M365_* — set here to point the agent at a real
       # share instead of the local bind mount below; see README.
     volumes:

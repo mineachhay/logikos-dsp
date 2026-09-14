@@ -10,6 +10,14 @@ if (sourceType !== "local" && sourceType !== "smb" && sourceType !== "m365" && s
   process.exit(1);
 }
 
+// Presented only to POST /agents/register, which answers with this agent's own
+// secret for every other call (see agentSession.ts).
+const enrollToken = process.env.AGENT_ENROLL_TOKEN;
+if (!enrollToken) {
+  console.error("AGENT_ENROLL_TOKEN environment variable is required (same value as the backend's)");
+  process.exit(1);
+}
+
 const watchPath = process.env.WATCH_PATH;
 if (sourceType === "local" && !watchPath) {
   console.error("WATCH_PATH environment variable is required when SOURCE_TYPE=local");
@@ -93,6 +101,7 @@ const watchedRootLabel =
 
 export const config = {
   backendUrl: process.env.BACKEND_URL ?? "http://localhost:4000",
+  enrollToken,
   sourceType,
   watchPath: watchPath as string, // only read when sourceType === "local"
   watchedRootLabel,

@@ -74,6 +74,12 @@ model Agent {
   watchedRoot  String
   createdAt    DateTime @default(now())
   lastSeenAt   DateTime @default(now())
+  /// sha256 of the per-agent secret issued by POST /agents/register. Rotated
+  /// on every registration; null for rows that predate agent auth (they must
+  /// re-register) and for revoked agents.
+  secretHash   String?
+  /// Set by an ADMIN; a revoked agent can neither ingest nor re-register.
+  revokedAt    DateTime?
 
   fileEvents       FileEvent[]
   storageSnapshots StorageSnapshot[]
