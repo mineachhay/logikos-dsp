@@ -166,12 +166,32 @@ The vhost returns 403 for `/api/ingest/*`, `/api/agent-commands` and
 `/api/agents/register`. Those authenticate agents rather than users (and
 `register` takes no credential at all), so they are not safe to expose; the
 bundled agent reaches the backend over the compose network and is unaffected.
-Running an agent on a **remote** host means removing those blocks and putting
-real authentication in front of them first.
+Agents do authenticate now (see Quickstart), so running one on a **remote** host
+is possible by removing those blocks — but that exposes the enroll token to
+online guessing, so read ARCHITECTURE.md's "Agent authentication" first.
 
-If you have no Slack/Telegram endpoint yet, `RESPONSE_WEBHOOK_URL` can point at
-the bundled `webhook-logger` service, which logs the payload and returns 200 —
-without something listening, approving a webhook notification always fails.
+## Notifications (Telegram)
+
+Approving a **webhook notification** response action sends the alert to every
+configured channel. For Telegram, in the backend's env file:
+
+```bash
+TELEGRAM_BOT_TOKEN="123456:ABC..."   # from @BotFather
+TELEGRAM_CHAT_ID="..."               # see below
+```
+
+A bot can only message a chat that has talked to it first. Send the bot any
+message (or add it to a group and post there), then read the chat id:
+
+```bash
+curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getUpdates" | grep -o '"chat":{"id":-\?[0-9]*'
+```
+
+Group ids are negative. `RESPONSE_WEBHOOK_URL` (a generic JSON POST — Slack,
+n8n, anything) can be set alongside or instead; with both, the action is
+`EXECUTED` only if both succeed, and its result message records each. If you
+have no endpoint at all yet, point `RESPONSE_WEBHOOK_URL` at the bundled
+`webhook-logger` service, which logs the payload and returns 200.
 
 ## Backup and restore
 

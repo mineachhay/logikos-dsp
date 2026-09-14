@@ -116,8 +116,8 @@ services:
 
   # Local sink for RESPONSE_WEBHOOK_URL. Without something listening, approving
   # a WEBHOOK_NOTIFICATION goes straight to FAILED — see deploy/webhook-logger.mjs.
-  # Replace RESPONSE_WEBHOOK_URL in packages/backend/.env with a real Slack or
-  # Telegram endpoint and this service can be removed.
+  # Once TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID or a real RESPONSE_WEBHOOK_URL is set
+  # in the backend's env file, this service can be removed.
   webhook-logger:
     image: node:24-bookworm-slim
     command: node /app/webhook-logger.mjs
