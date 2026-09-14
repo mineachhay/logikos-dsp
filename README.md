@@ -194,7 +194,9 @@ chat" — read `getUpdates` again and use the new id. `RESPONSE_WEBHOOK_URL` (a 
 n8n, anything) can be set alongside or instead; with both, the action is
 `EXECUTED` only if both succeed, and its result message records each. If you
 have no endpoint at all yet, point `RESPONSE_WEBHOOK_URL` at the bundled
-`webhook-logger` service, which logs the payload and returns 200.
+`webhook-logger` service, which logs the payload and returns 200. It's opt-in:
+`docker compose --profile webhook-logger up -d webhook-logger`, then
+`RESPONSE_WEBHOOK_URL="http://webhook-logger:9099/hook"`.
 
 ## Backup and restore
 

@@ -114,11 +114,13 @@ services:
       - backend
     restart: unless-stopped
 
-  # Local sink for RESPONSE_WEBHOOK_URL. Without something listening, approving
-  # a WEBHOOK_NOTIFICATION goes straight to FAILED — see deploy/webhook-logger.mjs.
-  # Once TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID or a real RESPONSE_WEBHOOK_URL is set
-  # in the backend's env file, this service can be removed.
+  # Local sink for RESPONSE_WEBHOOK_URL, for installs with no Telegram or real
+  # webhook yet — without a listener every WEBHOOK_NOTIFICATION approval lands
+  # in FAILED (see deploy/webhook-logger.mjs). Opt-in, so a plain
+  # `docker compose up` doesn't start it:
+  #   docker compose --profile webhook-logger up -d
   webhook-logger:
+    profiles: [webhook-logger]
     image: node:24-bookworm-slim
     command: node /app/webhook-logger.mjs
     volumes:
