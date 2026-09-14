@@ -154,6 +154,44 @@ If you have no Slack/Telegram endpoint yet, `RESPONSE_WEBHOOK_URL` can point at
 the bundled `webhook-logger` service, which logs the payload and returns 200 —
 without something listening, approving a webhook notification always fails.
 
+## Backup and restore
+
+Everything the product knows lives in one Postgres database. The NER model
+cache and the built images are reproducible; the database is not.
+
+```bash
+deploy/backup.sh                  # dump now, prune to the newest 30
+deploy/restore.sh verify          # prove the newest dump restores (safe)
+deploy/restore.sh live --yes      # restore OVER the live database
+```
+
+`backup.sh` runs `pg_dump -Fc` **inside** the postgres container, so the client
+version always matches the server and the host needs no postgres tooling. It
+writes to a `.partial` file and renames only after `pg_restore --list` reads the
+result back, so an interrupted or corrupt dump can never be mistaken for a good
+one. Dumps land in `BACKUP_DIR` (default `/home/ubnt/backups/logikos-dsp`); at
+this data volume they are ~20KB each.
+
+Schedule it from cron — the deployed install uses:
+
+```
+PATH=/usr/bin:/bin
+15 3 * * * /home/ubnt/logikos-dsp/deploy/backup.sh >> /home/ubnt/backups/logikos-dsp/backup.log 2>&1
+```
+
+**Run `deploy/restore.sh verify` periodically.** It restores the newest dump
+into a throwaway database, prints its row counts beside the live ones, and drops
+it — an untested backup is a guess. `live` refuses to run without `--yes`,
+stops the services holding connections, and restarts them afterward, because the
+agent registers only at startup and would otherwise keep ingesting against an
+`Agent.key` the restored database no longer contains.
+
+**These dumps sit on the same disk as the database they protect**, which covers
+operator error, a bad migration or a corrupted table, but not loss of the host
+or its disk. Copying `BACKUP_DIR` off-box is the remaining gap. Not covered
+either: the gitignored `.env` files — losing `JWT_SECRET` only invalidates
+existing sessions, but the values are not reproducible from the repo.
+
 ## Running tests
 
 `packages/agent` and `packages/classification` run pure-logic unit tests with no external services. `packages/backend` needs a dedicated test database (one-time setup):

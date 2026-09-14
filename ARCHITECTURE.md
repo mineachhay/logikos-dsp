@@ -162,6 +162,12 @@ Every feature up to this point was verified by hand — live processes, curl scr
 
 **`deploy/webhook-logger.mjs` is a local sink for `RESPONSE_WEBHOOK_URL`.** `WEBHOOK_NOTIFICATION` executes synchronously on approve and records the HTTP result, so with nothing listening every approval lands in `FAILED` and half the response-action feature can't be exercised at all. The logger accepts the POST, pretty-prints the payload and returns 200 — enough to make the approve→`EXECUTED` path real and to document the payload shape for wiring up a real Slack/Telegram endpoint. It is a deployment aid, not a product component: point `RESPONSE_WEBHOOK_URL` at a real endpoint and drop the service.
 
+**Backups are a logical `pg_dump`, on a schedule, with a restore path that is actually exercised.** Postgres is the only stateful component that matters — the classification model cache re-downloads and the images rebuild — so a single nightly `-Fc` dump covers it. Custom format over plain SQL because it is compressed and `pg_restore` can do partial and parallel restores. The dump runs *inside* the postgres container because `pg_dump` refuses to dump from a server newer than itself and the image is the only guaranteed source of a matching client.
+
+Two details exist because of how backup stories usually fail. The dump is written to a `.partial` name and renamed only after `pg_restore --list` has read it back, so a truncated file can never be pruned-to as if it were good. And `deploy/restore.sh verify` restores into a throwaway database and diffs its row counts against the live one, so "we have backups" stays a testable claim rather than an assumption — verified here against a real dump: 9 tables, 9 enum types, 17 indexes and a byte-identical password hash.
+
+Not solved: the dumps live on the same disk as the database. That covers operator error and bad migrations, not loss of the host — an off-box copy is the remaining gap, deliberately left as a deployment concern rather than something this repo pretends to solve.
+
 ## What's deliberately out of scope for v0
 
 - SMB/M365/Google Drive share quarantine — SMB was actually attempted and reverted after live testing found a hard `v9u-smb2` library limitation, not just deferred; M365/Google Drive stay read-only by design (their OAuth scopes are `.readonly`, deliberately). See "SMB quarantine" above. Local-path quarantine for both `SENSITIVE_DATA_EXPOSED` alerts and `RANSOMWARE_RATE` bursts is covered (see "Automated response"/"Ransomware-burst quarantine" above).
