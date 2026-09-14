@@ -10,7 +10,13 @@ services:
       POSTGRES_PASSWORD: logikos
       POSTGRES_DB: logikos_dsp
     ports:
-      - "5432:5432"
+      # Loopback only: nothing outside this host needs Postgres — the backend
+      # and classification worker reach it over the compose network. Published
+      # on 0.0.0.0 it was reachable from the whole LAN with the default
+      # credentials, and Docker's port publishing writes its own iptables
+      # rules that bypass ufw. Local dev (pnpm db:up, psql, prisma) is
+      # unaffected.
+      - "127.0.0.1:5432:5432"
     volumes:
       - logikos_dsp_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -18,6 +24,10 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    # Every other service is `unless-stopped`; without the same here, a host
+    # reboot brings the stack back up with no database and the other four
+    # restart-loop against it.
+    restart: unless-stopped
 
   backend:
     build:
@@ -44,6 +54,12 @@ services:
     build:
       context: .
       dockerfile: packages/agent/Dockerfile
+    # Agent.key is derived from sha256(hostname:local:watchPath) so the Go and
+    # TypeScript agents register as the same row. In a container the default
+    # hostname is the random container ID, so every recreate minted a NEW
+    # Agent row and orphaned the previous one's history. Pinning it keeps the
+    # identity stable across redeploys.
+    hostname: dsp-agent
     environment:
       BACKEND_URL: http://backend:4000
       WATCH_PATH: /data
@@ -82,6 +98,17 @@ services:
       - "8080:80"
     depends_on:
       - backend
+    restart: unless-stopped
+
+  # Local sink for RESPONSE_WEBHOOK_URL. Without something listening, approving
+  # a WEBHOOK_NOTIFICATION goes straight to FAILED — see deploy/webhook-logger.mjs.
+  # Replace RESPONSE_WEBHOOK_URL in packages/backend/.env with a real Slack or
+  # Telegram endpoint and this service can be removed.
+  webhook-logger:
+    image: node:24-bookworm-slim
+    command: node /app/webhook-logger.mjs
+    volumes:
+      - ./deploy/webhook-logger.mjs:/app/webhook-logger.mjs:ro
     restart: unless-stopped
 
 volumes:

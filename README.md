@@ -114,6 +114,46 @@ The classification worker's NER model (~100MB) downloads on first start into a n
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md#production-packaging) for the packaging design and the bugs it surfaced (Prisma Client silently not generating from a workspace-root install, an OpenSSL version-detection issue that only breaks at runtime).
 
+### Behind a shared reverse proxy (this install)
+
+If the backend and dashboard sit behind an existing nginx that terminates TLS —
+rather than being reached on `localhost:4000`/`:8080` directly — copy the vhost
+from this repo and reload the proxy:
+
+```bash
+cp deploy/dsp.conf ../logikos-gateway/conf.d/dsp.conf
+cd ../logikos-gateway
+docker compose exec nginx nginx -t      # ALWAYS test first; a syntax error on
+docker compose exec nginx nginx -s reload   # restart takes every other vhost down
+```
+
+It serves the dashboard at `/` and proxies `/api/` to the backend with the
+`/api` prefix stripped, so the SPA and the API are same-origin and the session
+cookie needs no CORS exemption. Because `VITE_BACKEND_URL` is inlined at image
+build time, the public URL belongs in a root `.env` so rebuilds keep it:
+
+```bash
+cat > .env << 'ENV'
+WATCH_PATH_HOST=/srv/dsp-watch
+DASHBOARD_BACKEND_URL=https://dsp.example.com/api
+ENV
+docker compose up -d --build
+```
+
+Also set `NODE_ENV=production` in `packages/backend/.env` — the session cookie's
+`Secure` flag is derived from it.
+
+The vhost returns 403 for `/api/ingest/*`, `/api/agent-commands` and
+`/api/agents/register`. Those authenticate agents rather than users (and
+`register` takes no credential at all), so they are not safe to expose; the
+bundled agent reaches the backend over the compose network and is unaffected.
+Running an agent on a **remote** host means removing those blocks and putting
+real authentication in front of them first.
+
+If you have no Slack/Telegram endpoint yet, `RESPONSE_WEBHOOK_URL` can point at
+the bundled `webhook-logger` service, which logs the payload and returns 200 —
+without something listening, approving a webhook notification always fails.
+
 ## Running tests
 
 `packages/agent` and `packages/classification` run pure-logic unit tests with no external services. `packages/backend` needs a dedicated test database (one-time setup):
