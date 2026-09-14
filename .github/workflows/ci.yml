@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typescript:
+    runs-on: ubuntu-latest
+
+    # Backend tests drive real routes against a real database; the other
+    # packages' suites are pure logic. Same image as docker-compose.yml.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: logikos
+          POSTGRES_PASSWORD: logikos
+          POSTGRES_DB: logikos_dsp_test
+        options: >-
+          --health-cmd "pg_isready -U logikos"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+        ports: ["5432:5432"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4 # version comes from packageManager in package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24" # matches the node:24-bookworm-slim images
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # A workspace-root install does not reliably leave the Prisma client
+      # generated (see ARCHITECTURE.md, "Production packaging"), and the
+      # backend's tsc build fails without it.
+      - run: pnpm --filter @logikos-dsp/backend exec prisma generate
+
+      # tsc is the only static check in this repo — the build is the lint.
+      - run: pnpm build
+
+      # The backend test script loads .env.test, which is gitignored. The
+      # example already points at logikos_dsp_test on localhost:5432, which is
+      # exactly the service above; its secrets are test-only placeholders.
+      - run: cp packages/backend/.env.test.example packages/backend/.env.test
+
+      - run: pnpm test
+
+  native-agent:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: native-agent
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: native-agent/go.mod
+          cache-dependency-path: native-agent/go.sum
+
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+
+      - run: go vet ./...
+      - run: go test ./...

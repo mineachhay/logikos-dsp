@@ -25,7 +25,7 @@ pnpm test                 # pnpm -r test
 
 Env files are per-package and gitignored: `packages/backend/.env` (from `.env.example`), `packages/backend/.env.test` (from `.env.test.example`), and `packages/classification/.env` — the last has **no** example file; it needs `DATABASE_URL` (and optionally `POLL_INTERVAL_MS`). Backend and classification both start via `--env-file=.env`, so a missing file is a hard startup failure.
 
-There is no linter configured anywhere — `tsc` (via each package's `build`) is the only static check.
+There is no linter configured anywhere — `tsc` (via each package's `build`) is the only static check, plus `gofmt`/`go vet` for `native-agent/`. CI (`.github/workflows/ci.yml`) runs build, tests (with a Postgres service) and the Go checks on every push to `main`.
 
 ### Tests
 
