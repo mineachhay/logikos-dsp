@@ -1,9 +1,16 @@
 #!/usr/bin/env node
 // Minimal chromium-cli-alike REPL driver, used because chromium-cli itself
 // isn't installed in this environment. Reads newline-delimited commands from
-// stdin, drives a headless Chrome (the system /usr/bin/google-chrome, so no
-// Playwright browser download is needed), and writes numbered screenshots to
+// stdin, drives a headless Chromium, and writes numbered screenshots to
 // ./screenshots/ next to this file.
+//
+// Browser resolution, in order:
+//   1. $CHROME_PATH                        (explicit override)
+//   2. /usr/bin/google-chrome              (system Chrome, if present)
+//   3. Playwright's own downloaded Chromium (~/.cache/ms-playwright)
+// Install (3) with:
+//   PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu24.04-x64 npx playwright-core install chromium
+// The override is required on Ubuntu 26.04 — see SKILL.md Gotchas.
 //
 // Commands (one per line):
 //   nav <url>
@@ -18,7 +25,7 @@
 
 import { chromium } from "playwright-core";
 import { createInterface } from "node:readline";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -26,11 +33,49 @@ const here = dirname(fileURLToPath(import.meta.url));
 const shotDir = join(here, "screenshots");
 mkdirSync(shotDir, { recursive: true });
 
-const browser = await chromium.launch({
-  executablePath: "/usr/bin/google-chrome",
-  args: ["--no-sandbox", "--disable-gpu"],
-  headless: true,
-});
+function resolveExecutable() {
+  if (process.env.CHROME_PATH) return process.env.CHROME_PATH;
+  if (existsSync("/usr/bin/google-chrome")) return "/usr/bin/google-chrome";
+  return undefined; // let playwright-core use its own downloaded browser
+}
+
+// On a container with no root, Chromium's ~12 shared-library deps and its
+// fonts are unpacked into ~/.local/chrome-deps from plain .deb files (see
+// SKILL.md Prerequisites). Point the browser process at them. Harmless when
+// the directory doesn't exist — a distro-packaged Chrome finds its own libs.
+function browserEnv() {
+  const deps = join(process.env.HOME ?? "", ".local/chrome-deps");
+  if (!existsSync(deps)) return process.env;
+  const libs = [
+    join(deps, "usr/lib/x86_64-linux-gnu"),
+    join(deps, "lib/x86_64-linux-gnu"),
+  ].join(":");
+  return {
+    ...process.env,
+    LD_LIBRARY_PATH: process.env.LD_LIBRARY_PATH ? `${libs}:${process.env.LD_LIBRARY_PATH}` : libs,
+    FONTCONFIG_PATH: join(deps, "etc/fonts"),
+    XDG_DATA_HOME: join(deps, "usr/share"),
+  };
+}
+
+const executablePath = resolveExecutable();
+let browser;
+try {
+  browser = await chromium.launch({
+    executablePath,
+    args: ["--no-sandbox", "--disable-gpu"],
+    env: browserEnv(),
+    headless: true,
+  });
+} catch (err) {
+  console.error(`err launch: ${err.message.split("\n")[0]}`);
+  console.error(
+    executablePath
+      ? `(tried executablePath=${executablePath} — unset CHROME_PATH to use Playwright's own browser)`
+      : "(no system Chrome found and no Playwright browser installed — see SKILL.md Prerequisites)",
+  );
+  process.exit(1);
+}
 const page = await browser.newPage();
 const logs = [];
 page.on("console", (msg) => logs.push(`[console:${msg.type()}] ${msg.text()}`));
