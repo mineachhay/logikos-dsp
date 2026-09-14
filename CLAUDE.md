@@ -46,7 +46,7 @@ cd native-agent && go test ./...                                 # Go agent
 
 Vitest is pinned to `3.2.4` across every package (4.x would force a Vite major bump the dashboard isn't ready for); `@fastify/jwt`@8.0.1 and `@fastify/cookie`@9.4.0 are pinned to their last Fastify-4-compatible majors. Don't bump any of these piecemeal.
 
-There is a `run-logikos-dsp` skill (`.claude/skills/`) for starting the stack and driving the dashboard with Playwright — prefer it over ad-hoc startup. Its SKILL.md hardcodes a different repo root path than this checkout; the commands are still correct.
+There is a `run-logikos-dsp` skill (`.claude/skills/`) for starting the stack and driving the dashboard with Playwright — prefer it over ad-hoc startup. Note it assumes a clean machine where 5432/4000/5173 are free, which is not true on this host (see below).
 
 ## Architecture
 
@@ -80,11 +80,25 @@ watched source → [agent] --FileEvent/StorageSnapshot--> POST /ingest/* → [ba
 
 ## Deployment gotchas
 
-`docker-compose.yml` is both the dev-Postgres file and the full-stack deployment file — `pnpm db:up` names one service, `docker compose up` brings up all five. Each package has its own Dockerfile (`node:24-bookworm-slim`, not Alpine: Prisma and `onnxruntime-node` prebuilds are glibc).
+`docker-compose.yml` is both the dev-Postgres file and the full-stack deployment file — `pnpm db:up` names one service, `docker compose up` brings up all six (five product services plus `webhook-logger`). `docker-compose.smb-test.yml` (`pnpm smb:up`/`smb:down`) is a separate Samba server for exercising the SMB connector. Each package has its own Dockerfile (`node:24-bookworm-slim`, not Alpine: Prisma and `onnxruntime-node` prebuilds are glibc).
 
 Three Prisma packaging traps, all documented in ARCHITECTURE.md and all fixed in `packages/backend/Dockerfile` — don't undo them: a workspace-root `pnpm install` silently leaves the client ungenerated (needs an explicit `prisma generate`), Prisma misdetects OpenSSL on bookworm-slim and fails at *runtime* (needs `apt-get install openssl` in both stages), and `pnpm --prod deploy` builds a fresh `node_modules` that loses the earlier generate (needs generating again inside the deployed tree). A successful `docker build` proves none of this works — start the container and read its logs.
 
-**The dashboard's backend URL is baked in at image build time** (`VITE_BACKEND_URL` → `DASHBOARD_BACKEND_URL` build arg), and must be reachable *from the browser*, not from inside the compose network. Changing it requires a rebuild.
+**The dashboard's backend URL is baked in at image build time** (`VITE_BACKEND_URL` → `DASHBOARD_BACKEND_URL` build arg), and must be reachable *from the browser*, not from inside the compose network. Changing it requires a rebuild. The deployed value lives in the gitignored root `.env` (`DASHBOARD_BACKEND_URL=https://dsp.logikos.dev/api`) so `docker compose up --build` doesn't silently revert it to `localhost:4000`.
+
+### This host runs the live deployment
+
+**The full compose stack is up here and serves `https://dsp.logikos.dev`** through the shared `logikos-gateway` nginx (see `/home/ubnt/CLAUDE.md`). Consequences for dev work:
+
+- **`logikos-dsp-postgres-1` / `logikos_dsp` *is* the production database** — `pnpm db:up` doesn't start a separate dev one, and `packages/backend/.env` points at it. `pnpm db:migrate` (`prisma migrate dev`) against it can prompt to reset on drift; don't run it, or `db:seed`, without meaning to change prod. Backend tests are safe — `.env.test` targets `logikos_dsp_test` in the same container.
+- **The backend container holds :4000** (dashboard container :8080, Postgres `127.0.0.1:5432`), so `pnpm dev:backend` collides. Stop the relevant containers first or run on another port.
+- **`docker compose up --build` redeploys prod**, and recreating the agent re-registers it. The agent pins `hostname: dsp-agent` because `Agent.key` derives from the hostname — without it every recreate orphans the previous `Agent` row's history.
+
+The gateway vhost is tracked here as `deploy/dsp.conf` and **copied** into `../logikos-gateway/conf.d/` (read-only mount, not a git repo) — edit it here, copy, then `nginx -t` before `nginx -s reload`. It strips the `/api` prefix (the backend has none of its own; same-origin is what makes the `SameSite=Lax` cookie work) and **403s `/api/ingest/*`, `/api/agent-commands*` and `/api/agents/register`**: those authenticate machines, `register` takes no credential, and the bundled agent reaches the backend over the compose network instead. A remote agent needs real auth in front of them before those blocks come out.
+
+Two backend settings are load-bearing for the deployment: `trustProxy: true` in `app.ts` (request logs are the only audit trail of who approved actions; safe only while the backend is reachable solely via nginx) and `NODE_ENV=production` in `packages/backend/.env` (the session cookie's `Secure` flag derives from it). `webhook-logger` is a stand-in `RESPONSE_WEBHOOK_URL` sink — without a listener every `WEBHOOK_NOTIFICATION` approval lands in `FAILED`.
+
+Backups: `deploy/backup.sh` (nightly via the user crontab, `pg_dump -Fc` run inside the container, to `/home/ubnt/backups/logikos-dsp`), `deploy/restore.sh verify` (restores newest dump into a throwaway DB and diffs row counts — safe), `deploy/restore.sh live --yes` (overwrites prod, stops/restarts dependent services).
 
 ## Repo conventions
 
