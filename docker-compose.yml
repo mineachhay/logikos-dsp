@@ -81,8 +81,12 @@ services:
       # share instead of the local bind mount below; see README.
     volumes:
       - ${WATCH_PATH_HOST:-./data/watched}:/data
+    # Wait for the backend's healthcheck, not just its container: the agent
+    # registers once at startup and exits if that fails, so otherwise every
+    # deploy logged "agent failed to start" and cost a restart-policy bounce.
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     restart: unless-stopped
 
   classification:
