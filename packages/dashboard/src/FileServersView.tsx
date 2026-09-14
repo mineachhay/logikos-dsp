@@ -291,15 +291,15 @@ function ShareRow({ server, share, agents }: { server: FileServer; share: Share;
   return (
     <>
       <tr>
-        <td className="path" title={share.rootLabel}>
+        <td data-label="Share" className="path cell-wide" title={share.rootLabel}>
           {share.shareName}{share.subPath ? `/${share.subPath}` : ""}
         </td>
-        <td>{share.agent?.hostname ?? "—"}</td>
-        <td>{intervalLabel(share.scanIntervalSec)}</td>
-        <td className="fs-status"><ShareStatus server={server} share={share} /></td>
-        <td>{share.lastScanAt ? new Date(share.lastScanAt).toLocaleString() : "—"}</td>
-        <td>{share.lastFileCount ?? "—"} / {formatBytes(share.lastTotalBytes)}</td>
-        <td className="fs-row-actions">
+        <td data-label="Agent">{share.agent?.hostname ?? "—"}</td>
+        <td data-label="Schedule">{intervalLabel(share.scanIntervalSec)}</td>
+        <td data-label="Status" className="fs-status"><ShareStatus server={server} share={share} /></td>
+        <td data-label="Last scan">{share.lastScanAt ? new Date(share.lastScanAt).toLocaleString() : "—"}</td>
+        <td data-label="Files / size">{share.lastFileCount ?? "—"} / {formatBytes(share.lastTotalBytes)}</td>
+        <td className="fs-row-actions cell-actions">
           <button
             className="btn-link"
             disabled={!share.agentId || test.state.status === "PENDING"}
@@ -380,7 +380,8 @@ function ServerCard({ server, agents }: { server: FileServer; agents: ManagedAge
       {error && <p className="error">{error}</p>}
 
       {server.shares.length > 0 && (
-        <table className="fs-shares">
+        <div className="table-scroll">
+        <table className="fs-shares data-table">
           <thead>
             <tr>
               <th>Share</th>
@@ -396,6 +397,7 @@ function ServerCard({ server, agents }: { server: FileServer; agents: ManagedAge
             {server.shares.map((share) => <ShareRow key={share.id} server={server} share={share} agents={agents} />)}
           </tbody>
         </table>
+        </div>
       )}
 
       {addingShare ? (
@@ -462,13 +464,13 @@ export default function FileServersView() {
       {audit.data && audit.data.length > 0 && (
         <section className="fs-audit">
           <h3>Recent changes</h3>
-          <table>
+          <table className="data-table fs-audit-table">
             <tbody>
               {audit.data.map((entry) => (
                 <tr key={entry.id}>
-                  <td className="muted">{new Date(entry.createdAt).toLocaleString()}</td>
-                  <td>{entry.userEmail}</td>
-                  <td>{describeAudit(entry)}</td>
+                  <td data-label="When" className="muted">{new Date(entry.createdAt).toLocaleString()}</td>
+                  <td data-label="By">{entry.userEmail}</td>
+                  <td data-label="Change" className="cell-wide">{describeAudit(entry)}</td>
                 </tr>
               ))}
             </tbody>

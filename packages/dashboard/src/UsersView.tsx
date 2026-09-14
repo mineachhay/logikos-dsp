@@ -44,7 +44,7 @@ export default function UsersView() {
           <option value="VIEWER">VIEWER</option>
           <option value="ADMIN">ADMIN</option>
         </select>
-        <button type="submit" disabled={busy}>
+        <button type="submit" className="btn" disabled={busy}>
           Add user
         </button>
       </form>
@@ -53,7 +53,8 @@ export default function UsersView() {
       {error && <p className="error">Failed to load users: {error}</p>}
       {!data && !error && <p>Loading…</p>}
       {data && (
-        <table>
+        <div className="table-scroll">
+        <table className="data-table">
           <thead>
             <tr>
               <th>Email</th>
@@ -65,14 +66,15 @@ export default function UsersView() {
           <tbody>
             {data.map((u) => (
               <tr key={u.id}>
-                <td>{u.email}</td>
-                <td>{u.role}</td>
-                <td>{u.isActive ? "yes" : "no"}</td>
-                <td>{u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : "never"}</td>
+                <td data-label="Email" className="cell-wide">{u.email}</td>
+                <td data-label="Role">{u.role}</td>
+                <td data-label="Active">{u.isActive ? "yes" : "no"}</td>
+                <td data-label="Last login">{u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : "never"}</td>
               </tr>
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </div>
   );

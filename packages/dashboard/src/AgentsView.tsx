@@ -36,7 +36,8 @@ export default function AgentsView() {
       {!data && !error && <p>Loading…</p>}
       {data && data.length === 0 && <p className="empty">No agents have registered yet.</p>}
       {data && data.length > 0 && (
-        <table>
+        <div className="table-scroll">
+        <table className="data-table">
           <thead>
             <tr>
               <th>Hostname</th>
@@ -50,15 +51,15 @@ export default function AgentsView() {
           <tbody>
             {data.map((a) => (
               <tr key={a.id}>
-                <td>{a.hostname}</td>
-                <td>{a.watchedRoot}</td>
-                <td>
+                <td data-label="Hostname">{a.hostname}</td>
+                <td data-label="Watched root" className="path cell-wide">{a.watchedRoot}</td>
+                <td data-label="Key" className="cell-wide">
                   <code>{a.key}</code>
                 </td>
-                <td>{new Date(a.lastSeenAt).toLocaleString()}</td>
-                <td>{a.revokedAt ? `revoked ${new Date(a.revokedAt).toLocaleString()}` : "active"}</td>
-                <td>
-                  <button onClick={() => toggle(a)} disabled={busyId === a.id}>
+                <td data-label="Last seen">{new Date(a.lastSeenAt).toLocaleString()}</td>
+                <td data-label="Status">{a.revokedAt ? `revoked ${new Date(a.revokedAt).toLocaleString()}` : "active"}</td>
+                <td className="cell-actions">
+                  <button className={`btn btn-sm ${a.revokedAt ? "" : "btn-secondary danger"}`} onClick={() => toggle(a)} disabled={busyId === a.id}>
                     {a.revokedAt ? "Restore" : "Revoke"}
                   </button>
                 </td>
@@ -66,6 +67,7 @@ export default function AgentsView() {
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </div>
   );

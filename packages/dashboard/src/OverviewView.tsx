@@ -108,8 +108,15 @@ function AlertTrendChart({ data }: { data: Overview["alertTrend"] }) {
           viewBox={`0 0 ${width} ${height}`}
           role="img"
           aria-labelledby={titleId}
-          onMouseLeave={() => setHoverIdx(null)}
-          onMouseMove={(e) => {
+          // Pointer events, not mouse events, so a tap or drag on a touch screen shows the tooltip too.
+          onPointerLeave={() => setHoverIdx(null)}
+          onPointerMove={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const px = ((e.clientX - rect.left) / rect.width) * width;
+            const idx = Math.round(((px - padL) / plotW) * (data.length - 1));
+            setHoverIdx(Math.min(data.length - 1, Math.max(0, idx)));
+          }}
+          onPointerDown={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
             const px = ((e.clientX - rect.left) / rect.width) * width;
             const idx = Math.round(((px - padL) / plotW) * (data.length - 1));

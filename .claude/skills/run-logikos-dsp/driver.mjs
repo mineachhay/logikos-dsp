@@ -19,6 +19,7 @@
 //   fill <css selector> <text...>
 //   press <key>                                  (e.g. Enter)
 //   eval <js expression>                          (runs in page context)
+//   viewport <width>x<height>                    (e.g. 390x844 for a phone; default 1280x720)
 //   screenshot [name]
 //   console                                       (dump buffered console/page errors)
 //   quit
@@ -125,6 +126,10 @@ for await (const raw of rl) {
     } else if (cmd === "eval") {
       const result = await page.evaluate(arg);
       console.log(`ok eval => ${JSON.stringify(result)}`);
+    } else if (cmd === "viewport") {
+      const [width, height] = arg.split("x").map(Number);
+      await page.setViewportSize({ width, height });
+      console.log(`ok viewport ${width}x${height}`);
     } else if (cmd === "screenshot") {
       shotN += 1;
       const name = arg ? `${arg}.png` : `${String(shotN).padStart(2, "0")}.png`;

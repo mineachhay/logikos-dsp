@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { usePolling } from "./usePolling.js";
 import { patchAlertStatus, approveResponseAction, rejectResponseAction } from "./api.js";
 import { sourceName } from "./api.js";
@@ -56,10 +56,10 @@ function ResponseActionRow({
     if (!canApprove) return <div>{label}: pending approval</div>;
     return (
       <div className="response-actions">
-        <button disabled={busy} onClick={onApprove}>
+        <button className="btn btn-sm" disabled={busy} onClick={onApprove}>
           Approve {label}
         </button>
-        <button disabled={busy} onClick={onReject}>
+        <button className="btn btn-sm btn-secondary" disabled={busy} onClick={onReject}>
           Reject
         </button>
       </div>
@@ -165,7 +165,8 @@ function AlertsView() {
       {sorted && sorted.length === 0 ? (
         <p className="empty">No alerts match.</p>
       ) : (
-        <table>
+        <div className="table-scroll">
+        <table className="data-table">
           <thead>
             <tr>
               <SortableHeader label="Severity" columnKey="severity" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
@@ -181,20 +182,22 @@ function AlertsView() {
           <tbody>
             {sorted!.map((a) => (
               <tr key={a.id}>
-                <td><SeverityBadge severity={a.severity} /></td>
-                <td>{a.type}</td>
-                <td>{a.message}</td>
-                <td title={a.source?.rootLabel}>{sourceName(a)}</td>
-                <td>{a.status}</td>
-                <td>{new Date(a.createdAt).toLocaleString()}</td>
-                <td>
+                <td data-label="Severity"><SeverityBadge severity={a.severity} /></td>
+                <td data-label="Type">{a.type}</td>
+                <td data-label="Message" className="cell-wide">{a.message}</td>
+                <td data-label="Source" title={a.source?.rootLabel}>{sourceName(a)}</td>
+                <td data-label="Status">{a.status}</td>
+                <td data-label="When">{new Date(a.createdAt).toLocaleString()}</td>
+                <td className="cell-actions">
                   {a.status === "OPEN" && user?.role === "ADMIN" && (
-                    <button disabled={busyId === a.id} onClick={() => acknowledge(a.id)}>
+                    <button className="btn btn-sm btn-secondary" disabled={busyId === a.id} onClick={() => acknowledge(a.id)}>
                       Acknowledge
                     </button>
                   )}
                 </td>
-                <td>
+                <td data-label="Response" className="cell-wide">
+                  {/* One wrapper: on phones each cell is a two-column grid, and loose children would each take a grid cell. */}
+                  <div className="response-list">
                   {a.responseActions.length === 0 && "—"}
                   {a.responseActions.map((action) => (
                     <ResponseActionRow
@@ -206,11 +209,13 @@ function AlertsView() {
                       onReject={() => reject(action.id)}
                     />
                   ))}
+                  </div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </>
   );
@@ -263,7 +268,8 @@ function FileEventsView() {
       {sorted && sorted.length === 0 ? (
         <p className="empty">No file events match — point an agent at a directory, or adjust filters.</p>
       ) : (
-        <table>
+        <div className="table-scroll">
+        <table className="data-table">
           <thead>
             <tr>
               <SortableHeader label="Type" columnKey="eventType" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
@@ -276,15 +282,16 @@ function FileEventsView() {
           <tbody>
             {sorted!.map((e) => (
               <tr key={e.id}>
-                <td>{e.eventType}</td>
-                <td className="path">{e.path}</td>
-                <td>{e.sizeBytes ?? "—"}</td>
-                <td title={e.source?.rootLabel}>{sourceName(e)}</td>
-                <td>{new Date(e.occurredAt).toLocaleString()}</td>
+                <td data-label="Type">{e.eventType}</td>
+                <td data-label="Path" className="path cell-wide">{e.path}</td>
+                <td data-label="Size">{e.sizeBytes ?? "—"}</td>
+                <td data-label="Source" title={e.source?.rootLabel}>{sourceName(e)}</td>
+                <td data-label="When">{new Date(e.occurredAt).toLocaleString()}</td>
               </tr>
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </>
   );
@@ -369,7 +376,8 @@ function StorageView() {
       {sorted && sorted.length === 0 ? (
         <p className="empty">No snapshots match.</p>
       ) : (
-        <table>
+        <div className="table-scroll">
+        <table className="data-table">
           <thead>
             <tr>
               <SortableHeader label="Root path" columnKey="rootPath" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
@@ -384,15 +392,16 @@ function StorageView() {
           <tbody>
             {sorted!.map((s) => (
               <tr key={s.id}>
-                <td className="path">{s.rootPath}</td>
-                <td>{formatBytes(Number(s.totalBytes))}</td>
-                <td>{s.fileCount}</td>
-                <td>{sourceName(s)}</td>
-                <td>{new Date(s.takenAt).toLocaleString()}</td>
+                <td data-label="Root path" className="path cell-wide">{s.rootPath}</td>
+                <td data-label="Total size">{formatBytes(Number(s.totalBytes))}</td>
+                <td data-label="Files">{s.fileCount}</td>
+                <td data-label="Source">{sourceName(s)}</td>
+                <td data-label="Taken at">{new Date(s.takenAt).toLocaleString()}</td>
               </tr>
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </>
   );
@@ -445,7 +454,8 @@ function DataRiskView() {
       {sorted && sorted.length === 0 ? (
         <p className="empty">No sensitive-data matches match your filters.</p>
       ) : (
-        <table>
+        <div className="table-scroll">
+        <table className="data-table">
           <thead>
             <tr>
               <SortableHeader label="Pattern" columnKey="patternType" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
@@ -457,14 +467,15 @@ function DataRiskView() {
           <tbody>
             {sorted!.map((m) => (
               <tr key={m.id}>
-                <td>{m.patternType}</td>
-                <td><code>{m.redactedSample}</code></td>
-                <td className="path">{m.path}</td>
-                <td>{new Date(m.createdAt).toLocaleString()}</td>
+                <td data-label="Pattern">{m.patternType}</td>
+                <td data-label="Sample"><code>{m.redactedSample}</code></td>
+                <td data-label="Path" className="path cell-wide">{m.path}</td>
+                <td data-label="Found at">{new Date(m.createdAt).toLocaleString()}</td>
               </tr>
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </>
   );
@@ -486,17 +497,33 @@ function Dashboard() {
   const { user, logout } = useAuth();
   const groups = user?.role === "ADMIN" ? [...NAV_GROUPS, { label: "Administration", items: ["File Servers", "Agents", "Users"] }] : NAV_GROUPS;
   const [tab, setTab] = useState<string>("Overview");
+  // Below 900px the sidebar is an off-canvas drawer (see index.css); on wider
+  // screens it's always visible and this flag has no effect.
+  const [navOpen, setNavOpen] = useState(false);
+
+  useEffect(() => {
+    if (!navOpen) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setNavOpen(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [navOpen]);
+
+  function selectTab(t: string) {
+    setTab(t);
+    setNavOpen(false);
+    window.scrollTo(0, 0);
+  }
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      <aside id="app-nav" className={`sidebar ${navOpen ? "open" : ""}`}>
         <h1>logikos-dsp</h1>
         <nav>
           {groups.map((g) => (
             <div className="nav-group" key={g.label ?? "root"}>
               {g.label && <div className="nav-group-label">{g.label}</div>}
               {g.items.map((t) => (
-                <button key={t} className={t === tab ? "active" : ""} onClick={() => setTab(t)}>
+                <button key={t} className={t === tab ? "active" : ""} aria-current={t === tab ? "page" : undefined} onClick={() => selectTab(t)}>
                   {t}
                 </button>
               ))}
@@ -504,10 +531,21 @@ function Dashboard() {
           ))}
         </nav>
       </aside>
+      {navOpen && <div className="nav-backdrop" onClick={() => setNavOpen(false)} aria-hidden="true" />}
       <div className="main-column">
         <div className="topbar">
+          <button
+            className="nav-toggle"
+            aria-label={navOpen ? "Close menu" : "Open menu"}
+            aria-expanded={navOpen}
+            aria-controls="app-nav"
+            onClick={() => setNavOpen((v) => !v)}
+          >
+            <span aria-hidden="true">☰</span>
+          </button>
+          <h2 className="topbar-title">{tab}</h2>
           <div className="session">
-            <span>{user?.email}</span>
+            <span className="session-email" title={user?.email}>{user?.email}</span>
             <button onClick={() => logout()}>Log out</button>
           </div>
         </div>

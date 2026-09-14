@@ -232,14 +232,17 @@ tail -3 /tmp/agent.log                 # "quarantined /tmp/... -> /tmp/.../.logi
 | `nav <url>` | navigate |
 | `wait-for text=<substring>` or `wait-for <css selector>` | wait up to 15s |
 | `click <selector>` | click (a bare `text=Alerts` works too) |
-| `fill <selector> <text>` | fill an input (real input events, not `.value =`) |
+| `fill <selector> <text>` | fill an input (real input events, not `.value =`). The line splits at the first space, so the selector can't contain one — use `a>b`, not `a b` |
 | `press <key>` | keyboard press, e.g. `Enter` |
 | `eval <js>` | run JS in page context, prints the JSON result |
+| `viewport <w>x<h>` | resize, e.g. `viewport 390x844` (phone), `768x1024` (tablet); default 1280x720 |
 | `screenshot [name]` | full-page screenshot |
 | `console` | dump buffered `console.*` and page errors since launch |
 | `quit` | close the browser |
 
 `eval Array.from(document.querySelectorAll('button')).map(b=>b.textContent).join(' | ')`
+
+Checking a layout at a width: `viewport 390x844`, then `eval document.documentElement.scrollWidth - innerWidth` — anything above 0 means the page scrolls sideways. Below 900px the sidebar is a drawer, so click `.nav-toggle` before a nav item, and prefer an exact match (`eval [...document.querySelectorAll('.sidebar nav button')].find(b => b.textContent === 'Data Risk').click()`) — `text=Data Risk` also matches the "Data Risk Assessment" group label.
 is the fastest way to find out what's clickable on the current view.
 
 ## Run: native Go agent

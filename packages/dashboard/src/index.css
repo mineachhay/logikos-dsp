@@ -30,8 +30,17 @@ body {
 .sidebar nav button.active { background: #2f6fed; color: white; }
 
 .main-column { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.topbar { display: flex; justify-content: flex-end; padding: 14px 24px; border-bottom: 1px solid #191c22; }
-main { padding: 24px; max-width: 1200px; }
+.topbar {
+  display: flex; align-items: center; gap: 12px; padding: 12px 24px; border-bottom: 1px solid #191c22;
+  position: sticky; top: 0; z-index: 10; background: #0f1115;
+}
+.topbar-title { font-size: 15px; font-weight: 600; margin: 0; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-toggle {
+  display: none; background: #1c1f26; color: #e6e6e6; border: 1px solid #2a2e37; border-radius: 6px;
+  width: 40px; height: 40px; font-size: 18px; line-height: 1; cursor: pointer; flex: none;
+}
+.nav-backdrop { display: none; }
+main { padding: 24px; max-width: 1200px; width: 100%; }
 
 h1 { font-size: 20px; margin: 0; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -47,10 +56,13 @@ button { font: inherit; }
 .badge-high { background: #4a2323; color: #e58a8a; }
 .badge-critical { background: #5c1a1a; color: #ff8080; }
 
-.session { display: flex; align-items: center; gap: 12px; font-size: 13px; color: #aab4c8; }
+.session { display: flex; align-items: center; gap: 12px; font-size: 13px; color: #aab4c8; min-width: 0; }
+.session-email { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .session button { background: #1c1f26; color: #ccc; border: 1px solid #2a2e37; border-radius: 6px; padding: 4px 10px; cursor: pointer; }
 
-.response-actions { display: flex; gap: 6px; }
+.response-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
+.response-actions .btn { white-space: nowrap; }
+@media (min-width: 901px) { .response-actions { flex-wrap: nowrap; } }
 
 .login { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
 .login form { display: flex; flex-direction: column; gap: 12px; width: 280px; }
@@ -64,11 +76,12 @@ button { font: inherit; }
 }
 .login button:disabled, .create-user button:disabled { opacity: 0.6; cursor: default; }
 
-.create-user { display: flex; gap: 8px; margin-bottom: 16px; align-items: center; }
+.create-user { display: flex; gap: 8px; margin-bottom: 16px; align-items: center; flex-wrap: wrap; }
+.create-user input { flex: 1 1 200px; min-width: 0; }
 
 /* Overview */
 .overview { display: flex; flex-direction: column; gap: 20px; }
-.stat-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.stat-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 .stat-tile { background: #1c1f26; border: 1px solid #2a2e37; border-radius: 8px; padding: 14px 16px; }
 .stat-label { color: #898781; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
 .stat-value { font-size: 26px; font-weight: 600; color: #e6e6e6; }
@@ -110,7 +123,7 @@ button { font: inherit; }
 .recent-alerts .muted { color: #898781; font-size: 11px; flex: none; }
 
 /* Table controls: search/filter/export, one row above the table */
-.table-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.table-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
 .search-input {
   background: #1c1f26; color: #e6e6e6; border: 1px solid #2a2e37; border-radius: 6px;
   padding: 6px 10px; font-size: 13px; min-width: 220px;
@@ -171,3 +184,85 @@ th.sortable:hover { color: #ccc; }
 .test-fail { color: #ef6f6f; }
 .fs-audit h3 { font-size: 13px; font-weight: 500; color: #ccc; margin: 8px 0; }
 .bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------------------------------------------------------------------------
+   Responsive
+   - Tables scroll inside their own box rather than widening the page.
+   - <= 900px: the sidebar becomes an off-canvas drawer behind a menu button.
+   - <= 900px: .data-table rows stack into cards, each cell labelled from its
+     data-label attribute (the header row is hidden, so column sorting falls
+     back to each view's default order — newest first). Same breakpoint as the
+     drawer: on a tablet a scrolled table hid the Response column, which is
+     where the buttons are.
+   - <= 640px: phone-only touches (hidden email, full-width toolbar and form buttons).
+   --------------------------------------------------------------------------- */
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
+.chart-card { min-width: 0; overflow-x: auto; }
+.btn-sm { padding: 5px 10px; font-size: 12px; }
+.btn.danger { color: #ef6f6f; }
+.cell-actions { white-space: nowrap; }
+
+@media (max-width: 900px) {
+  .nav-toggle { display: inline-flex; align-items: center; justify-content: center; }
+  .sidebar {
+    position: fixed; top: 0; left: 0; bottom: 0; z-index: 30; width: min(280px, 85vw);
+    transform: translateX(-100%); transition: transform 0.2s ease; overflow-y: auto;
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.4);
+  }
+  .sidebar.open { transform: translateX(0); }
+  .sidebar nav button { padding: 11px 10px; font-size: 14px; }
+  .nav-backdrop { display: block; position: fixed; inset: 0; z-index: 25; background: rgba(0, 0, 0, 0.55); }
+  .topbar { padding: 10px 16px; }
+  main { padding: 16px; }
+
+  .data-table thead { display: none; }
+  .data-table, .data-table tbody, .data-table tr { display: block; width: 100%; }
+  .data-table tr {
+    background: #14161b; border: 1px solid #22252c; border-radius: 8px;
+    padding: 8px 12px; margin-bottom: 10px;
+  }
+  .data-table td {
+    display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 10px; align-items: start;
+    border: none; padding: 5px 0; text-align: left; white-space: normal; max-width: none;
+  }
+  .data-table td::before {
+    content: attr(data-label); color: #898781; font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.04em; padding-top: 2px;
+  }
+  .data-table td:not([data-label]) { grid-template-columns: minmax(0, 1fr); }
+  .data-table td:not([data-label])::before { content: none; }
+  .data-table td:empty { display: none; }
+  .data-table td > .badge { justify-self: start; }
+  .data-table .path, .data-table code { overflow-wrap: anywhere; word-break: break-word; }
+  .data-table .cell-actions { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 8px; }
+  .data-table .fs-row-actions { justify-content: flex-start; }
+  .data-table .fs-row-actions .btn-link { padding: 8px 10px; font-size: 13px; }
+  .fs-subrow { border: none !important; background: none !important; padding: 0 !important; margin-top: -6px; }
+  .fs-status { white-space: normal; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar { transition: none; }
+}
+
+@media (max-width: 640px) {
+  .session-email { display: none; }
+  .session button { padding: 8px 12px; }
+
+  .table-toolbar .search-input { flex: 1 1 100%; min-width: 0; }
+  .table-toolbar select { flex: 1 1 140px; min-width: 0; }
+  .export-button { padding: 8px 12px; }
+
+  .fs-card { padding: 12px; }
+  .fs-toolbar { flex-direction: column; align-items: stretch; }
+  .fs-header .fs-actions { width: 100%; }
+  .fs-header .fs-actions .btn { flex: 1 1 auto; }
+  .fs-form .fs-actions .btn { flex: 1 1 auto; padding: 10px 12px; }
+  .fs-form input, .fs-form select { padding: 10px; font-size: 16px; } /* 16px stops iOS zooming into the field */
+
+  .login input { font-size: 16px; padding: 10px; }
+  .login form { width: min(320px, 100% - 32px); }
+
+  .stat-value { font-size: 22px; }
+  .framework-stats { flex-wrap: wrap; gap: 12px; }
+}
