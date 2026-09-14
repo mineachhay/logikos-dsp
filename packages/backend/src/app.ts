@@ -20,7 +20,14 @@ import { overviewRoutes } from "./routes/overview.js";
  * using the exact same route/plugin registration code that runs in production.
  */
 export async function buildApp(opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
-  const app = Fastify({ logger: opts.logger ?? true });
+  // trustProxy: this runs behind the shared nginx gateway (see deploy/dsp.conf),
+  // which terminates TLS and sets X-Forwarded-For/-Proto. Without it Fastify
+  // reports every request as coming from the proxy's own address, so the
+  // request log — the only record of who approved a response action or created
+  // a user — shows the Docker bridge IP for every client on the internet.
+  // Safe here because the only route to this process is through that proxy;
+  // if the backend is ever exposed directly, a client could forge the header.
+  const app = Fastify({ logger: opts.logger ?? true, trustProxy: true });
 
   await app.register(cors, { origin: true, credentials: true });
   await registerAuth(app);
