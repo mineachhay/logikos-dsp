@@ -16,3 +16,5 @@ build
 **/.cache
 coverage
 .pnpm-store
+# Local dumps (BACKUP_DIR_HOST defaults to ./data/backups) and the watched test dir — never in an image.
+data

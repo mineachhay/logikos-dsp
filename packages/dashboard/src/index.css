@@ -185,6 +185,22 @@ th.sortable:hover { color: #ccc; }
 .fs-audit h3 { font-size: 13px; font-weight: 500; color: #ccc; margin: 8px 0; }
 .bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Backups (Administration) */
+.fs-card h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
+.field-hint { font-size: 11px; color: #898781; line-height: 1.4; }
+.field-hint code, .fs-hint code, .restore-help code { background: #1c1f26; padding: 1px 4px; border-radius: 4px; font-size: 11px; overflow-wrap: anywhere; }
+.fs-form textarea {
+  background: #1c1f26; color: #e6e6e6; border: 1px solid #2a2e37; border-radius: 6px; padding: 7px 9px;
+  font-size: 12px; font-family: ui-monospace, SFMono-Regular, monospace; resize: vertical; width: 100%;
+}
+.fs-form > label, .fs-card > label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #aab4c8; }
+.checkbox-row { flex-direction: row !important; align-items: center; gap: 8px !important; font-size: 13px !important; color: #e6e6e6 !important; }
+.backup-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+.backup-message { max-width: 520px; overflow-wrap: anywhere; font-size: 12px; }
+.restore-help summary { cursor: pointer; font-size: 13px; }
+.restore-help ol { font-size: 13px; padding-left: 20px; line-height: 1.7; }
+.fs-card a { color: #6fa0ff; }
+
 /* ---------------------------------------------------------------------------
    Responsive
    - Tables scroll inside their own box rather than widening the page.

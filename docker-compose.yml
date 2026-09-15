@@ -121,6 +121,45 @@ services:
       - backend
     restart: unless-stopped
 
+  # Off-box backups, configured under Administration -> Backups. Dumps the
+  # database, bundles it with the two env files below, encrypts it with age
+  # and uploads it via rclone (S3 / SFTP / Google Drive) — see ARCHITECTURE.md
+  # "Off-box backups".
+  backup:
+    build:
+      context: .
+      dockerfile: packages/backup/Dockerfile
+    # The host user that owns the env files (the backend's is mode 600) and the
+    # dump directory, which deploy/restore.sh reads.
+    user: "${BACKUP_UID:-1000}:${BACKUP_GID:-1000}"
+    # For SOURCE_CREDENTIALS_KEY, which decrypts the stored destination credentials.
+    env_file:
+      - ${BACKEND_ENV_FILE:-packages/backend/.env}
+    environment:
+      DATABASE_URL: postgresql://logikos:logikos@postgres:5432/logikos_dsp
+      BACKUP_DIR: /backups
+    volumes:
+      - ${BACKUP_DIR_HOST:-./data/backups}:/backups
+      # Put in every bundle so one backup is enough to rebuild. Long syntax with
+      # create_host_path: false — the short form would silently create a missing
+      # .env as an empty *directory* on the host and break compose itself.
+      - type: bind
+        source: ${BACKEND_ENV_FILE:-packages/backend/.env}
+        target: /secrets/backend.env
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./.env
+        target: /secrets/root.env
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   # Local sink for RESPONSE_WEBHOOK_URL, for installs with no Telegram or real
   # webhook yet — without a listener every WEBHOOK_NOTIFICATION approval lands
   # in FAILED (see deploy/webhook-logger.mjs). Opt-in, so a plain

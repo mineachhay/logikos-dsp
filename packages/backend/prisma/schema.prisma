@@ -35,6 +35,7 @@ enum SensitivePatternType {
 enum AlertType {
   RANSOMWARE_RATE
   SENSITIVE_DATA_EXPOSED
+  BACKUP_FAILED
 }
 
 enum AlertSeverity {
@@ -297,4 +298,86 @@ model ResponseAction {
   createdAt        DateTime             @default(now())
 
   @@index([status, createdAt])
+}
+
+enum BackupDestinationType {
+  S3
+  SFTP
+  GDRIVE
+}
+
+enum BackupRunKind {
+  BACKUP
+  VERIFY
+  TEST_DESTINATION
+}
+
+enum BackupRunTrigger {
+  SCHEDULE
+  MANUAL
+}
+
+enum BackupRunStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+/// Off-box backup configuration, edited under Administration -> Backups. A
+/// single row (id "default"). Read by the backup worker (packages/backup),
+/// which does the actual work; the backend never runs pg_dump or rclone.
+model BackupSettings {
+  id                  String                 @id @default("default")
+  /// Scheduled backups on/off. Manual runs work either way once configured.
+  enabled             Boolean                @default(false)
+  /// "HH:MM", UTC.
+  scheduleTimeUtc     String                 @default("03:15")
+  /// Scheduled slots before this are ignored, so enabling at noon doesn't
+  /// immediately run "this morning's" missed backup. Reset whenever the
+  /// schedule is turned on or its time changes.
+  scheduleActiveSince DateTime?
+  /// 0 = Sunday .. 6 = Saturday, null = no scheduled restore check.
+  verifyWeekday       Int?                   @default(0)
+  localRetention      Int                    @default(14)
+  remoteRetention     Int                    @default(30)
+  destinationType     BackupDestinationType?
+  /// Non-secret destination fields (bucket, host, folder id, ...).
+  destinationConfig   Json?
+  /// Secret destination fields as encrypted JSON (see shared/credentials.ts).
+  /// Write-only through the API.
+  credentialsEnc      String?
+  /// Folder under the destination root that bundles go into.
+  remotePath          String                 @default("logikos-dsp")
+  /// age recipient ("age1..."). Bundles are encrypted to it before upload; the
+  /// matching private key is never on this server.
+  agePublicKey        String?
+  workerHeartbeatAt   DateTime?
+  updatedAt           DateTime               @updatedAt
+}
+
+/// Queue and history in one: the dashboard inserts PENDING manual runs, the
+/// worker inserts scheduled ones, claims PENDING rows, and records outcomes.
+model BackupRun {
+  id               String           @id @default(uuid())
+  kind             BackupRunKind
+  trigger          BackupRunTrigger
+  status           BackupRunStatus  @default(PENDING)
+  requestedByEmail String?
+  /// The schedule slot a SCHEDULE run belongs to; unique per kind so two
+  /// workers (or a restart) can't both run the same slot.
+  scheduledFor     DateTime?
+  createdAt        DateTime         @default(now())
+  startedAt        DateTime?
+  finishedAt       DateTime?
+  /// Remote bundle name for BACKUP runs.
+  fileName         String?
+  sizeBytes        BigInt?
+  sha256           String?
+  uploaded         Boolean          @default(false)
+  message          String?
+
+  @@unique([kind, scheduledFor])
+  @@index([status, createdAt])
+  @@index([createdAt])
 }

@@ -3,7 +3,7 @@ import type { Prisma, Source } from "@prisma/client";
 import { z } from "zod";
 import { MANAGED_SOURCES_CAPABILITY, normalizeSubPath, smbRootLabel } from "@logikos-dsp/shared";
 import { prisma } from "../db.js";
-import { encryptSecret } from "../crypto/credentials.js";
+import { encryptSecret } from "@logikos-dsp/shared/credentials";
 import { recordAudit } from "../audit.js";
 
 // A connection test the agent hasn't picked up within this long is reported as

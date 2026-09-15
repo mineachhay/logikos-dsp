@@ -205,7 +205,7 @@ export interface ResponseAction {
 
 export interface Alert {
   id: string;
-  type: "RANSOMWARE_RATE" | "SENSITIVE_DATA_EXPOSED";
+  type: "RANSOMWARE_RATE" | "SENSITIVE_DATA_EXPOSED" | "BACKUP_FAILED";
   severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
   status: "OPEN" | "ACKNOWLEDGED" | "RESOLVED";
   message: string;
@@ -263,3 +263,62 @@ export interface Overview {
   matchesByPattern: { patternType: string; count: number }[];
   recentAlerts: Alert[];
 }
+
+// ---- Backups (Administration -> Backups) ----
+
+export type BackupDestinationType = "S3" | "SFTP" | "GDRIVE";
+
+export interface BackupDestinationView {
+  type: BackupDestinationType;
+  config: Record<string, string | number | undefined>;
+}
+
+export interface BackupRun {
+  id: string;
+  kind: "BACKUP" | "VERIFY" | "TEST_DESTINATION";
+  trigger: "SCHEDULE" | "MANUAL";
+  status: "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED";
+  requestedByEmail: string | null;
+  scheduledFor: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  fileName: string | null;
+  sizeBytes: string | null;
+  uploaded: boolean;
+  message: string | null;
+}
+
+export interface BackupSettingsView {
+  enabled: boolean;
+  scheduleTimeUtc: string;
+  verifyWeekday: number | null;
+  localRetention: number;
+  remoteRetention: number;
+  remotePath: string;
+  agePublicKey: string | null;
+  destination: BackupDestinationView | null;
+  /** Names of the secret fields currently stored — never their values. */
+  storedCredentials: string[];
+  worker: { lastHeartbeatAt: string | null; online: boolean };
+  nextBackupAt: string | null;
+  nextVerifyAt: string | null;
+  lastSuccessfulBackup: BackupRun | null;
+}
+
+export interface BackupSettingsInput {
+  enabled: boolean;
+  scheduleTimeUtc: string;
+  verifyWeekday: number | null;
+  localRetention: number;
+  remoteRetention: number;
+  remotePath: string;
+  agePublicKey: string | null;
+  destination: { type: BackupDestinationType; config: Record<string, unknown>; credentials: Record<string, string> } | null;
+}
+
+export const backupApi = {
+  settings: () => requestJson<BackupSettingsView>("GET", "/backup/settings"),
+  save: (input: BackupSettingsInput) => requestJson<BackupSettingsView>("PUT", "/backup/settings", input),
+  start: (kind: BackupRun["kind"]) => requestJson<BackupRun>("POST", "/backup/runs", { kind }),
+};

@@ -154,3 +154,5 @@ export function sourceKindFromRoot(watchedRoot: string): SourceKindName {
   if (watchedRoot.startsWith("gdrive://")) return "GDRIVE";
   return "LOCAL";
 }
+
+export * from "./backups.js";

@@ -5,7 +5,7 @@ import { MANAGED_SOURCES_CAPABILITY } from "@logikos-dsp/shared";
 import { buildApp } from "../app.js";
 import { prisma } from "../db.js";
 import { hashPassword } from "../auth/passwords.js";
-import { decryptSecret } from "../crypto/credentials.js";
+import { decryptSecret } from "@logikos-dsp/shared/credentials";
 import { seedAuthedAgent } from "../auth/agentFixtures.testutil.js";
 
 async function loginAs(app: FastifyInstance, role: "ADMIN" | "VIEWER"): Promise<string> {

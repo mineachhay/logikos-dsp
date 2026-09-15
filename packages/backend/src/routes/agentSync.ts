@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { AgentSyncResponse } from "@logikos-dsp/shared";
 import { prisma } from "../db.js";
 import { authenticateAgent } from "../auth/agentAuth.js";
-import { decryptSecret } from "../crypto/credentials.js";
+import { decryptSecret } from "@logikos-dsp/shared/credentials";
 
 const statusSchema = z.object({
   agentKey: z.string().min(8),

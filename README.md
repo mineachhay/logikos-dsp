@@ -228,43 +228,58 @@ have no endpoint at all yet, point `RESPONSE_WEBHOOK_URL` at the bundled
 
 ## Backup and restore
 
-Everything the product knows lives in one Postgres database. The NER model
-cache and the built images are reproducible; the database is not.
+Everything the product knows lives in one Postgres database (plus the env files
+holding its secrets). Backups are configured in the dashboard under
+**Administration → Backups** and run by the `backup` container.
+
+**Set up (once):**
+
+1. On **your own computer**, install [age](https://age-encryption.org) and run
+   `age-keygen -o logikos-dsp-backup.key`. Keep that file offline — a password
+   manager is ideal. **Without it no off-box backup can be restored.** Paste only
+   its `Public key: age1…` line into the dashboard.
+2. Pick a destination:
+   - **S3-compatible bucket** — Cloudflare R2, Backblaze B2, AWS S3, Wasabi or
+     MinIO. Create the bucket and a key that can read, write and delete in it.
+   - **Another server over SFTP** — preferably a dedicated user with a private
+     key; paste `ssh-keyscan <host>` output into *Server host key* so the
+     server's identity is checked.
+   - **Google Drive** — either a Google account (run `rclone authorize "drive"`
+     on any computer with a browser and paste the JSON it prints) or a service
+     account, which only works with a **Shared drive** it's a member of.
+3. **Save**, then **Test destination**, then **Back up now**, and turn on the
+   daily schedule (time is UTC) and the weekly restore check.
+
+**What a backup is:** a local dump in `BACKUP_DIR_HOST` (for fast restores on
+this host), and an encrypted bundle uploaded to the destination —
+`logikos-dsp-<UTC time>.tar.age` containing the dump, the backend and root env
+files, a manifest with checksums, and `RESTORE.txt`. That one file is enough to
+rebuild on a new host. Retention (how many to keep locally and remotely) is set
+on the same page. A failed backup or restore check raises a `BACKUP_FAILED`
+alert, which you can approve to send to Telegram.
+
+**Restore from an off-box backup:**
 
 ```bash
-deploy/backup.sh                  # dump now, prune to the newest 30
+age -d -i logikos-dsp-backup.key logikos-dsp-20260915T031500Z.tar.age | tar -x
+# then follow RESTORE.txt: put backend.env and root.env back, restore logikos_dsp.dump
+```
+
+**Roll this host back to a recent local dump:**
+
+```bash
 deploy/restore.sh verify          # prove the newest dump restores (safe)
 deploy/restore.sh live --yes      # restore OVER the live database
 ```
 
-`backup.sh` runs `pg_dump -Fc` **inside** the postgres container, so the client
-version always matches the server and the host needs no postgres tooling. It
-writes to a `.partial` file and renames only after `pg_restore --list` reads the
-result back, so an interrupted or corrupt dump can never be mistaken for a good
-one. Dumps land in `BACKUP_DIR` (default `/home/ubnt/backups/logikos-dsp`); at
-this data volume they are ~20KB each.
+`live` refuses to run without `--yes`, stops the services holding connections,
+and restarts them afterwards. `deploy/backup.sh` still works for a one-off dump
+from the host, but isn't scheduled any more — the container is.
 
-Schedule it from cron — the deployed install uses:
-
-```
-PATH=/usr/bin:/bin
-15 3 * * * /home/ubnt/logikos-dsp/deploy/backup.sh >> /home/ubnt/backups/logikos-dsp/backup.log 2>&1
-```
-
-**Run `deploy/restore.sh verify` periodically.** It restores the newest dump
-into a throwaway database, prints its row counts beside the live ones, and drops
-it — an untested backup is a guess. `live` refuses to run without `--yes`,
-stops the services holding connections (the restore needs them gone), and
-restarts them afterward. A running agent would recover by itself anyway — its
-secret no longer matches the restored row, so it gets a 401 and re-registers.
-
-**These dumps sit on the same disk as the database they protect**, which covers
-operator error, a bad migration or a corrupted table, but not loss of the host
-or its disk. Copying `BACKUP_DIR` off-box is the remaining gap. Not covered
-either: the gitignored `.env` files — losing `JWT_SECRET` only invalidates
-existing sessions, but **losing `SOURCE_CREDENTIALS_KEY` makes every stored
-file-server password unrecoverable** (re-enter them in the dashboard), and none
-of the values are reproducible from the repo.
+Deployment notes: the `backup` service needs the root `.env` to exist, runs as
+UID/GID `BACKUP_UID`/`BACKUP_GID` (default 1000, the owner of the env files and
+the dump directory), and writes dumps to `BACKUP_DIR_HOST` (default
+`./data/backups`).
 
 ## Running tests
 

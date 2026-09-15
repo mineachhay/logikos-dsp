@@ -1,7 +1,11 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
 /**
- * Encryption at rest for file-server passwords (FileServer.passwordEnc).
+ * Encryption at rest for stored secrets: file-server passwords
+ * (FileServer.passwordEnc) and backup destination credentials
+ * (BackupSettings.credentialsEnc). Shared by the backend and the backup
+ * worker. A separate entry point (`@logikos-dsp/shared/credentials`), not
+ * re-exported from index.ts, because it needs node:crypto.
  *
  * AES-256-GCM with a random 12-byte IV per value; GCM's tag means a tampered
  * or wrong-key ciphertext fails to decrypt rather than yielding garbage.

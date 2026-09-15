@@ -7,7 +7,7 @@ assertTestDatabase();
 
 beforeEach(async () => {
   await prisma.$executeRawUnsafe(
-    `TRUNCATE "AuditLog","ConnectionTest","ResponseAction","Alert","ClassificationMatch","ClassificationJob","FileEvent","StorageSnapshot","Source","FileServer","Agent","User" RESTART IDENTITY CASCADE`,
+    `TRUNCATE "BackupRun","BackupSettings","AuditLog","ConnectionTest","ResponseAction","Alert","ClassificationMatch","ClassificationJob","FileEvent","StorageSnapshot","Source","FileServer","Agent","User" RESTART IDENTITY CASCADE`,
   );
 });
 

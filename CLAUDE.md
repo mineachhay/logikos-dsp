@@ -50,7 +50,7 @@ There is a `run-logikos-dsp` skill (`.claude/skills/`) for starting the stack an
 
 ## Architecture
 
-Five workspace packages plus a Go agent, joined by one deliberately plain HTTP contract:
+Six workspace packages (shared, backend, agent, classification, dashboard, backup) plus a Go agent, joined by one deliberately plain HTTP contract:
 
 ```
 watched source → [agent] --FileEvent/StorageSnapshot--> POST /ingest/* → [backend/Fastify] → Postgres
@@ -82,7 +82,7 @@ watched source → [agent] --FileEvent/StorageSnapshot--> POST /ingest/* → [ba
 
 ## Deployment gotchas
 
-`docker-compose.yml` is both the dev-Postgres file and the full-stack deployment file — `pnpm db:up` names one service, `docker compose up` brings up the five product services (`webhook-logger` is opt-in via `--profile webhook-logger`). `docker-compose.smb-test.yml` (`pnpm smb:up`/`smb:down`) is a separate Samba server for exercising the SMB connector. Each package has its own Dockerfile (`node:24-bookworm-slim`, not Alpine: Prisma and `onnxruntime-node` prebuilds are glibc).
+`docker-compose.yml` is both the dev-Postgres file and the full-stack deployment file — `pnpm db:up` names one service, `docker compose up` brings up the six services — backend, agent, classification, dashboard, backup, postgres (`webhook-logger` is opt-in via `--profile webhook-logger`). `docker-compose.smb-test.yml` (`pnpm smb:up`/`smb:down`) is a separate Samba server for exercising the SMB connector. Each package has its own Dockerfile (`node:24-bookworm-slim`, not Alpine: Prisma and `onnxruntime-node` prebuilds are glibc).
 
 Three Prisma packaging traps, all documented in ARCHITECTURE.md and all fixed in `packages/backend/Dockerfile` — don't undo them: a workspace-root `pnpm install` silently leaves the client ungenerated (needs an explicit `prisma generate`), Prisma misdetects OpenSSL on bookworm-slim and fails at *runtime* (needs `apt-get install openssl` in both stages), and `pnpm --prod deploy` builds a fresh `node_modules` that loses the earlier generate (needs generating again inside the deployed tree). A successful `docker build` proves none of this works — start the container and read its logs.
 
@@ -100,7 +100,7 @@ The gateway vhost is tracked here as `deploy/dsp.conf` and **copied** into `../l
 
 Two backend settings are load-bearing for the deployment: `trustProxy: true` in `app.ts` (request logs are the only audit trail of who approved actions; safe only while the backend is reachable solely via nginx) and `NODE_ENV=production` in `.env.backend` (the session cookie's `Secure` flag derives from it). Notifications go to Telegram (`TELEGRAM_*` in `.env.backend`); `RESPONSE_WEBHOOK_URL` is commented out there and the `webhook-logger` container was removed from this host.
 
-Backups: `deploy/backup.sh` (nightly via the user crontab, `pg_dump -Fc` run inside the container, to `/home/ubnt/backups/logikos-dsp`), `deploy/restore.sh verify` (restores newest dump into a throwaway DB and diffs row counts — safe), `deploy/restore.sh live --yes` (overwrites prod, stops/restarts dependent services).
+Backups are configured under Administration → Backups and run by the `backup` container (`packages/backup`, built on `postgres:16-alpine` for a matching `pg_dump`, plus rclone and age): a local dump in `BACKUP_DIR_HOST` (`/home/ubnt/backups/logikos-dsp` here), and an age-encrypted bundle (dump + `.env.backend` + root `.env` + manifest) uploaded to S3/SFTP/Google Drive. Only the age *public* key is on the server — backups can't be decrypted here, by design. Destination secrets are encrypted with `SOURCE_CREDENTIALS_KEY` like share passwords. `deploy/restore.sh verify` / `live --yes` still restore local dumps; the old `deploy/backup.sh` cron job is retired. Run the worker's pure tests with `pnpm --filter @logikos-dsp/backup test`; anything touching real destinations needs the container (the host has no rclone/age).
 
 ## Repo conventions
 
