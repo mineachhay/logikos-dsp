@@ -242,6 +242,8 @@ tail -3 /tmp/agent.log                 # "quarantined /tmp/... -> /tmp/.../.logi
 
 `eval Array.from(document.querySelectorAll('button')).map(b=>b.textContent).join(' | ')`
 
+Driving the **deployed** site through the gateway (no DNS for `*.logikos.dev` on this host, self-signed cert): `CHROME_ARGS="--host-resolver-rules=MAP dsp.logikos.dev 127.0.0.1|--ignore-certificate-errors" node driver.mjs`, then `nav https://dsp.logikos.dev/` and log in with the credentials from the root `.env.backend`. Flags are `|`-separated because they contain spaces.
+
 Checking a layout at a width: `viewport 390x844`, then `eval document.documentElement.scrollWidth - innerWidth` — anything above 0 means the page scrolls sideways. Below 900px the sidebar is a drawer, so click `.nav-toggle` before a nav item, and prefer an exact match (`eval [...document.querySelectorAll('.sidebar nav button')].find(b => b.textContent === 'Data Risk').click()`) — `text=Data Risk` also matches the "Data Risk Assessment" group label.
 is the fastest way to find out what's clickable on the current view.
 

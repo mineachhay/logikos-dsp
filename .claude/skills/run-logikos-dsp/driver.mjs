@@ -64,7 +64,11 @@ let browser;
 try {
   browser = await chromium.launch({
     executablePath,
-    args: ["--no-sandbox", "--disable-gpu"],
+    // CHROME_ARGS: extra flags, one per "|" (flags can contain spaces). E.g. to drive the
+    // deployed site through the gateway on this host, where *.logikos.dev has no DNS and
+    // the certificate is self-signed:
+    //   CHROME_ARGS="--host-resolver-rules=MAP dsp.logikos.dev 127.0.0.1|--ignore-certificate-errors"
+    args: ["--no-sandbox", "--disable-gpu", ...(process.env.CHROME_ARGS ? process.env.CHROME_ARGS.split("|") : [])],
     env: browserEnv(),
     headless: true,
   });
