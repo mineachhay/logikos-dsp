@@ -155,8 +155,10 @@ services:
         read_only: true
         bind:
           create_host_path: false
+    # The backend applies migrations before it reports healthy; starting on
+    # postgres alone raced a fresh migration ("relation BackupRun does not exist").
     depends_on:
-      postgres:
+      backend:
         condition: service_healthy
     restart: unless-stopped
 

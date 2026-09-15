@@ -274,7 +274,8 @@ deploy/restore.sh live --yes      # restore OVER the live database
 
 `live` refuses to run without `--yes`, stops the services holding connections,
 and restarts them afterwards. `deploy/backup.sh` still works for a one-off dump
-from the host, but isn't scheduled any more — the container is.
+from the host. If you schedule it from cron, remove that entry once the
+dashboard schedule is on, or both will dump nightly.
 
 Deployment notes: the `backup` service needs the root `.env` to exist, runs as
 UID/GID `BACKUP_UID`/`BACKUP_GID` (default 1000, the owner of the env files and

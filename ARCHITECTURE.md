@@ -191,7 +191,7 @@ Every feature up to this point was verified by hand — live processes, curl scr
 
 Two details exist because of how backup stories usually fail. The dump is written to a `.partial` name and renamed only after `pg_restore --list` has read it back, so a truncated file can never be pruned-to as if it were good. And `deploy/restore.sh verify` restores into a throwaway database and diffs its row counts against the live one, so "we have backups" stays a testable claim rather than an assumption — verified here against a real dump: 9 tables, 9 enum types, 17 indexes and a byte-identical password hash.
 
-~~Not solved: the dumps live on the same disk as the database.~~ Solved by off-box backups, below; `deploy/backup.sh` and its cron entry were retired in favour of the backup container, which writes the same dump files to the same directory, so `restore.sh` is unchanged.
+~~Not solved: the dumps live on the same disk as the database.~~ Solved by off-box backups, below; the backup container replaces `deploy/backup.sh`'s cron entry (kept on the deployed host only until the dashboard schedule is configured there), which writes the same dump files to the same directory, so `restore.sh` is unchanged.
 
 ## Off-box backups
 
