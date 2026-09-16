@@ -10,6 +10,7 @@ import AgentsView from "./AgentsView.js";
 import FileServersView from "./FileServersView.js";
 import BackupsView from "./BackupsView.js";
 import RetentionView from "./RetentionView.js";
+import FileAccessView from "./FileAccessView.js";
 import OverviewView from "./OverviewView.js";
 import ComplianceView from "./ComplianceView.js";
 import { downloadCsv } from "./csv.js";
@@ -25,7 +26,7 @@ import { useSort, SortableHeader, TableToolbar } from "./tableControls.js";
 // Plus's exact taxonomy.
 const NAV_GROUPS: { label: string | null; items: readonly string[] }[] = [
   { label: null, items: ["Overview"] },
-  { label: "File Audit", items: ["Alerts", "File Events"] },
+  { label: "File Audit", items: ["Alerts", "File Events", "File Access"] },
   { label: "Data Risk Assessment", items: ["Data Risk", "Compliance"] },
   { label: "Disk Analysis", items: ["Storage"] },
 ];
@@ -294,7 +295,13 @@ function FileEventsView() {
               <tr key={e.id}>
                 <td data-label="Type">{e.eventType}</td>
                 <td data-label="Path" className="path cell-wide">
-                  {e.previousPath ? <>{e.previousPath} <span className="muted">→</span> {e.path}</> : e.path}
+                  {e.previousPath ? (
+                    <>
+                      {e.previousPath} <span className="muted">{e.eventType === "COPIED" ? "⧉" : "→"}</span> {e.path}
+                    </>
+                  ) : (
+                    e.path
+                  )}
                 </td>
                 <td data-label="Size">{e.sizeBytes ?? "—"}</td>
                 <td data-label="Source" title={e.source?.rootLabel}>{sourceName(e)}</td>
@@ -566,6 +573,7 @@ function Dashboard() {
           {tab === "Overview" && <OverviewView />}
           {tab === "Alerts" && <AlertsView />}
           {tab === "File Events" && <FileEventsView />}
+          {tab === "File Access" && <FileAccessView />}
           {tab === "Storage" && <StorageView />}
           {tab === "Data Risk" && <DataRiskView />}
           {tab === "Compliance" && <ComplianceView />}

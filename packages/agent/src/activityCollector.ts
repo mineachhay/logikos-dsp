@@ -98,7 +98,7 @@ async function pollServer(collector: ActivityCollectorConfig): Promise<void> {
       return;
     }
 
-    const built = buildActivityRecords(result.events, collector.shares);
+    const built = buildActivityRecords(result.events, collector.shares, { recordReads: collector.recordReads });
     const bookmark = nextBookmark({
       after,
       windowEnd: result.windowEnd,

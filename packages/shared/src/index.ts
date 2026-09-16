@@ -7,6 +7,8 @@ export type FileEventType =
   | "modified"
   | "deleted"
   | "renamed"
+  /** A new file whose size and timestamp match one still present — see diffSnapshots. */
+  | "copied"
   | "permission_changed";
 
 export interface FileEventInput {

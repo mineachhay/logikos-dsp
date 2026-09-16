@@ -56,6 +56,21 @@ describe("buildActivityRecords", () => {
   });
 });
 
+describe("buildActivityRecords with read recording", () => {
+  it("keeps reads when the file server asks for them — the only trace of a copy off the share", () => {
+    const read = event5145({ AccessList: "%%4416" }, 20);
+    expect(buildActivityRecords([read], shares).records).toEqual([]);
+    const withReads = buildActivityRecords([read], shares, { recordReads: true });
+    expect(withReads.records.map((r) => r.action)).toEqual(["READ"]);
+    expect(withReads.records[0].path).toBe("q1/payroll.csv");
+  });
+
+  it("still drops reads of other shares and unreadable events", () => {
+    const otherShare = event5145({ AccessList: "%%4416", ShareName: "\\\\*\\hr" }, 21);
+    expect(buildActivityRecords([otherShare], shares, { recordReads: true }).records).toEqual([]);
+  });
+});
+
 describe("nextBookmark", () => {
   it("continues from the highest record read", () => {
     expect(nextBookmark({ after: 100, windowEnd: 600, recordIds: [101, 140], newestRecordId: 900 })).toBe(140);

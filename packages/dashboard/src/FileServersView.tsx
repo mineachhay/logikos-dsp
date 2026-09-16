@@ -108,6 +108,7 @@ function ServerForm({
   const [winrmPort, setWinrmPort] = useState(initial?.winrmPort ? String(initial.winrmPort) : "");
   const [winrmUsername, setWinrmUsername] = useState(initial?.winrmUsername ?? "");
   const [winrmPassword, setWinrmPassword] = useState("");
+  const [recordReads, setRecordReads] = useState(initial?.recordReads ?? false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -124,6 +125,7 @@ function ServerForm({
         username,
         ...(password ? { password } : {}),
         activityEnabled,
+        recordReads: activityEnabled && recordReads,
         winrmPort: winrmPort ? Number(winrmPort) : null,
         winrmUsername: winrmUsername || null,
         ...(winrmPassword ? { winrmPassword } : {}),
@@ -180,6 +182,10 @@ function ServerForm({
               />
             </label>
           </div>
+          <label className="checkbox-row">
+            <input type="checkbox" checked={recordReads} onChange={(e) => setRecordReads(e.target.checked)} />
+            Also record who <strong>reads</strong> files (shows copies off the share, under File Access)
+          </label>
           <p className="muted fs-hint">
             The agent reads the server's Security log over WinRM every 30 seconds, so file events can say who made the change. On the server, run{" "}
             <code>auditpol /set /subcategory:"Detailed File Share" /success:enable</code> once, and put the account in <strong>Event Log Readers</strong>{" "}

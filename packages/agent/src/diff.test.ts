@@ -9,7 +9,7 @@ function baseline(sizeBytes: number, mtimeMs: number): Baseline {
 describe("diffSnapshots", () => {
   it("reports no changes on the first-ever scan (previous === null)", () => {
     const current = new Map([["a.txt", baseline(10, 1000)]]);
-    expect(diffSnapshots(null, current)).toEqual({ created: [], modified: [], deleted: [], renamed: [] });
+    expect(diffSnapshots(null, current)).toEqual({ created: [], modified: [], deleted: [], renamed: [], copied: [] });
   });
 
   it("detects a newly created file", () => {
@@ -42,7 +42,7 @@ describe("diffSnapshots", () => {
   it("reports no changes when nothing about a file differs", () => {
     const previous = new Map([["a.txt", baseline(10, 1000)]]);
     const current = new Map([["a.txt", baseline(10, 1000)]]);
-    expect(diffSnapshots(previous, current)).toEqual({ created: [], modified: [], deleted: [], renamed: [] });
+    expect(diffSnapshots(previous, current)).toEqual({ created: [], modified: [], deleted: [], renamed: [], copied: [] });
   });
 
   it("classifies created, modified, and deleted files together in one scan", () => {
@@ -61,6 +61,7 @@ describe("diffSnapshots", () => {
       modified: ["changed.txt"],
       deleted: ["removed.txt"],
       renamed: [],
+      copied: [],
     });
   });
 });
@@ -119,7 +120,7 @@ describe("diffSnapshots rename detection", () => {
     expect(diff.created).toEqual(["brand-new.txt"]);
   });
 
-  it("treats a copy as a create — the original is still there", () => {
+  it("reports a copy as a copy, naming the file it came from", () => {
     const previous = new Map([["report.csv", baseline(4, 1_000)]]);
     const current = new Map([
       ["report.csv", baseline(4, 1_000)],
@@ -127,6 +128,35 @@ describe("diffSnapshots rename detection", () => {
     ]);
     const diff = diffSnapshots(previous, current);
     expect(diff.renamed).toEqual([]);
-    expect(diff.created).toEqual(["report copy.csv"]);
+    expect(diff.created).toEqual([]);
+    expect(diff.copied).toEqual([{ from: "report.csv", to: "report copy.csv", sizeBytes: 4, mtimeMs: 1_000 }]);
+  });
+
+  it("calls it a rename when the original is gone, and a copy when it stays", () => {
+    const previous = new Map([["a.csv", baseline(9, 2_000)]]);
+    expect(diffSnapshots(previous, new Map([["b.csv", baseline(9, 2_000)]])).renamed).toHaveLength(1);
+    expect(diffSnapshots(previous, new Map([["a.csv", baseline(9, 2_000)], ["b.csv", baseline(9, 2_000)]])).copied).toHaveLength(1);
+  });
+
+  it("won't name a source when several files match — an empty file copied among empty files", () => {
+    const previous = new Map([
+      ["empty1.txt", baseline(0, 1_000)],
+      ["empty2.txt", baseline(0, 1_000)],
+    ]);
+    const current = new Map([
+      ["empty1.txt", baseline(0, 1_000)],
+      ["empty2.txt", baseline(0, 1_000)],
+      ["empty3.txt", baseline(0, 1_000)],
+    ]);
+    const diff = diffSnapshots(previous, current);
+    expect(diff.copied).toEqual([]);
+    expect(diff.created).toEqual(["empty3.txt"]);
+  });
+
+  it("doesn't call a genuinely new file a copy", () => {
+    const previous = new Map([["report.csv", baseline(4, 1_000)]]);
+    const current = new Map([["report.csv", baseline(4, 1_000)], ["notes.txt", baseline(88, 9_000)]]);
+    expect(diffSnapshots(previous, current).copied).toEqual([]);
+    expect(diffSnapshots(previous, current).created).toEqual(["notes.txt"]);
   });
 });

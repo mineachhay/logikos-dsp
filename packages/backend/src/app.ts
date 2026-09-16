@@ -15,6 +15,7 @@ import { agentRoutes } from "./routes/agents.js";
 import { ingestRoutes } from "./routes/ingest.js";
 import { agentCommandRoutes } from "./routes/agentCommands.js";
 import { eventRoutes } from "./routes/events.js";
+import { fileActivityRoutes } from "./routes/fileActivity.js";
 import { alertRoutes } from "./routes/alerts.js";
 import { storageRoutes } from "./routes/storage.js";
 import { classificationRoutes } from "./routes/classification.js";
@@ -68,6 +69,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(agentSyncRoutes);
   // Dashboard-facing: each of these gates itself behind app.authenticate internally.
   await app.register(eventRoutes);
+  await app.register(fileActivityRoutes);
   await app.register(alertRoutes);
   await app.register(storageRoutes);
   await app.register(classificationRoutes);

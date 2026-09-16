@@ -20,11 +20,16 @@ export interface BuiltRecords {
 }
 
 /**
- * Reads are dropped here rather than server-side: on a busy share they are
- * the overwhelming majority of 5145 events, and they can never explain a
- * change. Everything kept is attributable to a monitored share.
+ * Reads are dropped here rather than server-side unless the file server has
+ * read recording on: on a busy share they are the overwhelming majority of
+ * 5145 events, and they can never explain a change — but they are the only
+ * trace of a file being copied *off* the share.
  */
-export function buildActivityRecords(eventsXml: readonly string[], shares: readonly CollectorShare[]): BuiltRecords {
+export function buildActivityRecords(
+  eventsXml: readonly string[],
+  shares: readonly CollectorShare[],
+  options: { recordReads?: boolean } = {},
+): BuiltRecords {
   const records: FileActivityInput[] = [];
   const recordIds: number[] = [];
   let ignored = 0;
@@ -33,7 +38,7 @@ export function buildActivityRecords(eventsXml: readonly string[], shares: reado
     const parsed = parseSecurityEvent(xml);
     if (!parsed) continue;
     recordIds.push(parsed.recordId);
-    if (parsed.action === "READ" || parsed.action === "OTHER") {
+    if ((parsed.action === "READ" && !options.recordReads) || parsed.action === "OTHER") {
       ignored++;
       continue;
     }

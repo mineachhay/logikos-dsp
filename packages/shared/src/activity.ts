@@ -129,6 +129,9 @@ function explains(event: { eventType: string; path: string; previousPath?: strin
       );
     case "CREATED":
     case "MODIFIED":
+    // A copy's target is written like any new file; its source is only read,
+    // and a read never explains a change.
+    case "COPIED":
       return samePath && WRITE_ACTIONS.includes(candidate.action);
     default:
       return false;
@@ -220,6 +223,8 @@ export interface ActivityIngestRequest {
 /** One Windows server an agent should collect activity from, as /agent-sync hands it over. */
 export interface ActivityCollectorConfig {
   fileServerId: string;
+  /** Send read records too, so copies *off* the share are visible. */
+  recordReads?: boolean;
   host: string;
   winrmPort: number;
   username: string;
@@ -229,6 +234,14 @@ export interface ActivityCollectorConfig {
 }
 
 export const ACTIVITY_CAPABILITY = "windows-activity";
+
+/**
+ * Reading many files in a short time is what copying a folder off a share
+ * looks like in the audit log — one read per file, from one account. Opening
+ * documents to work on them doesn't reach this rate.
+ */
+export const BULK_READ_THRESHOLD = 50;
+export const BULK_READ_WINDOW_SECONDS = 300;
 
 /** Added to AgentSyncResponse; kept here with the rest of the activity contract. */
 export interface AgentSyncActivity {

@@ -75,6 +75,19 @@ async function scanOnce(
     for (const path of diff.modified) {
       events.push(await buildEvent(source, sourceId, "modified", path, current.get(path)!));
     }
+    for (const copy of diff.copied) {
+      // Same contents as the file it came from, which has already been
+      // classified — no need to sample and re-scan it.
+      events.push({
+        agentKey: config.agentKey,
+        sourceId,
+        eventType: "copied",
+        path: copy.to,
+        previousPath: copy.from,
+        sizeBytes: copy.sizeBytes,
+        occurredAt: new Date().toISOString(),
+      });
+    }
     for (const rename of diff.renamed) {
       // Contents didn't change, so no new content sample: the file was already
       // classified when it was created or last modified.

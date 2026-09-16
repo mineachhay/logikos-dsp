@@ -12,6 +12,8 @@ enum FileEventType {
   MODIFIED
   DELETED
   RENAMED
+  /// A copy: a new file matching one that's still there (previousPath names it).
+  COPIED
   PERMISSION_CHANGED
 }
 
@@ -37,6 +39,7 @@ enum AlertType {
   SENSITIVE_DATA_EXPOSED
   BACKUP_FAILED
   LOGIN_ATTACK
+  BULK_FILE_READ
 }
 
 enum AlertSeverity {
@@ -138,6 +141,9 @@ model FileServer {
   /// read-only on the share but a member of Event Log Readers.
   winrmUsername    String?
   winrmPasswordEnc String?
+  /// Also record file *reads* — the only trace a copy off the share leaves.
+  /// Off by default: on a busy share reads are most of the audit volume.
+  recordReads      Boolean  @default(false)
   /// EventRecordID of the last Security event read, so each poll asks only for newer ones.
   activityBookmark BigInt?
   lastActivityAt   DateTime?

@@ -73,6 +73,7 @@ export async function agentSyncRoutes(app: FastifyInstance) {
           // Falls back to the share account when no separate WinRM account is set.
           username: fs.winrmUsername || fs.username,
           password: decryptSecret(fs.winrmPasswordEnc ?? fs.passwordEnc),
+          recordReads: fs.recordReads,
           bookmark: fs.activityBookmark === null ? null : Number(fs.activityBookmark),
           shares: fs.shares.map((s) => ({ sourceId: s.id, shareName: s.shareName!, subPath: s.subPath })),
         }),

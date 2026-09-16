@@ -15,11 +15,20 @@ export interface RenamedFile {
   mtimeMs: number;
 }
 
+export interface CopiedFile {
+  /** The file it was copied from, which is still there. */
+  from: string;
+  to: string;
+  sizeBytes: number;
+  mtimeMs: number;
+}
+
 export interface DiffResult {
   created: string[];
   modified: string[];
   deleted: string[];
   renamed: RenamedFile[];
+  copied: CopiedFile[];
 }
 
 /**
@@ -73,6 +82,43 @@ function pairRenames(
 }
 
 /**
+ * Copying a file keeps its size and last-write time, so a new path whose
+ * size and mtime match a file that is *still there* is a copy of it — the
+ * difference from a rename, where the original is gone.
+ *
+ * Only unambiguous matches count: several empty files share a size and
+ * timestamp, and "copied from one of these four" is not worth saying, so
+ * those stay ordinary creates.
+ */
+function pairCopies(
+  created: string[],
+  previous: Map<string, Baseline>,
+  current: Map<string, Baseline>,
+): { copied: CopiedFile[]; created: string[] } {
+  const key = (s: Baseline) => `${s.sizeBytes}:${s.mtimeMs}`;
+  const survivors = new Map<string, string[]>();
+  for (const [path, stats] of current) {
+    // Only files that were already there: a file that appeared in this same
+    // scan is another new file, not the thing this one was copied from.
+    if (!previous.has(path)) continue;
+    const list = survivors.get(key(stats)) ?? [];
+    list.push(path);
+    survivors.set(key(stats), list);
+  }
+
+  const copied: CopiedFile[] = [];
+  const paired = new Set<string>();
+  for (const path of created) {
+    const stats = current.get(path)!;
+    const candidates = survivors.get(key(stats)) ?? [];
+    if (candidates.length !== 1) continue;
+    copied.push({ from: candidates[0], to: path, sizeBytes: stats.sizeBytes, mtimeMs: stats.mtimeMs });
+    paired.add(path);
+  }
+  return { copied, created: created.filter((p) => !paired.has(p)) };
+}
+
+/**
  * `previous === null` means "first scan ever" and intentionally returns no
  * changes, mirroring chokidar's ignoreInitial in watcher.ts — an agent
  * restart shouldn't replay a share's entire existing contents as "created".
@@ -83,7 +129,7 @@ export function diffSnapshots(previous: Map<string, Baseline> | null, current: M
   const deleted: string[] = [];
 
   if (previous === null) {
-    return { created, modified, deleted, renamed: [] };
+    return { created, modified, deleted, renamed: [], copied: [] };
   }
 
   for (const [path, stats] of current) {
@@ -100,5 +146,9 @@ export function diffSnapshots(previous: Map<string, Baseline> | null, current: M
     }
   }
 
-  return { modified, ...pairRenames(deleted, created, previous, current) };
+  // Renames first: they consume a delete and a create, and a copy's original
+  // is by definition still present.
+  const afterRenames = pairRenames(deleted, created, previous, current);
+  const afterCopies = pairCopies(afterRenames.created, previous, current);
+  return { modified, deleted: afterRenames.deleted, renamed: afterRenames.renamed, ...afterCopies };
 }

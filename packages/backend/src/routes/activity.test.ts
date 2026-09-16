@@ -351,6 +351,7 @@ describe("collector config over /agent-sync", () => {
         winrmPort: 5985,
         username: "svc-dsp",
         password: "share-password",
+        recordReads: false,
         bookmark: null,
         shares: [{ sourceId: share.id, shareName: "share", subPath: "" }],
       },

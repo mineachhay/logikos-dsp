@@ -113,6 +113,8 @@ export interface FileServer {
   enabled: boolean;
   /** "Who changed files": reads the Windows Security log over WinRM. */
   activityEnabled: boolean;
+  /** Also record reads — the only trace of a file copied off the share. */
+  recordReads: boolean;
   winrmPort: number | null;
   winrmUsername: string | null;
   hasWinrmPassword: boolean;
@@ -147,6 +149,7 @@ export interface FileServerInput {
   username: string;
   password?: string;
   activityEnabled?: boolean;
+  recordReads?: boolean;
   winrmPort?: number | null;
   winrmUsername?: string | null;
   winrmPassword?: string;
@@ -218,7 +221,7 @@ export interface ResponseAction {
 
 export interface Alert {
   id: string;
-  type: "RANSOMWARE_RATE" | "SENSITIVE_DATA_EXPOSED" | "BACKUP_FAILED" | "LOGIN_ATTACK";
+  type: "RANSOMWARE_RATE" | "SENSITIVE_DATA_EXPOSED" | "BACKUP_FAILED" | "LOGIN_ATTACK" | "BULK_FILE_READ";
   severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
   status: "OPEN" | "ACKNOWLEDGED" | "RESOLVED";
   message: string;
@@ -258,6 +261,18 @@ export interface StorageSnapshot {
   fileCount: number;
   takenAt: string;
   agent: { hostname: string; watchedRoot: string };
+  source: SourceRef | null;
+}
+
+export interface FileActivityRow {
+  id: string;
+  path: string;
+  action: "CREATE" | "WRITE" | "DELETE" | "RENAME" | "READ" | "OTHER";
+  userName: string;
+  userDomain: string | null;
+  clientIp: string | null;
+  occurredAt: string;
+  fileServer: { name: string } | null;
   source: SourceRef | null;
 }
 

@@ -5,19 +5,21 @@ import { checkRansomwareRate } from "../rules/ransomwareRate.js";
 import { authenticateAgent } from "../auth/agentAuth.js";
 import { resolveIngestSource } from "../sources.js";
 import { backfillActorsForActivity, findActorForEvent, linkBetweenScanRenames } from "../activity.js";
+import { checkBulkRead } from "../rules/bulkRead.js";
 
 const fileEventTypeMap = {
   created: "CREATED",
   modified: "MODIFIED",
   deleted: "DELETED",
   renamed: "RENAMED",
+  copied: "COPIED",
   permission_changed: "PERMISSION_CHANGED",
 } as const;
 
 const fileEventSchema = z.object({
   agentKey: z.string().min(8),
   sourceId: z.string().uuid().optional(),
-  eventType: z.enum(["created", "modified", "deleted", "renamed", "permission_changed"]),
+  eventType: z.enum(["created", "modified", "deleted", "renamed", "copied", "permission_changed"]),
   path: z.string().min(1),
   previousPath: z.string().optional(),
   sizeBytes: z.number().int().nonnegative().optional(),
@@ -193,9 +195,23 @@ export async function ingestRoutes(app: FastifyInstance) {
     }
 
     const matched = await backfillActorsForActivity(stored);
+    // A rename between two scans arrives as a create with no write of its own;
+    // the delete record that just landed is what identifies it.
     for (const sourceId of new Set(stored.map((r) => r.sourceId).filter((id): id is string => Boolean(id)))) {
       await linkBetweenScanRenames(sourceId);
     }
+    // Reads are only stored when the file server has read recording on; a burst
+    // of them from one account is what copying a folder off the share looks like.
+    const readers = new Map<string, { sourceId: string; userName: string }>();
+    for (const record of stored) {
+      if (record.action === "READ" && record.sourceId) {
+        readers.set(`${record.sourceId}|${record.userName}`, { sourceId: record.sourceId, userName: record.userName });
+      }
+    }
+    for (const { sourceId, userName } of readers.values()) {
+      await checkBulkRead(sourceId, userName);
+    }
+
     await prisma.fileServer.update({
       where: { id: server.id },
       data: {
