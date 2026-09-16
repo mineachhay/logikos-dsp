@@ -261,6 +261,85 @@ describe("matching who to what", () => {
   });
 });
 
+describe("renames between two scans", () => {
+  it("turns an unexplained create into a rename when only the old name was logged as deleted", async () => {
+    const { app, seeded, server, share } = await setup();
+    const renamedAt = new Date();
+
+    // The scan sees only the new name: the file was created and renamed inside one interval.
+    await app.inject({
+      method: "POST",
+      url: "/ingest/events",
+      headers: seeded.headers,
+      payload: [
+        {
+          agentKey: seeded.agent.key,
+          sourceId: share.id,
+          eventType: "created",
+          path: "HR/rename file.txt",
+          occurredAt: new Date(renamedAt.getTime() + 20_000).toISOString(),
+        },
+      ],
+    });
+
+    await app.inject({
+      method: "POST",
+      url: "/ingest/activity",
+      headers: seeded.headers,
+      payload: {
+        ...activityPayload(seeded.agent.key, server.id),
+        records: [
+          {
+            sourceId: share.id,
+            path: "HR/rename dsp file updated.txt",
+            action: "DELETE",
+            userName: "Administrator",
+            userDomain: "WIN-FS",
+            occurredAt: renamedAt.toISOString(),
+            recordId: 980,
+          },
+        ],
+      },
+    });
+
+    const event = await prisma.fileEvent.findFirstOrThrow();
+    expect(event.eventType).toBe("RENAMED");
+    expect(event.previousPath).toBe("HR/rename dsp file updated.txt");
+    expect(event.actorUser).toBe("WIN-FS\\Administrator");
+  });
+
+  it("leaves a genuine delete and a genuine create alone", async () => {
+    const { app, seeded, server, share } = await setup();
+    const at = new Date();
+    await app.inject({
+      method: "POST",
+      url: "/ingest/events",
+      headers: seeded.headers,
+      payload: [
+        { agentKey: seeded.agent.key, sourceId: share.id, eventType: "deleted", path: "HR/gone.txt", occurredAt: at.toISOString() },
+        { agentKey: seeded.agent.key, sourceId: share.id, eventType: "created", path: "HR/fresh.txt", occurredAt: at.toISOString() },
+      ],
+    });
+    await app.inject({
+      method: "POST",
+      url: "/ingest/activity",
+      headers: seeded.headers,
+      payload: {
+        ...activityPayload(seeded.agent.key, server.id),
+        records: [
+          { sourceId: share.id, path: "HR/gone.txt", action: "DELETE", userName: "Administrator", occurredAt: at.toISOString(), recordId: 990 },
+        ],
+      },
+    });
+
+    const created = await prisma.fileEvent.findFirstOrThrow({ where: { path: "HR/fresh.txt" } });
+    expect(created.eventType).toBe("CREATED");
+    expect(created.previousPath).toBeNull();
+    // The delete record explains the deletion it belongs to, not the unrelated create.
+    expect((await prisma.fileEvent.findFirstOrThrow({ where: { path: "HR/gone.txt" } })).actorUser).toBe("Administrator");
+  });
+});
+
 describe("collector config over /agent-sync", () => {
   it("hands the agent the WinRM account, falling back to the share account", async () => {
     const { app, seeded, server, share } = await setup();

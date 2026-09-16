@@ -156,6 +156,39 @@ export function matchActivity(
   return matches.sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime())[0] ?? null;
 }
 
+/**
+ * A rename that happens between two scans is invisible to scanning: the old
+ * name never existed in a snapshot, so the file simply appears under its new
+ * name and `diffSnapshots` reports a create. Windows, though, logs the rename
+ * as a delete of the old name — and that delete has no file event of its own,
+ * precisely because the old name was never seen.
+ *
+ * So: a `CREATED` event with no write record of its own, next to a delete
+ * record whose path was never reported as deleted, is that rename. Returns the
+ * record only when exactly one candidate fits — with two, there's no way to
+ * tell which file became which, and guessing an author is worse than leaving
+ * it blank.
+ */
+export function inferRenameFromAudit(
+  event: { path: string; occurredAt: Date },
+  deleteRecords: readonly ActivityCandidate[],
+  pathsReportedDeleted: readonly string[],
+  window: { beforeMs: number; afterMs: number },
+): ActivityCandidate | null {
+  const reported = new Set(pathsReportedDeleted.map((p) => p.toLowerCase()));
+  const from = event.occurredAt.getTime() - window.beforeMs;
+  const to = event.occurredAt.getTime() + window.afterMs;
+  const candidates = deleteRecords.filter(
+    (c) =>
+      c.action === "DELETE" &&
+      c.path.toLowerCase() !== event.path.toLowerCase() &&
+      !reported.has(c.path.toLowerCase()) &&
+      c.occurredAt.getTime() >= from &&
+      c.occurredAt.getTime() <= to,
+  );
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
 /** How far back to look for the audit record behind a scan-detected change. */
 export function activityWindowFor(scanIntervalSec: number): { beforeMs: number; afterMs: number } {
   return { beforeMs: scanIntervalSec * 1000 + 120_000, afterMs: 30_000 };

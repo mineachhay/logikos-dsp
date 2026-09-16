@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   accessListToAction,
+  inferRenameFromAudit,
   activityPathForSource,
   activityWindowFor,
   matchActivity,
@@ -159,5 +160,40 @@ describe("matchActivity", () => {
     expect(activityWindowFor(3600).beforeMs).toBe(3_720_000);
     const longAgo = candidate({ occurredAt: new Date("2026-09-16T13:10:00Z") });
     expect(matchActivity({ path: "q1/payroll.csv", eventType: "CREATED", occurredAt: scanAt }, [longAgo], activityWindowFor(3600))?.userName).toBe("jdoe");
+  });
+});
+
+describe("inferRenameFromAudit", () => {
+  const scanAt = new Date("2026-09-16T09:13:54Z");
+  const window = activityWindowFor(60);
+  const del = (path: string, secondsBefore: number, userName = "Administrator"): ActivityCandidate => ({
+    id: `d-${path}`,
+    path,
+    action: "DELETE",
+    occurredAt: new Date(scanAt.getTime() - secondsBefore * 1000),
+    userName,
+  });
+
+  it("recognizes a rename that happened between two scans", () => {
+    // The file was created and renamed inside one scan interval, so only the
+    // new name was ever seen — and only the old name was ever logged.
+    const match = inferRenameFromAudit({ path: "HR/rename file.txt", occurredAt: scanAt }, [del("HR/rename dsp file updated.txt", 20)], [], window);
+    expect(match?.path).toBe("HR/rename dsp file updated.txt");
+    expect(match?.userName).toBe("Administrator");
+  });
+
+  it("ignores a delete that the scan already reported as a deletion", () => {
+    const record = del("HR/really deleted.txt", 20);
+    expect(inferRenameFromAudit({ path: "HR/new.txt", occurredAt: scanAt }, [record], ["HR/really deleted.txt"], window)).toBeNull();
+  });
+
+  it("won't guess when two files disappeared in the same window", () => {
+    const records = [del("HR/one.txt", 20), del("HR/two.txt", 25)];
+    expect(inferRenameFromAudit({ path: "HR/new.txt", occurredAt: scanAt }, records, [], window)).toBeNull();
+  });
+
+  it("ignores deletes outside the window, and a delete of the created path itself", () => {
+    expect(inferRenameFromAudit({ path: "HR/new.txt", occurredAt: scanAt }, [del("HR/old.txt", 9999)], [], window)).toBeNull();
+    expect(inferRenameFromAudit({ path: "HR/new.txt", occurredAt: scanAt }, [del("HR/new.txt", 20)], [], window)).toBeNull();
   });
 });

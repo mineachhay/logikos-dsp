@@ -4,7 +4,7 @@ import { prisma } from "../db.js";
 import { checkRansomwareRate } from "../rules/ransomwareRate.js";
 import { authenticateAgent } from "../auth/agentAuth.js";
 import { resolveIngestSource } from "../sources.js";
-import { backfillActorsForActivity, findActorForEvent } from "../activity.js";
+import { backfillActorsForActivity, findActorForEvent, linkBetweenScanRenames } from "../activity.js";
 
 const fileEventTypeMap = {
   created: "CREATED",
@@ -118,6 +118,9 @@ export async function ingestRoutes(app: FastifyInstance) {
       }
     }
 
+    // A rename between two scans arrives as a create; the audit trail is what
+    // identifies it (see linkBetweenScanRenames).
+    await linkBetweenScanRenames(source.id);
     await checkRansomwareRate(source.id);
 
     return reply.send({ created });
@@ -190,6 +193,9 @@ export async function ingestRoutes(app: FastifyInstance) {
     }
 
     const matched = await backfillActorsForActivity(stored);
+    for (const sourceId of new Set(stored.map((r) => r.sourceId).filter((id): id is string => Boolean(id)))) {
+      await linkBetweenScanRenames(sourceId);
+    }
     await prisma.fileServer.update({
       where: { id: server.id },
       data: {

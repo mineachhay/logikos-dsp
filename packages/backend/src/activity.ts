@@ -1,5 +1,5 @@
 import type { FileActivity, Prisma } from "@prisma/client";
-import { activityWindowFor, matchActivity, type ActivityCandidate } from "@logikos-dsp/shared";
+import { activityWindowFor, inferRenameFromAudit, matchActivity, type ActivityCandidate } from "@logikos-dsp/shared";
 import { prisma } from "./db.js";
 
 /**
@@ -81,4 +81,47 @@ export async function backfillActorsForActivity(records: FileActivity[]): Promis
     }
   }
   return filled;
+}
+
+/**
+ * Renames that happened between two scans, which scanning alone can't see: the
+ * old name never appeared in a snapshot, so the file looks newly created.
+ * Windows logged the rename as a delete of the old name — a delete with no
+ * deletion of its own. Pairing the two turns a bare CREATED row into
+ * "old → new" with the person who did it.
+ *
+ * Only unattributed creates are considered, and only when exactly one delete
+ * fits (inferRenameFromAudit), so an ordinary create-and-delete pair in the
+ * same minute is left alone rather than being called a rename.
+ */
+export async function linkBetweenScanRenames(sourceId: string, now = new Date()): Promise<number> {
+  const source = await prisma.source.findUnique({ where: { id: sourceId }, select: { scanIntervalSec: true } });
+  const window = activityWindowFor(source?.scanIntervalSec ?? 300);
+  const since = new Date(now.getTime() - window.beforeMs - window.afterMs);
+
+  const [creates, deleteRecords, deletedEvents] = await Promise.all([
+    prisma.fileEvent.findMany({
+      where: { sourceId, eventType: "CREATED", actorUser: null, previousPath: null, occurredAt: { gte: since } },
+      orderBy: { occurredAt: "asc" },
+    }),
+    prisma.fileActivity.findMany({ where: { sourceId, action: "DELETE", occurredAt: { gte: since } } }),
+    prisma.fileEvent.findMany({ where: { sourceId, eventType: "DELETED", occurredAt: { gte: since } }, select: { path: true } }),
+  ]);
+  if (creates.length === 0 || deleteRecords.length === 0) return 0;
+
+  const used = new Set<string>();
+  const reportedDeleted = deletedEvents.map((e) => e.path);
+  let linked = 0;
+  for (const create of creates) {
+    const available = deleteRecords.filter((r) => !used.has(r.id)).map(toCandidate);
+    const match = inferRenameFromAudit(create, available, reportedDeleted, window);
+    if (!match) continue;
+    used.add(match.id);
+    await prisma.fileEvent.update({
+      where: { id: create.id },
+      data: { eventType: "RENAMED", previousPath: match.path, ...actorFields(match) },
+    });
+    linked++;
+  }
+  return linked;
 }
