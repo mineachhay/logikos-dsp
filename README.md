@@ -315,6 +315,18 @@ UID/GID `BACKUP_UID`/`BACKUP_GID` (default 1000, the owner of the env files and
 the dump directory), and writes dumps to `BACKUP_DIR_HOST` (default
 `./data/backups`).
 
+## Data retention
+
+Under **Administration → Retention**, set how long to keep file events,
+who-changed-files records, storage snapshots, resolved alerts and sign-in
+attempts. It's **off until you turn it on**, and each limit is shown beside how
+many rows are stored today. Cleanup runs hourly, or immediately with **Run
+cleanup now**.
+
+Deleting is permanent — set up Backups first. Some things are never deleted: the
+newest storage snapshot for each source (so a quiet share keeps showing its
+size), and alerts that are still open or acknowledged.
+
 ## Running tests
 
 `packages/agent` and `packages/classification` run pure-logic unit tests with no external services. `packages/backend` needs a dedicated test database (one-time setup):

@@ -7,6 +7,7 @@ import { requireCredentialsKey } from "@logikos-dsp/shared/credentials";
 import { agentSyncRoutes } from "./routes/agentSync.js";
 import { fileServerRoutes } from "./routes/fileServers.js";
 import { backupRoutes } from "./routes/backups.js";
+import { retentionRoutes } from "./routes/retention.js";
 import { registerAuth } from "./auth/plugin.js";
 import { authRoutes } from "./routes/auth.js";
 import { userRoutes } from "./routes/users.js";
@@ -74,6 +75,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(overviewRoutes);
   await app.register(fileServerRoutes);
   await app.register(backupRoutes);
+  await app.register(retentionRoutes);
 
   return app;
 }

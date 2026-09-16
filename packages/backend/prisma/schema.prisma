@@ -451,3 +451,20 @@ model BackupRun {
   @@index([status, createdAt])
   @@index([createdAt])
 }
+
+/// How long collected data is kept, edited under Administration -> Retention.
+/// A single row ("default"). Off by default: an install shouldn't start
+/// deleting an audit trail because nobody looked at this page.
+model RetentionSettings {
+  id                  String   @id @default("default")
+  enabled             Boolean  @default(false)
+  fileEventDays       Int      @default(180)
+  fileActivityDays    Int      @default(90)
+  storageSnapshotDays Int      @default(365)
+  /// Only alerts that have been resolved; open and acknowledged ones stay.
+  resolvedAlertDays   Int      @default(365)
+  loginAttemptDays    Int      @default(30)
+  lastRunAt           DateTime?
+  lastRunSummary      String?
+  updatedAt           DateTime @updatedAt
+}

@@ -340,3 +340,26 @@ export const backupApi = {
   save: (input: BackupSettingsInput) => requestJson<BackupSettingsView>("PUT", "/backup/settings", input),
   start: (kind: BackupRun["kind"]) => requestJson<BackupRun>("POST", "/backup/runs", { kind }),
 };
+
+// ---- Retention (Administration -> Retention) ----
+
+export interface RetentionSettings {
+  enabled: boolean;
+  fileEventDays: number;
+  fileActivityDays: number;
+  storageSnapshotDays: number;
+  resolvedAlertDays: number;
+  loginAttemptDays: number;
+  lastRunAt: string | null;
+  lastRunSummary: string | null;
+  counts: { fileEvents: number; fileActivity: number; storageSnapshots: number; resolvedAlerts: number; loginAttempts: number };
+  oldestFileEventAt: string | null;
+}
+
+export type RetentionInput = Omit<RetentionSettings, "lastRunAt" | "lastRunSummary" | "counts" | "oldestFileEventAt">;
+
+export const retentionApi = {
+  get: () => requestJson<RetentionSettings>("GET", "/retention"),
+  save: (input: RetentionInput) => requestJson<RetentionSettings>("PUT", "/retention", input),
+  run: () => requestJson<Record<string, number>>("POST", "/retention/run", {}),
+};

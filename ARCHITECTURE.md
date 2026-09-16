@@ -263,6 +263,16 @@ Two details exist because of how backup stories usually fail. The dump is writte
 
 **Still approve-first.** A Telegram message goes out when an ADMIN approves the suggested notification, not when the alert is raised. That keeps the loop documented above intact, and it means Telegram tells the *rest* of the team about something an admin has already looked at; paging on alert creation would be a separate, deliberate change to that design.
 
+## Data retention
+
+**Nothing was ever deleted.** File events, classification results, storage snapshots, alerts, and now Windows audit records and login attempts, all accumulated forever — fine at 9MB on one watched folder, not fine once shares are scanned on a schedule. Retention is configured under Administration → Retention and swept hourly by the backend (`retention.ts`, started from `index.ts` rather than `app.ts` so tests driving `app.inject()` never start a timer that deletes their own fixtures).
+
+**Off by default, and the page shows what's stored next to each limit.** An install shouldn't quietly start dropping its own audit trail because nobody visited a settings page, and "keep 30 days" means something different when the table holds a year. Deleting is irreversible, so the page points at Backups first.
+
+**Three rules exist because the obvious version loses things people still need.** Each source keeps its *newest* storage snapshot however old it is — otherwise a share that stopped changing disappears from the Storage view rather than showing its last known size. Only `RESOLVED` alerts expire: an open or acknowledged one is still someone's to-do, whatever its age. And file events take their classification jobs and matches with them, because those hang off the event and the FKs are `RESTRICT` — a half-deleted event would fail the sweep rather than corrupt anything, but it would fail it every hour.
+
+**Deletes run in bounded batches** (5,000 rows, at most 20 batches per table per pass) rather than one statement: the first sweep over a long-neglected database would otherwise hold locks for minutes. Whatever's left is picked up an hour later.
+
 ## What's deliberately out of scope for v0
 
 - SMB/M365/Google Drive share quarantine — SMB was actually attempted and reverted after live testing found a hard `v9u-smb2` library limitation, not just deferred; M365/Google Drive stay read-only by design (their OAuth scopes are `.readonly`, deliberately). See "SMB quarantine" above. Local-path quarantine for both `SENSITIVE_DATA_EXPOSED` alerts and `RANSOMWARE_RATE` bursts is covered (see "Automated response"/"Ransomware-burst quarantine" above).

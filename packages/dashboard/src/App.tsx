@@ -9,6 +9,7 @@ import UsersView from "./UsersView.js";
 import AgentsView from "./AgentsView.js";
 import FileServersView from "./FileServersView.js";
 import BackupsView from "./BackupsView.js";
+import RetentionView from "./RetentionView.js";
 import OverviewView from "./OverviewView.js";
 import ComplianceView from "./ComplianceView.js";
 import { downloadCsv } from "./csv.js";
@@ -507,7 +508,7 @@ function formatBytes(bytes: number): string {
 
 function Dashboard() {
   const { user, logout } = useAuth();
-  const groups = user?.role === "ADMIN" ? [...NAV_GROUPS, { label: "Administration", items: ["File Servers", "Backups", "Agents", "Users"] }] : NAV_GROUPS;
+  const groups = user?.role === "ADMIN" ? [...NAV_GROUPS, { label: "Administration", items: ["File Servers", "Backups", "Retention", "Agents", "Users"] }] : NAV_GROUPS;
   const [tab, setTab] = useState<string>("Overview");
   // Below 900px the sidebar is an off-canvas drawer (see index.css); on wider
   // screens it's always visible and this flag has no effect.
@@ -570,6 +571,7 @@ function Dashboard() {
           {tab === "Compliance" && <ComplianceView />}
           {tab === "File Servers" && <FileServersView />}
           {tab === "Backups" && <BackupsView />}
+          {tab === "Retention" && <RetentionView />}
           {tab === "Agents" && <AgentsView />}
           {tab === "Users" && <UsersView />}
         </main>
