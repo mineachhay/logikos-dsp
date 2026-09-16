@@ -176,7 +176,39 @@ describe("diffSnapshots rename detection", () => {
     ]);
   });
 
+  it("names the source among identical files by the filename a copy keeps", () => {
+    const lastScan = 9_500;
+    const previous = new Map([
+      ["create file.zip", baseline(22, 9_000)],
+      ["other archive.zip", baseline(22, 9_000)],
+    ]);
+    const current = new Map([
+      ["create file.zip", baseline(22, 9_000)],
+      ["other archive.zip", baseline(22, 9_000)],
+      ["IT/create file.zip", baseline(22, 9_000)],
+    ]);
+    expect(diffSnapshots(previous, current, lastScan).copied).toEqual([
+      { from: "create file.zip", to: "IT/create file.zip", sizeBytes: 22, mtimeMs: 9_000 },
+    ]);
+  });
+
+  it("pairs a move into a subfolder with the file that left, among identical files", () => {
+    const previous = new Map([
+      ["report.zip", baseline(22, 9_000)],
+      ["keep.zip", baseline(22, 9_000)],
+    ]);
+    const current = new Map([
+      ["keep.zip", baseline(22, 9_000)],
+      ["archive/report.zip", baseline(22, 9_000)],
+    ]);
+    const diff = diffSnapshots(previous, current, 9_500);
+    expect(diff.renamed).toEqual([{ from: "report.zip", to: "archive/report.zip", sizeBytes: 22, mtimeMs: 9_000 }]);
+    expect(diff.deleted).toEqual([]);
+    expect(diff.copied).toEqual([]);
+  });
+
   it("won't name a source when several files match — an empty file copied among empty files", () => {
+
     const previous = new Map([
       ["empty1.txt", baseline(0, 1_000)],
       ["empty2.txt", baseline(0, 1_000)],

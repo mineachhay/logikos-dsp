@@ -8,6 +8,23 @@ export interface Baseline {
   mtimeMs: number;
 }
 
+/** Last path segment, lowercased — paths here are always "/"-separated. */
+function baseName(path: string): string {
+  return (path.split("/").pop() ?? path).toLowerCase();
+}
+
+/**
+ * Which of several identical files a new path came from. Identical size and
+ * timestamp can't tell them apart, but a copy or a move almost always keeps
+ * its filename — enough to name the source when exactly one candidate shares
+ * it. Otherwise nothing is named: a wrong source is worse than none.
+ */
+function chooseSource(candidates: readonly string[], target: string): string | null {
+  if (candidates.length === 1) return candidates[0];
+  const sameName = candidates.filter((c) => baseName(c) === baseName(target));
+  return sameName.length === 1 ? sameName[0] : null;
+}
+
 export interface RenamedFile {
   from: string;
   to: string;
@@ -65,13 +82,16 @@ function pairRenames(
   const pairedFrom = new Set<string>();
   const pairedTo = new Set<string>();
   for (const entry of byKey.values()) {
-    if (entry.from.length !== 1 || entry.to.length !== 1) continue;
-    const [from] = entry.from;
-    const [to] = entry.to;
-    const stats = current.get(to)!;
-    renamed.push({ from, to, sizeBytes: stats.sizeBytes, mtimeMs: stats.mtimeMs });
-    pairedFrom.add(from);
-    pairedTo.add(to);
+    if (entry.from.length === 0 || entry.to.length === 0) continue;
+    for (const to of entry.to) {
+      const available = entry.from.filter((f) => !pairedFrom.has(f));
+      const from = chooseSource(available, to);
+      if (!from) continue;
+      const stats = current.get(to)!;
+      renamed.push({ from, to, sizeBytes: stats.sizeBytes, mtimeMs: stats.mtimeMs });
+      pairedFrom.add(from);
+      pairedTo.add(to);
+    }
   }
 
   return {
@@ -113,16 +133,17 @@ function pairCopies(
     const stats = current.get(path)!;
     // Empty files carry no evidence: every empty file matches every other one.
     const candidates = stats.sizeBytes > 0 ? (survivors.get(key(stats)) ?? []) : [];
+    const source = chooseSource(candidates, path);
 
     // Copying preserves the last-write time, so a file whose contents predate
     // the previous scan can't have been written here since — it was copied or
     // moved in, even when its source isn't in this share (a paste from a
     // desktop) or can't be told apart from other identical files.
     const olderThanLastScan = previousScanAt !== undefined && stats.mtimeMs < previousScanAt;
-    if (candidates.length !== 1 && !olderThanLastScan) continue;
+    if (!source && !olderThanLastScan) continue;
 
     copied.push({
-      from: candidates.length === 1 ? candidates[0] : null,
+      from: source,
       to: path,
       sizeBytes: stats.sizeBytes,
       mtimeMs: stats.mtimeMs,
