@@ -88,7 +88,9 @@ describe("describeActivityError", () => {
     expect(describeActivityError("ConnectionError: HTTPConnectionPool(host='fs01', port=5985): Max retries exceeded", "fs01", 5985)).toMatch(
       /can't reach WinRM at fs01:5985/,
     );
-    expect(describeActivityError("WinRMOperationTimeoutError: Access is denied", "fs01", 5985)).toMatch(/Event Log Readers/);
+    expect(describeActivityError("Could not retrieve information about the Security log. Error: Attempted to perform an unauthorized operation.", "fs01", 5985)).toMatch(
+      /wevtutil sl Security/,
+    );
   });
 
   it("passes through anything it doesn't recognize, trimmed", () => {

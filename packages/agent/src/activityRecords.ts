@@ -97,7 +97,8 @@ export function describeActivityError(raw: string, host: string, port: number): 
     // non-administrators — seen when a read-only share account was first used.
     [/InvalidCredentials|rejected by the server|401/i,
       `WinRM on ${host} rejected the account — wrong password, or it isn't allowed to use WinRM: Add-LocalGroupMember -Group "Remote Management Users" -Member <account> (and "Event Log Readers" to read the Security log)`],
-    [/Access is denied|AccessDenied|winrm.*5\b/i, "the account connected but can't read the Security log — add it to Event Log Readers and Remote Management Users"],
+    [/unauthorized operation|Access is denied|AccessDenied/i,
+      "connected, but Windows refused the Security log — the account needs to be in Event Log Readers, and that group must be allowed on the Security channel: wevtutil sl Security /ca:\"O:BAG:SYD:(A;;0xf0005;;;SY)(A;;0x5;;;BA)(A;;0x1;;;S-1-5-32-573)\""],
     [/Connection refused|Max retries|NewConnectionError|timed out|Read timed out/i, `can't reach WinRM at ${host}:${port} — check that WinRM is enabled (winrm quickconfig) and the firewall allows it`],
     [/No events were found|FilterXPath/i, "no matching events — is \"auditpol /set /subcategory:\\\"Detailed File Share\\\" /success:enable\" set on the server?"],
     [/collector exited|unparseable/i, "the activity collector didn't run — check the agent container's logs"],

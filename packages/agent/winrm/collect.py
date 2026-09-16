@@ -23,10 +23,10 @@ EVENT_SEPARATOR = "<<<EVT>>>"
 # to break the client library.
 SCRIPT = """
 $ErrorActionPreference = 'SilentlyContinue'
-# PowerShell writes progress records ("Preparing modules for first use") to
-# stderr as CLIXML; harmless, but it used to be read as a failed poll.
+# Progress records would otherwise be returned as an extra stream and read as
+# a failed poll. No [Console]::OutputEncoding here: PowerShell Remoting has no
+# console to set it on ("The handle is invalid"), and hands back text already.
 $ProgressPreference = 'SilentlyContinue'
-[Console]::OutputEncoding = [Text.Encoding]::UTF8
 try {{
   $newest = (Get-WinEvent -LogName Security -MaxEvents 1 -ErrorAction Stop).RecordId
   Write-Output "NEWEST:$newest"
@@ -49,39 +49,30 @@ def main() -> int:
     window = int(cfg.get("window") or 500)
     result = {"events": [], "newestRecordId": None, "windowEnd": after + window, "error": None}
     try:
-        import base64
+        from pypsrp.client import Client
 
-        from winrm.protocol import Protocol  # provided by python3-winrm
-
-        # Protocol, not Session.run_ps: run_ps pipes stderr through
-        # _clean_error_msg, which calls str.startswith on bytes and raises
-        # TypeError on Python 3 whenever PowerShell writes anything at all to
-        # stderr — seen against a real server on the very first poll.
-        protocol = Protocol(
-            endpoint=f"http://{cfg['host']}:{cfg.get('port', 5985)}/wsman",
-            transport="ntlm",
+        # PowerShell Remoting (PSRP), not the plain WinRM shell: running a
+        # command through the WinRM shell needs Execute on the service's SDDL,
+        # which only administrators have by default — a read-only service
+        # account in Remote Management Users gets "Access is denied" there,
+        # while the PowerShell endpoint accepts exactly that group. Seen the
+        # moment the share was switched to a service account.
+        script = SCRIPT.format(after=after, until=after + window, max_events=window, sep=EVENT_SEPARATOR)
+        with Client(
+            cfg["host"],
+            port=int(cfg.get("port", 5985)),
             username=cfg["username"],
             password=cfg["password"],
-            read_timeout_sec=int(cfg.get("readTimeoutSec", 60)),
-            operation_timeout_sec=int(cfg.get("operationTimeoutSec", 50)),
-        )
-        script = SCRIPT.format(after=after, until=after + window, max_events=window, sep=EVENT_SEPARATOR)
-        encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
-        shell_id = protocol.open_shell(codepage=65001)
-        try:
-            command_id = protocol.run_command(shell_id, "powershell.exe", ["-NoProfile", "-EncodedCommand", encoded])
-            try:
-                raw_out, raw_err, status_code = protocol.get_command_output(shell_id, command_id)
-            finally:
-                protocol.cleanup_command(shell_id, command_id)
-        finally:
-            protocol.close_shell(shell_id)
-        stdout = raw_out.decode("utf-8", "replace")
-        stderr = clean_stderr(raw_err.decode("utf-8", "replace"))
-        # Judge by what came back, not by the exit code or a chatty stderr:
-        # PowerShell can return non-zero while still having answered.
-        if "NEWEST:" not in stdout and "<Event" not in stdout:
-            result["error"] = stderr or f"PowerShell exited {status_code} without output"
+            ssl=False,
+            auth="ntlm",
+            operation_timeout=int(cfg.get("operationTimeoutSec", 50)),
+            read_timeout=int(cfg.get("readTimeoutSec", 60)),
+        ) as client:
+            raw_out, streams, had_errors = client.execute_ps(script)
+        stdout = raw_out if isinstance(raw_out, str) else raw_out.decode("utf-8", "replace")
+        stderr = " ".join(str(e) for e in streams.error)[:500]
+        if had_errors and "NEWEST:" not in stdout and "<Event" not in stdout:
+            result["error"] = stderr or "PowerShell reported an error with no output"
             return emit(result)
         for line in stdout.splitlines():
             if line.startswith("NEWEST:"):

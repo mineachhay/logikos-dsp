@@ -87,6 +87,15 @@ aren't, which looks like a rejected password:
 ```powershell
 Add-LocalGroupMember -Group "Remote Management Users" -Member dsp
 Add-LocalGroupMember -Group "Event Log Readers" -Member dsp
+```
+
+On some servers the Security log itself doesn't grant that group access, and
+reads fail with "unauthorized operation" even with both memberships. Check with
+`wevtutil gl Security` and restore Microsoft's default access, which includes
+Event Log Readers (`S-1-5-32-573`):
+
+```powershell
+wevtutil sl Security /ca:"O:BAG:SYD:(A;;0xf0005;;;SY)(A;;0x5;;;BA)(A;;0x1;;;S-1-5-32-573)"
 ``` It can be a different account from the share account — the
 share account can stay read-only — or blank to reuse it. WinRM's default port
 is 5985.

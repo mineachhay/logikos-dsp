@@ -16,7 +16,15 @@ FROM node:24-bookworm-slim AS runtime
 # python3-winrm (pywinrm, the client Ansible uses) for reading Windows Security
 # logs over WinRM — NTLM with message encryption has no maintained Node client.
 # Debian's package, not pip, so the image stays reproducible.
-RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-winrm \
+# pypsrp does PowerShell Remoting (PSRP), which is what a non-administrator in
+# Remote Management Users is allowed to use — the plain WinRM shell that
+# python3-winrm drives needs Execute on the service SDDL, which only admins
+# have, so a read-only service account got "Access is denied" there. Debian
+# doesn't package pypsrp; pinned, and python3-winrm still provides the NTLM
+# transport underneath.
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-winrm python3-pip \
+ && pip install --break-system-packages --no-cache-dir "pypsrp==0.9.1" \
+ && apt-get purge -y python3-pip && apt-get autoremove -y \
  && rm -rf /var/lib/apt/lists/*
 # NTLM hashes passwords with MD4, which OpenSSL 3 moved to its legacy provider,
 # so Python's hashlib refuses it ("unsupported hash type md4") and every WinRM
