@@ -18,28 +18,26 @@ EVENT_SEPARATOR = "<<<EVT>>>"
 # EventRecordID > after, bounded above so a backlog can't be skipped: a fixed
 # window is asked for each poll, and the caller advances the bookmark using
 # newestRecordId when the window turns out to be empty.
-# Everything is wrapped so PowerShell never writes to stderr: "no events match"
-# is a normal outcome here, not an error, and a stderr write used to be enough
-# to break the client library.
-SCRIPT = """
+# wevtutil, not Get-WinEvent: Get-WinEvent asks the Security log for its
+# metadata before reading anything, and that step is refused to anyone without
+# "Manage auditing and security log" — so it fails for an account that is in
+# Event Log Readers and can read the events perfectly well ("Attempted to
+# perform an unauthorized operation", seen against a real server once the
+# share moved to a read-only service account). wevtutil queries events
+# directly and works with just that group.
+#
+# EventRecordID > after, bounded above so a backlog can't be skipped: a fixed
+# window is asked for each poll, and the caller advances the bookmark using
+# newestRecordId when the window turns out to be empty.
+SCRIPT = r"""
 $ErrorActionPreference = 'SilentlyContinue'
-# Progress records would otherwise be returned as an extra stream and read as
-# a failed poll. No [Console]::OutputEncoding here: PowerShell Remoting has no
-# console to set it on ("The handle is invalid"), and hands back text already.
 $ProgressPreference = 'SilentlyContinue'
-try {{
-  $newest = (Get-WinEvent -LogName Security -MaxEvents 1 -ErrorAction Stop).RecordId
-  Write-Output "NEWEST:$newest"
-}} catch {{
-  Write-Output "ERR:$($_.Exception.Message)"
-}}
-try {{
-  $filter = "*[System[(EventID=5145) and (EventRecordID>{after}) and (EventRecordID<={until})]]"
-  $events = Get-WinEvent -LogName Security -FilterXPath $filter -MaxEvents {max_events} -ErrorAction Stop
-  foreach ($e in $events) {{ Write-Output ($e.ToXml() + "`n{sep}") }}
-}} catch {{
-  if ($_.Exception.Message -notmatch 'No events were found') {{ Write-Output "ERR:$($_.Exception.Message)" }}
-}}
+$newest = wevtutil qe Security /c:1 /rd:true /f:XML 2>$null
+if ("$newest" -match '<EventRecordID>(\d+)</EventRecordID>') {{ Write-Output "NEWEST:$($Matches[1])" }}
+else {{ Write-Output "ERR:could not read the Security log (wevtutil returned nothing)" }}
+$q = "*[System[(EventID=5145) and (EventRecordID>{after}) and (EventRecordID<={until})]]"
+$events = wevtutil qe Security /q:$q /f:XML /c:{max_events} 2>$null
+foreach ($e in $events) {{ Write-Output ("$e`n{sep}") }}
 """
 
 

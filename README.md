@@ -89,10 +89,11 @@ Add-LocalGroupMember -Group "Remote Management Users" -Member dsp
 Add-LocalGroupMember -Group "Event Log Readers" -Member dsp
 ```
 
-On some servers the Security log itself doesn't grant that group access, and
-reads fail with "unauthorized operation" even with both memberships. Check with
-`wevtutil gl Security` and restore Microsoft's default access, which includes
-Event Log Readers (`S-1-5-32-573`):
+Nothing else is needed: the collector reads events with `wevtutil`, which works
+with that group alone. (`Get-WinEvent` would also require the "Manage auditing
+and security log" privilege, which Event Log Readers doesn't grant.) If reads
+are refused anyway, check that the log still grants the group with
+`wevtutil gl Security` — its `channelAccess` should contain `S-1-5-32-573`:
 
 ```powershell
 wevtutil sl Security /ca:"O:BAG:SYD:(A;;0xf0005;;;SY)(A;;0x5;;;BA)(A;;0x1;;;S-1-5-32-573)"
