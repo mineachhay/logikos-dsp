@@ -15,8 +15,11 @@ export default function LoginView() {
     setError(null);
     try {
       await login(email, password);
-    } catch {
-      setError("Invalid email or password");
+    } catch (err) {
+      // The backend's own message when sign-ins are being throttled ("try again
+      // in N seconds"); anything else is the deliberately vague credentials error.
+      const message = err instanceof Error ? err.message : "";
+      setError(/try again in/i.test(message) ? message : "Invalid email or password");
     } finally {
       setBusy(false);
     }

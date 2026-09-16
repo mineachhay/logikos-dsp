@@ -90,3 +90,76 @@ describe("auth routes", () => {
     expect(adminRes.statusCode).toBe(200);
   });
 });
+
+describe("brute-force protection", () => {
+  async function failLogin(app: FastifyInstance, email: string, ip = "203.0.113.7") {
+    return app.inject({ method: "POST", url: "/auth/login", payload: { email, password: "wrong-password" }, remoteAddress: ip });
+  }
+
+  it("locks an account after repeated wrong passwords, then lets it back in when the lock expires", async () => {
+    const app = await buildApp({ logger: false });
+    const { email, password } = await seedUser("ADMIN");
+
+    for (let i = 0; i < 4; i++) expect((await failLogin(app, email)).statusCode).toBe(401);
+    // The fifth failure locks it; the next attempt is refused before the password is even checked.
+    expect((await failLogin(app, email)).statusCode).toBe(401);
+
+    const locked = await app.inject({ method: "POST", url: "/auth/login", payload: { email, password } });
+    expect(locked.statusCode).toBe(429);
+    expect(locked.headers["retry-after"]).toBeDefined();
+    expect(locked.json().error).toMatch(/try again in \d+ seconds/);
+
+    await prisma.user.update({ where: { email }, data: { lockedUntil: new Date(Date.now() - 1000) } });
+    const after = await login(app, email, password);
+    expect(after.res.statusCode).toBe(200);
+    const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+    expect(user.failedLoginCount).toBe(0);
+    expect(user.lockedUntil).toBeNull();
+  });
+
+  it("says the same thing whether or not the account exists, so it can't be used to find accounts", async () => {
+    const app = await buildApp({ logger: false });
+    const { email } = await seedUser("VIEWER");
+    const real = await failLogin(app, email, "203.0.113.8");
+    const fake = await failLogin(app, "nobody@example.com", "203.0.113.8");
+    expect(real.statusCode).toBe(401);
+    expect(fake.statusCode).toBe(401);
+    expect(real.json()).toEqual(fake.json());
+  });
+
+  it("raises one alert when an account is locked, not one per attempt", async () => {
+    const app = await buildApp({ logger: false });
+    const { email } = await seedUser("ADMIN");
+    for (let i = 0; i < 7; i++) await failLogin(app, email, "203.0.113.9");
+
+    const alerts = await prisma.alert.findMany({ where: { type: "LOGIN_ATTACK" }, include: { responseActions: true } });
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].severity).toBe("MEDIUM");
+    expect(alerts[0].message).toContain(email);
+    expect(alerts[0].responseActions.map((a) => a.type)).toEqual(["WEBHOOK_NOTIFICATION"]);
+  });
+
+  it("throttles one IP guessing across many accounts, which no single account's counter would catch", async () => {
+    const app = await buildApp({ logger: false });
+    const ip = "198.51.100.5";
+    // 20 different usernames, so no account reaches its own lock threshold.
+    for (let i = 0; i < 20; i++) await failLogin(app, `person-${i}@example.com`, ip);
+
+    const blocked = await failLogin(app, "person-21@example.com", ip);
+    expect(blocked.statusCode).toBe(429);
+
+    // A different address is unaffected.
+    const elsewhere = await failLogin(app, "person-21@example.com", "198.51.100.6");
+    expect(elsewhere.statusCode).toBe(401);
+  });
+
+  it("doesn't lock an account out because of someone else's failures on another account", async () => {
+    const app = await buildApp({ logger: false });
+    const victim = await seedUser("ADMIN");
+    const other = await seedUser("VIEWER");
+    for (let i = 0; i < 5; i++) await failLogin(app, other.email, "203.0.113.10");
+
+    const res = await login(app, victim.email, victim.password);
+    expect(res.res.statusCode).toBe(200);
+  });
+});

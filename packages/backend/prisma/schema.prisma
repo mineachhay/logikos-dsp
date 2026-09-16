@@ -36,6 +36,7 @@ enum AlertType {
   RANSOMWARE_RATE
   SENSITIVE_DATA_EXPOSED
   BACKUP_FAILED
+  LOGIN_ATTACK
 }
 
 enum AlertSeverity {
@@ -64,8 +65,26 @@ model User {
   isActive     Boolean   @default(true)
   createdAt    DateTime  @default(now())
   lastLoginAt  DateTime?
+  /// Consecutive failed logins; reset on success. Drives the lockout backoff
+  /// in auth/loginThrottle.ts.
+  failedLoginCount Int      @default(0)
+  lockedUntil      DateTime?
 
   approvedResponseActions ResponseAction[]
+}
+
+/// Login attempts, kept so a single IP can be throttled across accounts —
+/// per-account lockout alone doesn't stop someone spraying one password over
+/// many usernames. Pruned by the retention pass.
+model LoginAttempt {
+  id        String   @id @default(uuid())
+  ip        String
+  email     String
+  success   Boolean
+  at        DateTime @default(now())
+
+  @@index([ip, at])
+  @@index([at])
 }
 
 model Agent {

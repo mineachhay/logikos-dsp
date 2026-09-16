@@ -41,7 +41,9 @@ export interface CurrentUser {
 }
 
 export async function login(email: string, password: string): Promise<CurrentUser> {
-  return postJson<CurrentUser>("/auth/login", { email, password });
+  // requestJson, so a lockout's "try again in N seconds" reaches the login form
+  // instead of being flattened into a generic failure.
+  return requestJson<CurrentUser>("POST", "/auth/login", { email, password });
 }
 
 export async function logout(): Promise<void> {
@@ -216,7 +218,7 @@ export interface ResponseAction {
 
 export interface Alert {
   id: string;
-  type: "RANSOMWARE_RATE" | "SENSITIVE_DATA_EXPOSED" | "BACKUP_FAILED";
+  type: "RANSOMWARE_RATE" | "SENSITIVE_DATA_EXPOSED" | "BACKUP_FAILED" | "LOGIN_ATTACK";
   severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
   status: "OPEN" | "ACKNOWLEDGED" | "RESOLVED";
   message: string;

@@ -220,6 +220,17 @@ Agents do authenticate now (see Quickstart), so running one on a **remote** host
 is possible by removing those blocks — but that exposes the enroll token to
 online guessing, so read ARCHITECTURE.md's "Agent authentication" first.
 
+## Sign-in protection
+
+The dashboard throttles password guessing: five wrong passwords in a row locks
+that account for a minute, then longer (up to half an hour) if it continues, and
+twenty failures from one IP address in fifteen minutes blocks that address for
+fifteen. Locks expire on their own — nobody can lock an admin out permanently.
+
+Every failed sign-in says the same thing, so the form can't be used to find out
+which accounts exist. A lockout raises a `LOGIN_ATTACK` alert you can send to
+Telegram like any other.
+
 ## Notifications (Telegram)
 
 Approving a **webhook notification** response action sends the alert to every
