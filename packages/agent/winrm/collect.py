@@ -13,8 +13,6 @@ import json
 import re
 import sys
 
-EVENT_SEPARATOR = "<<<EVT>>>"
-
 # EventRecordID > after, bounded above so a backlog can't be skipped: a fixed
 # window is asked for each poll, and the caller advances the bookmark using
 # newestRecordId when the window turns out to be empty.
@@ -32,12 +30,14 @@ EVENT_SEPARATOR = "<<<EVT>>>"
 SCRIPT = r"""
 $ErrorActionPreference = 'SilentlyContinue'
 $ProgressPreference = 'SilentlyContinue'
-$newest = wevtutil qe Security /c:1 /rd:true /f:XML 2>$null
+$newest = (wevtutil qe Security /c:1 /rd:true /f:XML 2>$null) -join ''
 if ("$newest" -match '<EventRecordID>(\d+)</EventRecordID>') {{ Write-Output "NEWEST:$($Matches[1])" }}
 else {{ Write-Output "ERR:could not read the Security log (wevtutil returned nothing)" }}
 $q = "*[System[(EventID=5145) and (EventRecordID>{after}) and (EventRecordID<={until})]]"
-$events = wevtutil qe Security /q:$q /f:XML /c:{max_events} 2>$null
-foreach ($e in $events) {{ Write-Output ("$e`n{sep}") }}
+# One blob, split on </Event> by the caller: wevtutil wraps each event over
+# several lines, so emitting a separator per line handed the parser fragments
+# and every event was silently dropped.
+Write-Output ((wevtutil qe Security /q:$q /f:XML /c:{max_events} 2>$null) -join '')
 """
 
 
@@ -55,7 +55,7 @@ def main() -> int:
         # account in Remote Management Users gets "Access is denied" there,
         # while the PowerShell endpoint accepts exactly that group. Seen the
         # moment the share was switched to a service account.
-        script = SCRIPT.format(after=after, until=after + window, max_events=window, sep=EVENT_SEPARATOR)
+        script = SCRIPT.format(after=after, until=after + window, max_events=window)
         with Client(
             cfg["host"],
             port=int(cfg.get("port", 5985)),
@@ -79,7 +79,7 @@ def main() -> int:
             elif line.startswith("ERR:"):
                 result["error"] = line[len("ERR:"):].strip()
         body = stdout.split("NEWEST:", 1)[-1]
-        result["events"] = [chunk.strip() for chunk in body.split(EVENT_SEPARATOR) if "<Event" in chunk]
+        result["events"] = [f"{chunk}</Event>" for chunk in body.split("</Event>") if "<Event" in chunk]
     except Exception as err:  # noqa: BLE001 — every failure is reported, never raised
         result["error"] = f"{type(err).__name__}: {err}"
     return emit(result)
