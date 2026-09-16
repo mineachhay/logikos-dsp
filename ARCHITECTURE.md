@@ -241,6 +241,8 @@ Two details exist because of how backup stories usually fail. The dump is writte
 
 **NTLM needs MD4, which OpenSSL 3 hides.** The first live attempt against a real Windows server failed with `ValueError: unsupported hash type md4`: Python's hashlib refuses it, so every WinRM login fails before it starts. The agent image now ships an OpenSSL config that activates the legacy provider, passed to the collector subprocess only — the same problem the SMB client solves for Node with `--openssl-legacy-provider`. Every failure seen against that server is translated into what to do about it (`describeActivityError`): wrong password, WinRM unreachable, an account that connects but can't read the Security log, and this one.
 
+**Two more live-only failures, both in the client path.** `pywinrm`'s `Session.run_ps` pipes stderr through a helper that calls `str.startswith` on bytes and raises `TypeError` on Python 3 the moment PowerShell writes *anything* to stderr — which it does on the first call ("Preparing modules for first use", as CLIXML progress records). The collector drives `winrm.Protocol` directly instead — open shell, run an encoded command, read output, clean up — which also lets it set codepage 65001 and pass the script as UTF-16 base64. And success is judged by whether usable output came back, not by an exit code or a quiet stderr: PowerShell can answer correctly while still writing progress noise and a non-zero status.
+
 **What this is not.** It's near-real-time (a 30s poll), it depends on the server's audit policy staying on, and it attributes changes to *the account that made the SMB request*. `FileActivity` grows with share activity and has no retention policy yet — the same gap the file events table has.
 
 ## Telegram notifications
