@@ -109,6 +109,13 @@ export interface FileServer {
   domain: string | null;
   username: string;
   enabled: boolean;
+  /** "Who changed files": reads the Windows Security log over WinRM. */
+  activityEnabled: boolean;
+  winrmPort: number | null;
+  winrmUsername: string | null;
+  hasWinrmPassword: boolean;
+  lastActivityAt: string | null;
+  lastActivityError: string | null;
   createdAt: string;
   updatedAt: string;
   shares: Share[];
@@ -137,6 +144,10 @@ export interface FileServerInput {
   domain: string | null;
   username: string;
   password?: string;
+  activityEnabled?: boolean;
+  winrmPort?: number | null;
+  winrmUsername?: string | null;
+  winrmPassword?: string;
 }
 
 export interface ShareInput {
@@ -231,6 +242,9 @@ export interface FileEvent {
   occurredAt: string;
   agent: { hostname: string; watchedRoot: string };
   source: SourceRef | null;
+  /** From the file server's Windows audit log, when collection is on and a record matched. */
+  actorUser: string | null;
+  actorIp: string | null;
 }
 
 export interface StorageSnapshot {

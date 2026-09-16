@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import type { AgentSyncResponse } from "@logikos-dsp/shared";
+import type { ActivityCollectorConfig, AgentSyncResponse } from "@logikos-dsp/shared";
 import { prisma } from "../db.js";
 import { authenticateAgent } from "../auth/agentAuth.js";
 import { decryptSecret } from "@logikos-dsp/shared/credentials";
@@ -32,7 +32,7 @@ export async function agentSyncRoutes(app: FastifyInstance) {
     const agent = await authenticateAgent(req, reply, agentKey);
     if (!agent) return reply;
 
-    const [sources, tests] = await Promise.all([
+    const [sources, tests, activityServers] = await Promise.all([
       prisma.source.findMany({
         where: { agentId: agent.id, enabled: true, fileServer: { enabled: true } },
         include: { fileServer: true },
@@ -42,6 +42,12 @@ export async function agentSyncRoutes(app: FastifyInstance) {
         where: { agentId: agent.id, status: "PENDING" },
         include: { fileServer: true },
         orderBy: { createdAt: "asc" },
+      }),
+      // Windows servers whose activity this agent collects: enabled, and at
+      // least one of their shares assigned here.
+      prisma.fileServer.findMany({
+        where: { enabled: true, activityEnabled: true, shares: { some: { agentId: agent.id, enabled: true } } },
+        include: { shares: { where: { agentId: agent.id, enabled: true } } },
       }),
     ]);
 
@@ -59,6 +65,18 @@ export async function agentSyncRoutes(app: FastifyInstance) {
         subPath: s.subPath,
         scanIntervalSec: s.scanIntervalSec,
       })),
+      activityCollectors: activityServers.map(
+        (fs): ActivityCollectorConfig => ({
+          fileServerId: fs.id,
+          host: fs.host,
+          winrmPort: fs.winrmPort ?? 5985,
+          // Falls back to the share account when no separate WinRM account is set.
+          username: fs.winrmUsername || fs.username,
+          password: decryptSecret(fs.winrmPasswordEnc ?? fs.passwordEnc),
+          bookmark: fs.activityBookmark === null ? null : Number(fs.activityBookmark),
+          shares: fs.shares.map((s) => ({ sourceId: s.id, shareName: s.shareName!, subPath: s.subPath })),
+        }),
+      ),
       connectionTests: tests.map((t) => ({
         id: t.id,
         host: t.fileServer.host,

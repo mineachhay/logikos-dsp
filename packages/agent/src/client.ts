@@ -1,5 +1,5 @@
-import { MANAGED_SOURCES_CAPABILITY } from "@logikos-dsp/shared";
-import type { AgentRegisterInput, AgentRegisterResponse, AgentSyncResponse, FileEventInput, StorageSnapshotInput } from "@logikos-dsp/shared";
+import { ACTIVITY_CAPABILITY, MANAGED_SOURCES_CAPABILITY } from "@logikos-dsp/shared";
+import type { ActivityIngestRequest, AgentRegisterInput, AgentRegisterResponse, AgentSyncResponse, FileEventInput, StorageSnapshotInput } from "@logikos-dsp/shared";
 import { config } from "./config.js";
 import { createAgentSession } from "./agentSession.js";
 
@@ -11,7 +11,7 @@ async function register(): Promise<string> {
       key: config.agentKey,
       hostname: config.hostname,
       watchedRoot: config.watchedRootLabel,
-      capabilities: [MANAGED_SOURCES_CAPABILITY],
+      capabilities: [MANAGED_SOURCES_CAPABILITY, ACTIVITY_CAPABILITY],
     } satisfies AgentRegisterInput),
   });
   if (!res.ok) {
@@ -108,5 +108,12 @@ export async function completeConnectionTest(id: string, success: boolean, messa
   const res = await postJson(`/agent-sync/connection-tests/${id}/complete`, { agentKey: config.agentKey, success, message });
   if (!res.ok) {
     console.error(`failed to report connection test ${id}: ${res.status} ${await res.text()}`);
+  }
+}
+
+export async function postActivity(payload: Omit<ActivityIngestRequest, "agentKey">): Promise<void> {
+  const res = await postJson("/ingest/activity", { agentKey: config.agentKey, ...payload });
+  if (!res.ok) {
+    console.error(`failed to post activity for file server ${payload.fileServerId}: ${res.status} ${await res.text()}`);
   }
 }

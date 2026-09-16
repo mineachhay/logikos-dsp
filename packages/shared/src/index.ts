@@ -124,6 +124,8 @@ export interface PendingConnectionTest {
 export interface AgentSyncResponse {
   sources: ManagedSmbSource[];
   connectionTests: PendingConnectionTest[];
+  /** Windows servers this agent should collect "who changed files" from (see activity.ts). */
+  activityCollectors: import("./activity.js").ActivityCollectorConfig[];
 }
 
 /** Capability an agent reports at registration when it implements /agent-sync. */
@@ -156,3 +158,5 @@ export function sourceKindFromRoot(watchedRoot: string): SourceKindName {
 }
 
 export * from "./backups.js";
+
+export * from "./activity.js";

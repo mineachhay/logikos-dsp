@@ -232,7 +232,7 @@ function FileEventsView() {
     const q = search.trim().toLowerCase();
     return data.filter((e) => {
       if (typeFilter && e.eventType !== typeFilter) return false;
-      if (q && !`${e.path} ${sourceName(e)}`.toLowerCase().includes(q)) return false;
+      if (q && !`${e.path} ${sourceName(e)} ${e.actorUser ?? ""}`.toLowerCase().includes(q)) return false;
       return true;
     });
   }, [data, search, typeFilter]);
@@ -248,7 +248,7 @@ function FileEventsView() {
       <TableToolbar
         search={search}
         onSearch={setSearch}
-        searchPlaceholder="Search path, source…"
+        searchPlaceholder="Search path, source, user…"
         resultCount={sorted?.length ?? 0}
         filters={
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
@@ -261,8 +261,8 @@ function FileEventsView() {
         onExport={() =>
           downloadCsv(
             "file-events.csv",
-            ["Type", "Path", "Size", "Source", "When"],
-            (sorted ?? []).map((e) => [e.eventType, e.path, e.sizeBytes ?? "", sourceName(e), e.occurredAt]),
+            ["Type", "Path", "Size", "Source", "Who", "When"],
+            (sorted ?? []).map((e) => [e.eventType, e.path, e.sizeBytes ?? "", sourceName(e), e.actorUser ?? "", e.occurredAt]),
           )
         }
       />
@@ -277,6 +277,7 @@ function FileEventsView() {
               <SortableHeader label="Path" columnKey="path" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <SortableHeader label="Size" columnKey="sizeBytes" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <th>Source</th>
+              <SortableHeader label="Who" columnKey="actorUser" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <SortableHeader label="When" columnKey="occurredAt" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
             </tr>
           </thead>
@@ -287,6 +288,7 @@ function FileEventsView() {
                 <td data-label="Path" className="path cell-wide">{e.path}</td>
                 <td data-label="Size">{e.sizeBytes ?? "—"}</td>
                 <td data-label="Source" title={e.source?.rootLabel}>{sourceName(e)}</td>
+                <td data-label="Who" title={e.actorIp ? `from ${e.actorIp}` : undefined}>{e.actorUser ?? <span className="muted">—</span>}</td>
                 <td data-label="When">{new Date(e.occurredAt).toLocaleString()}</td>
               </tr>
             ))}

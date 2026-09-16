@@ -1,6 +1,7 @@
 import type { ManagedSmbSource, PendingConnectionTest } from "@logikos-dsp/shared";
 import { config } from "./config.js";
 import { completeConnectionTest, fetchAgentSync, reportSourceStatus } from "./client.js";
+import { collectActivity } from "./activityCollector.js";
 import { SmbSource } from "./sources/smb.js";
 import { startDiffLoop, type DiffLoop } from "./snapshotDiff.js";
 import { connectionKey, createLimiter, describeSmbError, planReconcile, type RunningSource } from "./sourceReconcile.js";
@@ -96,6 +97,10 @@ async function syncOnce(): Promise<void> {
   for (const test of sync.connectionTests) {
     void runConnectionTest(test);
   }
+
+  // Windows servers with "who changed files" turned on. Each poll runs
+  // independently; pollServer skips a server whose previous poll is still running.
+  collectActivity(sync.activityCollectors ?? []);
 }
 
 export function startManagedSources(): void {

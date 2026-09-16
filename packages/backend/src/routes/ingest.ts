@@ -4,6 +4,7 @@ import { prisma } from "../db.js";
 import { checkRansomwareRate } from "../rules/ransomwareRate.js";
 import { authenticateAgent } from "../auth/agentAuth.js";
 import { resolveIngestSource } from "../sources.js";
+import { backfillActorsForActivity, findActorForEvent } from "../activity.js";
 
 const fileEventTypeMap = {
   created: "CREATED",
@@ -25,6 +26,28 @@ const fileEventSchema = z.object({
 });
 
 const eventsBatchSchema = z.array(fileEventSchema).min(1).max(500);
+
+const activitySchema = z.object({
+  agentKey: z.string().min(8),
+  fileServerId: z.string().uuid(),
+  bookmark: z.number().int().nonnegative(),
+  error: z.string().max(2000).optional(),
+  records: z
+    .array(
+      z.object({
+        sourceId: z.string().uuid().optional(),
+        path: z.string().min(1).max(4096),
+        action: z.enum(["CREATE", "WRITE", "DELETE", "RENAME", "READ", "OTHER"]),
+        userName: z.string().min(1).max(256),
+        userDomain: z.string().max(256).optional(),
+        clientIp: z.string().max(64).optional(),
+        occurredAt: z.string(),
+        recordId: z.number().int().nonnegative(),
+      }),
+    )
+    .max(1000)
+    .default([]),
+});
 
 const storageSnapshotSchema = z.object({
   agentKey: z.string().min(8),
@@ -72,6 +95,12 @@ export async function ingestRoutes(app: FastifyInstance) {
           sizeBytes: evt.sizeBytes,
           contentSample: evt.contentSample,
           occurredAt: new Date(evt.occurredAt),
+          // Windows audit record for this change, if the collector already has it
+          // (activity.ts matches the other direction too, for records that arrive later).
+          ...((await findActorForEvent(
+            { sourceId: source.id, path: evt.path, eventType: fileEventTypeMap[evt.eventType], occurredAt: new Date(evt.occurredAt) },
+            source.scanIntervalSec,
+          )) ?? {}),
         },
       });
       created++;
@@ -109,5 +138,60 @@ export async function ingestRoutes(app: FastifyInstance) {
     });
 
     return reply.send({ id: snapshot.id });
+  });
+
+  /**
+   * Windows Security events (5145) the agent collected over WinRM — who
+   * changed what, from where. Stored as FileActivity and matched onto the
+   * file events the scans reported; duplicates from a re-poll are ignored on
+   * (fileServerId, recordId).
+   */
+  app.post("/ingest/activity", async (req, reply) => {
+    const body = activitySchema.parse(req.body);
+    const agent = await authenticateAgent(req, reply, body.agentKey);
+    if (!agent) return reply;
+
+    const server = await prisma.fileServer.findUnique({ where: { id: body.fileServerId }, include: { shares: true } });
+    if (!server) return reply.code(404).send({ error: "unknown file server" });
+    if (!server.shares.some((s) => s.agentId === agent.id)) {
+      return reply.code(403).send({ error: "no share of this file server is assigned to this agent" });
+    }
+
+    const stored = [];
+    for (const record of body.records) {
+      // Only shares this agent holds, so one agent can't write activity for another's.
+      if (record.sourceId && !server.shares.some((s) => s.id === record.sourceId && s.agentId === agent.id)) continue;
+      try {
+        stored.push(
+          await prisma.fileActivity.create({
+            data: {
+              fileServerId: server.id,
+              sourceId: record.sourceId,
+              path: record.path,
+              action: record.action,
+              userName: record.userName,
+              userDomain: record.userDomain,
+              clientIp: record.clientIp,
+              occurredAt: new Date(record.occurredAt),
+              recordId: BigInt(record.recordId),
+            },
+          }),
+        );
+      } catch (err) {
+        // P2002: already ingested this Windows record — a re-poll, not an error.
+        if ((err as { code?: string }).code !== "P2002") throw err;
+      }
+    }
+
+    const matched = await backfillActorsForActivity(stored);
+    await prisma.fileServer.update({
+      where: { id: server.id },
+      data: {
+        activityBookmark: BigInt(body.bookmark),
+        lastActivityAt: new Date(),
+        lastActivityError: body.error ?? null,
+      },
+    });
+    return reply.send({ stored: stored.length, matched });
   });
 }

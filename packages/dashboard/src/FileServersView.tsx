@@ -104,6 +104,10 @@ function ServerForm({
   const [domain, setDomain] = useState(initial?.domain ?? "");
   const [username, setUsername] = useState(initial?.username ?? "");
   const [password, setPassword] = useState("");
+  const [activityEnabled, setActivityEnabled] = useState(initial?.activityEnabled ?? false);
+  const [winrmPort, setWinrmPort] = useState(initial?.winrmPort ? String(initial.winrmPort) : "");
+  const [winrmUsername, setWinrmUsername] = useState(initial?.winrmUsername ?? "");
+  const [winrmPassword, setWinrmPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -119,6 +123,10 @@ function ServerForm({
         domain: domain || null,
         username,
         ...(password ? { password } : {}),
+        activityEnabled,
+        winrmPort: winrmPort ? Number(winrmPort) : null,
+        winrmUsername: winrmUsername || null,
+        ...(winrmPassword ? { winrmPassword } : {}),
       });
     } catch (err) {
       setError(errorText(err));
@@ -148,6 +156,37 @@ function ServerForm({
         </label>
       </div>
       <p className="muted fs-hint">Use a read-only account. The password is encrypted at rest and never shown again.</p>
+
+      <label className="checkbox-row">
+        <input type="checkbox" checked={activityEnabled} onChange={(e) => setActivityEnabled(e.target.checked)} />
+        Record who changes files (Windows only)
+      </label>
+      {activityEnabled && (
+        <>
+          <div className="fs-form-grid">
+            <label>WinRM port<input value={winrmPort} onChange={(e) => setWinrmPort(e.target.value)} placeholder="5985" inputMode="numeric" /></label>
+            <label>
+              Event log account
+              <input value={winrmUsername} onChange={(e) => setWinrmUsername(e.target.value)} placeholder="leave blank to reuse the share account" autoComplete="off" />
+            </label>
+            <label>
+              Event log password
+              <input
+                type="password"
+                value={winrmPassword}
+                onChange={(e) => setWinrmPassword(e.target.value)}
+                placeholder={initial?.hasWinrmPassword ? "stored — leave blank to keep" : "leave blank to reuse the share password"}
+                autoComplete="new-password"
+              />
+            </label>
+          </div>
+          <p className="muted fs-hint">
+            The agent reads the server's Security log over WinRM every 30 seconds, so file events can say who made the change. On the server, run{" "}
+            <code>auditpol /set /subcategory:"Detailed File Share" /success:enable</code> once, and put the account in <strong>Event Log Readers</strong>{" "}
+            and <strong>Remote Management Users</strong>.
+          </p>
+        </>
+      )}
       {error && <p className="error">{error}</p>}
       <div className="fs-actions">
         <button type="submit" className="btn" disabled={busy}>{initial ? "Save changes" : "Add file server"}</button>
@@ -367,6 +406,13 @@ function ServerCard({ server, agents }: { server: FileServer; agents: ManagedAge
             <p className="muted">
               {server.host}{server.port ? `:${server.port}` : ""} · {server.domain ? `${server.domain}\\` : ""}{server.username}
             </p>
+            {server.activityEnabled && (
+              <p className={`field-hint ${server.lastActivityError ? "test-fail" : "test-ok"}`}>
+                {server.lastActivityError
+                  ? `who-changed-files: ${server.lastActivityError}`
+                  : `who-changed-files: on${server.lastActivityAt ? ` · last read ${new Date(server.lastActivityAt).toLocaleTimeString()}` : " · waiting for first read"}`}
+              </p>
+            )}
           </div>
           <div className="fs-actions">
             <button className="btn btn-secondary" onClick={() => setEditing(true)}>Edit</button>

@@ -111,11 +111,24 @@ model FileServer {
   /// dashboard response; decrypted only for the agent a share is assigned to.
   passwordEnc String
   enabled     Boolean  @default(true)
+  /// Collect *who* changed files by reading the server's Security log over
+  /// WinRM (Windows only) — see ARCHITECTURE.md "Who changed a file".
+  activityEnabled  Boolean  @default(false)
+  winrmPort        Int?
+  /// Null = reuse the share account above. A separate account can be
+  /// read-only on the share but a member of Event Log Readers.
+  winrmUsername    String?
+  winrmPasswordEnc String?
+  /// EventRecordID of the last Security event read, so each poll asks only for newer ones.
+  activityBookmark BigInt?
+  lastActivityAt   DateTime?
+  lastActivityError String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   shares          Source[]
   connectionTests ConnectionTest[]
+  activity        FileActivity[]
 }
 
 /// One watched root. Either an agent's own env-configured root (fileServerId
@@ -150,6 +163,7 @@ model Source {
   fileEvents       FileEvent[]
   storageSnapshots StorageSnapshot[]
   alerts           Alert[]
+  activity         FileActivity[]
 
   @@unique([fileServerId, shareName, subPath])
   @@index([agentId])
@@ -194,6 +208,39 @@ model AuditLog {
   @@index([createdAt])
 }
 
+enum FileActivityAction {
+  CREATE
+  WRITE
+  DELETE
+  RENAME
+  READ
+  OTHER
+}
+
+/// One Windows audit record (Security event 5145): who touched what, from
+/// where. Kept separately from FileEvent because the two come from different
+/// places — SMB scans see *what* changed, the event log sees *who* — and are
+/// matched by path and time (see matchActivity in packages/shared).
+model FileActivity {
+  id           String             @id @default(uuid())
+  fileServerId String
+  fileServer   FileServer         @relation(fields: [fileServerId], references: [id], onDelete: Cascade)
+  sourceId     String?
+  source       Source?            @relation(fields: [sourceId], references: [id])
+  path         String
+  action       FileActivityAction
+  userName     String
+  userDomain   String?
+  clientIp     String?
+  occurredAt   DateTime
+  /// Windows EventRecordID — unique per server, so a re-poll can't duplicate rows.
+  recordId     BigInt
+  createdAt    DateTime           @default(now())
+
+  @@unique([fileServerId, recordId])
+  @@index([sourceId, path, occurredAt])
+}
+
 model FileEvent {
   id             String        @id @default(uuid())
   agentId        String
@@ -205,6 +252,10 @@ model FileEvent {
   previousPath   String?
   sizeBytes      Int?
   contentSample  String?
+  /// Filled in from FileActivity when a Windows audit record matches this
+  /// event's path and time; null when activity collection is off or nothing matched.
+  actorUser      String?
+  actorIp        String?
   occurredAt     DateTime
   receivedAt     DateTime      @default(now())
 

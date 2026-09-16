@@ -119,6 +119,10 @@ export const config = {
   // configuration changes and connection tests, and how many share walks may
   // run at once.
   agentSyncIntervalMs: Number(process.env.AGENT_SYNC_INTERVAL_MS ?? 10_000),
+  // Windows "who changed files" collection (activityCollector.ts): how many
+  // EventRecordIDs one poll asks for, and how long the WinRM call may take.
+  activityWindowSize: Number(process.env.ACTIVITY_WINDOW_SIZE ?? 500),
+  activityTimeoutMs: Number(process.env.ACTIVITY_TIMEOUT_MS ?? 90_000),
   maxConcurrentScans: Math.max(1, Number(process.env.MAX_CONCURRENT_SCANS ?? 2)),
   eventFlushIntervalMs: Number(process.env.EVENT_FLUSH_INTERVAL_MS ?? 500),
   eventBatchSize: 50,

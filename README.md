@@ -67,6 +67,28 @@ needs `NODE_OPTIONS=--openssl-legacy-provider` (set in `docker-compose.yml`)
 because SMB's NTLM logon uses DES/MD4. Only the TypeScript agent scans managed
 shares; the Go agent watches its own `WATCH_PATH` only.
 
+### Who changed files (Windows)
+
+File events normally say *what* changed. To also record *who*, turn on
+**Record who changes files** when adding or editing the file server. The agent
+then reads the server's Security log over WinRM every 30 seconds and fills in a
+**Who** column in File Events.
+
+On the Windows server, once, as administrator:
+
+```powershell
+auditpol /set /subcategory:"Detailed File Share" /success:enable
+```
+
+The account used for this needs to be in **Event Log Readers** and **Remote
+Management Users**. It can be a different account from the share account — the
+share account can stay read-only — or blank to reuse it. WinRM's default port
+is 5985.
+
+Notes: the username appears within a few seconds of the change, not instantly;
+only changes are recorded (reads are discarded by the agent); and this is
+Windows-only — Samba doesn't produce 5145 events.
+
 ### SMB connector via env (dev)
 
 Watches one SMB/CIFS share configured on the agent itself, instead of a local path (see [ARCHITECTURE.md](./ARCHITECTURE.md) for why it uses periodic snapshot diffing rather than real-time events). Point it at a real file server, or spin up a local test share:

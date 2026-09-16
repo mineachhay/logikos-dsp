@@ -42,7 +42,17 @@ const serverFields = {
   domain: z.string().trim().max(100).nullable().optional(),
   username: z.string().trim().min(1).max(256),
 };
-const createServerSchema = z.object({ ...serverFields, password: z.string().min(1).max(1024) });
+// "Who changed files": read the Windows Security log over WinRM. Off by
+// default; the account may differ from the share account (read-only on the
+// share, but a member of Event Log Readers).
+const activityFields = {
+  activityEnabled: z.boolean().optional(),
+  winrmPort: z.number().int().min(1).max(65535).nullable().optional(),
+  winrmUsername: z.string().trim().max(256).nullable().optional(),
+  winrmPassword: z.string().max(1024).optional(),
+};
+
+const createServerSchema = z.object({ ...serverFields, ...activityFields, password: z.string().min(1).max(1024) });
 const updateServerSchema = z.object({
   name: serverFields.name.optional(),
   host: serverFields.host.optional(),
@@ -52,6 +62,7 @@ const updateServerSchema = z.object({
   // Omitted = keep the stored password. The dashboard never receives it, so it
   // can't round-trip it back.
   password: z.string().min(1).max(1024).optional(),
+  ...activityFields,
 });
 
 const createShareSchema = z.object({
@@ -78,9 +89,19 @@ const serverSelect = {
   domain: true,
   username: true,
   enabled: true,
+  activityEnabled: true,
+  winrmPort: true,
+  winrmUsername: true,
+  lastActivityAt: true,
+  lastActivityError: true,
   createdAt: true,
   updatedAt: true,
 } as const;
+
+/** Never the WinRM password itself — only whether one is stored. */
+function withActivityFlags<T extends { winrmUsername: string | null }>(server: T, winrmPasswordEnc: string | null) {
+  return { ...server, hasWinrmPassword: Boolean(winrmPasswordEnc) };
+}
 
 function serializeShare(s: Source & { agent: { id: string; hostname: string } | null }) {
   return { ...s, lastTotalBytes: s.lastTotalBytes?.toString() ?? null };
@@ -135,11 +156,12 @@ export async function fileServerRoutes(app: FastifyInstance) {
     const servers = await prisma.fileServer.findMany({
       select: {
         ...serverSelect,
+        winrmPasswordEnc: true,
         shares: { include: { agent: { select: { id: true, hostname: true } } }, orderBy: { createdAt: "asc" } },
       },
       orderBy: { name: "asc" },
     });
-    return servers.map((s) => ({ ...s, shares: s.shares.map(serializeShare) }));
+    return servers.map(({ winrmPasswordEnc, ...s }) => ({ ...withActivityFlags(s, winrmPasswordEnc), shares: s.shares.map(serializeShare) }));
   });
 
   app.post("/file-servers", admin, async (req, reply) => {
@@ -153,6 +175,10 @@ export async function fileServerRoutes(app: FastifyInstance) {
           domain: body.domain || null,
           username: body.username,
           passwordEnc: encryptSecret(body.password),
+          activityEnabled: body.activityEnabled ?? false,
+          winrmPort: body.winrmPort ?? null,
+          winrmUsername: body.winrmUsername || null,
+          winrmPasswordEnc: body.winrmPassword ? encryptSecret(body.winrmPassword) : null,
         },
         select: serverSelect,
       });
@@ -176,6 +202,13 @@ export async function fileServerRoutes(app: FastifyInstance) {
     if (body.domain !== undefined) data.domain = body.domain || null;
     if (body.username !== undefined) data.username = body.username;
     if (body.password !== undefined) data.passwordEnc = encryptSecret(body.password);
+    if (body.activityEnabled !== undefined) data.activityEnabled = body.activityEnabled;
+    if (body.winrmPort !== undefined) data.winrmPort = body.winrmPort;
+    if (body.winrmUsername !== undefined) data.winrmUsername = body.winrmUsername || null;
+    // Blank keeps the stored one, like the share password.
+    if (body.winrmPassword) data.winrmPasswordEnc = encryptSecret(body.winrmPassword);
+    // Turning collection off clears the error, so a stale message doesn't linger.
+    if (body.activityEnabled === false) data.lastActivityError = null;
 
     try {
       const server = await prisma.$transaction(async (tx) => {
@@ -192,7 +225,7 @@ export async function fileServerRoutes(app: FastifyInstance) {
         }
         return updated;
       });
-      const changed = Object.keys(body).filter((k) => k !== "password");
+      const changed = Object.keys(body).filter((k) => k !== "password" && k !== "winrmPassword");
       await recordAudit(req, "fileServer.update", { type: "fileServer", id: server.id }, {
         name: server.name,
         changed,
