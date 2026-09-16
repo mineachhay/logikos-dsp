@@ -49,13 +49,15 @@ export async function checkRansomwareRate(sourceId: string): Promise<void> {
 
   // Unlike a SENSITIVE_DATA_EXPOSED alert (exactly one file), a rate burst
   // has no single file to act on — but it does have a *set* of them: every
-  // path this source reported as created/modified within the window (not
-  // deleted — nothing to quarantine there, the file's already gone).
+  // path this source reported as created/modified/renamed within the window
+  // (not deleted — nothing to quarantine there, the file's already gone).
+  // Renames count because mass-renaming is what ransomware does to the files
+  // it has just encrypted.
   // Deduped since the same path can appear more than once in a burst
   // (edited repeatedly), capped so one alert can't demand reviewing an
   // unbounded list.
   const recentEvents = await prisma.fileEvent.findMany({
-    where: { sourceId, occurredAt: { gte: windowStart }, eventType: { in: ["CREATED", "MODIFIED"] } },
+    where: { sourceId, occurredAt: { gte: windowStart }, eventType: { in: ["CREATED", "MODIFIED", "RENAMED"] } },
     select: { path: true },
     orderBy: { occurredAt: "desc" },
   });

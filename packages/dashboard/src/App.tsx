@@ -262,7 +262,14 @@ function FileEventsView() {
           downloadCsv(
             "file-events.csv",
             ["Type", "Path", "Size", "Source", "Who", "When"],
-            (sorted ?? []).map((e) => [e.eventType, e.path, e.sizeBytes ?? "", sourceName(e), e.actorUser ?? "", e.occurredAt]),
+            (sorted ?? []).map((e) => [
+              e.eventType,
+              e.previousPath ? `${e.previousPath} → ${e.path}` : e.path,
+              e.sizeBytes ?? "",
+              sourceName(e),
+              e.actorUser ?? "",
+              e.occurredAt,
+            ]),
           )
         }
       />
@@ -285,7 +292,9 @@ function FileEventsView() {
             {sorted!.map((e) => (
               <tr key={e.id}>
                 <td data-label="Type">{e.eventType}</td>
-                <td data-label="Path" className="path cell-wide">{e.path}</td>
+                <td data-label="Path" className="path cell-wide">
+                  {e.previousPath ? <>{e.previousPath} <span className="muted">→</span> {e.path}</> : e.path}
+                </td>
                 <td data-label="Size">{e.sizeBytes ?? "—"}</td>
                 <td data-label="Source" title={e.source?.rootLabel}>{sourceName(e)}</td>
                 <td data-label="Who" title={e.actorIp ? `from ${e.actorIp}` : undefined}>{e.actorUser ?? <span className="muted">—</span>}</td>

@@ -75,6 +75,19 @@ async function scanOnce(
     for (const path of diff.modified) {
       events.push(await buildEvent(source, sourceId, "modified", path, current.get(path)!));
     }
+    for (const rename of diff.renamed) {
+      // Contents didn't change, so no new content sample: the file was already
+      // classified when it was created or last modified.
+      events.push({
+        agentKey: config.agentKey,
+        sourceId,
+        eventType: "renamed",
+        path: rename.to,
+        previousPath: rename.from,
+        sizeBytes: rename.sizeBytes,
+        occurredAt: new Date().toISOString(),
+      });
+    }
     for (const path of diff.deleted) {
       events.push({
         agentKey: config.agentKey,

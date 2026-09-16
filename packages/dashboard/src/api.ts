@@ -238,6 +238,8 @@ export interface FileEvent {
   id: string;
   eventType: string;
   path: string;
+  /** The old name, on a RENAMED event. */
+  previousPath: string | null;
   sizeBytes: number | null;
   occurredAt: string;
   agent: { hostname: string; watchedRoot: string };
