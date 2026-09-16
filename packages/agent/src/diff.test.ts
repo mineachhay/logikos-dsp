@@ -138,6 +138,44 @@ describe("diffSnapshots rename detection", () => {
     expect(diffSnapshots(previous, new Map([["a.csv", baseline(9, 2_000)], ["b.csv", baseline(9, 2_000)]])).copied).toHaveLength(1);
   });
 
+  it("spots a paste even when the source can't be identified, by its preserved timestamp", () => {
+    // Pasted at 10:00, but the file was last written at 09:00 — it can't have
+    // been authored in this share since the previous scan.
+    const lastScan = 9_500;
+    const previous = new Map([["other.txt", baseline(4, 1_000)]]);
+    const current = new Map([
+      ["other.txt", baseline(4, 1_000)],
+      ["IT/pasted.zip", baseline(22, 9_000)],
+    ]);
+    const diff = diffSnapshots(previous, current, lastScan);
+    expect(diff.copied).toEqual([{ from: null, to: "IT/pasted.zip", sizeBytes: 22, mtimeMs: 9_000 }]);
+    expect(diff.created).toEqual([]);
+  });
+
+  it("still calls a file written since the last scan a create", () => {
+    const lastScan = 9_500;
+    const previous = new Map([["other.txt", baseline(4, 1_000)]]);
+    const current = new Map([
+      ["other.txt", baseline(4, 1_000)],
+      ["fresh.txt", baseline(12, 12_000)],
+    ]);
+    const diff = diffSnapshots(previous, current, lastScan);
+    expect(diff.copied).toEqual([]);
+    expect(diff.created).toEqual(["fresh.txt"]);
+  });
+
+  it("names the source when exactly one identical file is still there", () => {
+    const lastScan = 9_500;
+    const previous = new Map([["HR/report.zip", baseline(22, 9_000)]]);
+    const current = new Map([
+      ["HR/report.zip", baseline(22, 9_000)],
+      ["IT/report.zip", baseline(22, 9_000)],
+    ]);
+    expect(diffSnapshots(previous, current, lastScan).copied).toEqual([
+      { from: "HR/report.zip", to: "IT/report.zip", sizeBytes: 22, mtimeMs: 9_000 },
+    ]);
+  });
+
   it("won't name a source when several files match — an empty file copied among empty files", () => {
     const previous = new Map([
       ["empty1.txt", baseline(0, 1_000)],
@@ -148,6 +186,7 @@ describe("diffSnapshots rename detection", () => {
       ["empty2.txt", baseline(0, 1_000)],
       ["empty3.txt", baseline(0, 1_000)],
     ]);
+    // No scan time given, so the timestamp rule can't apply either.
     const diff = diffSnapshots(previous, current);
     expect(diff.copied).toEqual([]);
     expect(diff.created).toEqual(["empty3.txt"]);

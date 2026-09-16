@@ -57,6 +57,7 @@ async function scanOnce(
   baseline: Map<string, Baseline> | null,
   sourceId: string | undefined,
   isStopped: () => boolean,
+  previousScanAt: number | undefined,
 ): Promise<{ baseline: Map<string, Baseline>; fileCount: number; totalBytes: number } | null> {
   const nodes = await source.listTree();
   if (isStopped()) return null;
@@ -66,7 +67,7 @@ async function scanOnce(
   }
 
   if (baseline !== null) {
-    const diff = diffSnapshots(baseline, current);
+    const diff = diffSnapshots(baseline, current, previousScanAt);
     const events: FileEventInput[] = [];
 
     for (const path of diff.created) {
@@ -83,7 +84,7 @@ async function scanOnce(
         sourceId,
         eventType: "copied",
         path: copy.to,
-        previousPath: copy.from,
+        previousPath: copy.from ?? undefined,
         sizeBytes: copy.sizeBytes,
         occurredAt: new Date().toISOString(),
       });
@@ -140,6 +141,7 @@ async function scanOnce(
  */
 export function startDiffLoop(source: Source, intervalMs: number, opts: DiffLoopOptions = {}): DiffLoop {
   let baseline: Map<string, Baseline> | null = null;
+  let previousScanAt: number | undefined;
   let stopped = false;
   let timer: NodeJS.Timeout | undefined;
   let interval = intervalMs;
@@ -147,9 +149,11 @@ export function startDiffLoop(source: Source, intervalMs: number, opts: DiffLoop
 
   async function tick() {
     try {
-      const result = await runScan(() => scanOnce(source, baseline, opts.sourceId, () => stopped));
+      const startedAt = Date.now();
+      const result = await runScan(() => scanOnce(source, baseline, opts.sourceId, () => stopped, previousScanAt));
       if (result) {
         baseline = result.baseline;
+        previousScanAt = startedAt;
         opts.onScanComplete?.({ ok: true, fileCount: result.fileCount, totalBytes: result.totalBytes });
       }
     } catch (err) {

@@ -16,8 +16,8 @@ export interface RenamedFile {
 }
 
 export interface CopiedFile {
-  /** The file it was copied from, which is still there. */
-  from: string;
+  /** The file it was copied from, when that file is still in the share and identifiable. */
+  from: string | null;
   to: string;
   sizeBytes: number;
   mtimeMs: number;
@@ -94,6 +94,7 @@ function pairCopies(
   created: string[],
   previous: Map<string, Baseline>,
   current: Map<string, Baseline>,
+  previousScanAt: number | undefined,
 ): { copied: CopiedFile[]; created: string[] } {
   const key = (s: Baseline) => `${s.sizeBytes}:${s.mtimeMs}`;
   const survivors = new Map<string, string[]>();
@@ -110,9 +111,22 @@ function pairCopies(
   const paired = new Set<string>();
   for (const path of created) {
     const stats = current.get(path)!;
-    const candidates = survivors.get(key(stats)) ?? [];
-    if (candidates.length !== 1) continue;
-    copied.push({ from: candidates[0], to: path, sizeBytes: stats.sizeBytes, mtimeMs: stats.mtimeMs });
+    // Empty files carry no evidence: every empty file matches every other one.
+    const candidates = stats.sizeBytes > 0 ? (survivors.get(key(stats)) ?? []) : [];
+
+    // Copying preserves the last-write time, so a file whose contents predate
+    // the previous scan can't have been written here since — it was copied or
+    // moved in, even when its source isn't in this share (a paste from a
+    // desktop) or can't be told apart from other identical files.
+    const olderThanLastScan = previousScanAt !== undefined && stats.mtimeMs < previousScanAt;
+    if (candidates.length !== 1 && !olderThanLastScan) continue;
+
+    copied.push({
+      from: candidates.length === 1 ? candidates[0] : null,
+      to: path,
+      sizeBytes: stats.sizeBytes,
+      mtimeMs: stats.mtimeMs,
+    });
     paired.add(path);
   }
   return { copied, created: created.filter((p) => !paired.has(p)) };
@@ -123,7 +137,12 @@ function pairCopies(
  * changes, mirroring chokidar's ignoreInitial in watcher.ts — an agent
  * restart shouldn't replay a share's entire existing contents as "created".
  */
-export function diffSnapshots(previous: Map<string, Baseline> | null, current: Map<string, Baseline>): DiffResult {
+export function diffSnapshots(
+  previous: Map<string, Baseline> | null,
+  current: Map<string, Baseline>,
+  /** When the previous snapshot was taken — lets a preserved timestamp identify a copy. */
+  previousScanAt?: number,
+): DiffResult {
   const created: string[] = [];
   const modified: string[] = [];
   const deleted: string[] = [];
@@ -149,6 +168,6 @@ export function diffSnapshots(previous: Map<string, Baseline> | null, current: M
   // Renames first: they consume a delete and a create, and a copy's original
   // is by definition still present.
   const afterRenames = pairRenames(deleted, created, previous, current);
-  const afterCopies = pairCopies(afterRenames.created, previous, current);
+  const afterCopies = pairCopies(afterRenames.created, previous, current, previousScanAt);
   return { modified, deleted: afterRenames.deleted, renamed: afterRenames.renamed, ...afterCopies };
 }

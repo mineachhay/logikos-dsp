@@ -101,8 +101,10 @@ wevtutil sl Security /ca:"O:BAG:SYD:(A;;0xf0005;;;SY)(A;;0x5;;;BA)(A;;0x1;;;S-1-
 share account can stay read-only — or blank to reuse it. WinRM's default port
 is 5985.
 
-**Copying:** a file copied into or within the share is reported as `COPIED`,
-naming the file it came from. A file copied *out* of the share changes nothing
+**Copying:** a file copied or pasted into the share is reported as `COPIED`,
+naming the file it came from when that file is still on the share (copying
+preserves a file's timestamp, which is how a paste is told apart from a file
+written in place). A file copied *out* of the share changes nothing
 on it, so the only trace is a read — tick **Also record who reads files** to
 record those under **File Access**, and logikos-dsp will alert when one account
 reads more than 50 different files within five minutes, which is what copying a
