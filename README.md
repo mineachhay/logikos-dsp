@@ -81,7 +81,13 @@ auditpol /set /subcategory:"Detailed File Share" /success:enable
 ```
 
 The account used for this needs to be in **Event Log Readers** and **Remote
-Management Users**. It can be a different account from the share account — the
+Management Users** — WinRM refuses the connection outright for accounts that
+aren't, which looks like a rejected password:
+
+```powershell
+Add-LocalGroupMember -Group "Remote Management Users" -Member dsp
+Add-LocalGroupMember -Group "Event Log Readers" -Member dsp
+``` It can be a different account from the share account — the
 share account can stay read-only — or blank to reuse it. WinRM's default port
 is 5985.
 

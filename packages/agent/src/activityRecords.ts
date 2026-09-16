@@ -92,7 +92,11 @@ export function initialBookmark(newestRecordId: number | null, lookback = 200): 
 export function describeActivityError(raw: string, host: string, port: number): string {
   const hints: [RegExp, string][] = [
     [/unsupported hash type md4/i, "this agent image can't do NTLM (OpenSSL legacy provider missing) — rebuild the agent image"],
-    [/InvalidCredentials|rejected by the server|401/i, `WinRM on ${host} rejected the credentials — check the event log account and password`],
+    // WinRM answers 401 both for a wrong password and for an account that
+    // isn't allowed to use WinRM at all, which is the default for
+    // non-administrators — seen when a read-only share account was first used.
+    [/InvalidCredentials|rejected by the server|401/i,
+      `WinRM on ${host} rejected the account — wrong password, or it isn't allowed to use WinRM: Add-LocalGroupMember -Group "Remote Management Users" -Member <account> (and "Event Log Readers" to read the Security log)`],
     [/Access is denied|AccessDenied|winrm.*5\b/i, "the account connected but can't read the Security log — add it to Event Log Readers and Remote Management Users"],
     [/Connection refused|Max retries|NewConnectionError|timed out|Read timed out/i, `can't reach WinRM at ${host}:${port} — check that WinRM is enabled (winrm quickconfig) and the firewall allows it`],
     [/No events were found|FilterXPath/i, "no matching events — is \"auditpol /set /subcategory:\\\"Detailed File Share\\\" /success:enable\" set on the server?"],
