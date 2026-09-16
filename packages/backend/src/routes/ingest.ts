@@ -98,7 +98,13 @@ export async function ingestRoutes(app: FastifyInstance) {
           // Windows audit record for this change, if the collector already has it
           // (activity.ts matches the other direction too, for records that arrive later).
           ...((await findActorForEvent(
-            { sourceId: source.id, path: evt.path, eventType: fileEventTypeMap[evt.eventType], occurredAt: new Date(evt.occurredAt) },
+            {
+              sourceId: source.id,
+              path: evt.path,
+              previousPath: evt.previousPath,
+              eventType: fileEventTypeMap[evt.eventType],
+              occurredAt: new Date(evt.occurredAt),
+            },
             source.scanIntervalSec,
           )) ?? {}),
         },

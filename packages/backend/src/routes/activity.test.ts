@@ -196,6 +196,50 @@ describe("matching who to what", () => {
     expect((await prisma.fileEvent.findFirstOrThrow()).actorUser).toBe("mallory");
   });
 
+  it("attributes a rename, which Windows logs as a delete of the old name", async () => {
+    const { app, seeded, server, share } = await setup();
+    const renamedAt = new Date();
+
+    await app.inject({
+      method: "POST",
+      url: "/ingest/activity",
+      headers: seeded.headers,
+      payload: {
+        ...activityPayload(seeded.agent.key, server.id),
+        records: [
+          {
+            sourceId: share.id,
+            path: "new file.txt",
+            action: "DELETE",
+            userName: "Administrator",
+            userDomain: "WIN-FS",
+            occurredAt: renamedAt.toISOString(),
+            recordId: 970,
+          },
+        ],
+      },
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/ingest/events",
+      headers: seeded.headers,
+      payload: [
+        {
+          agentKey: seeded.agent.key,
+          sourceId: share.id,
+          eventType: "renamed",
+          path: "new rename file name.txt",
+          previousPath: "new file.txt",
+          occurredAt: new Date(renamedAt.getTime() + 47_000).toISOString(),
+        },
+      ],
+    });
+    expect(res.statusCode).toBe(200);
+    const event = await prisma.fileEvent.findFirstOrThrow({ where: { eventType: "RENAMED" } });
+    expect(event.actorUser).toBe("WIN-FS\\Administrator");
+  });
+
   it("doesn't attribute a change to someone who only read the file", async () => {
     const { app, seeded, server, share } = await setup();
     const now = new Date();

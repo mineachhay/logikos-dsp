@@ -104,13 +104,35 @@ export interface ActivityCandidate {
   clientIp?: string | null;
 }
 
-const DELETE_EVENTS = new Set(["DELETED"]);
-const WRITE_EVENTS = new Set(["CREATED", "MODIFIED", "RENAMED"]);
+const WRITE_ACTIONS: FileActivityActionName[] = ["WRITE", "CREATE", "RENAME"];
 
-function compatible(eventType: string, action: FileActivityActionName): boolean {
-  if (DELETE_EVENTS.has(eventType)) return action === "DELETE";
-  if (WRITE_EVENTS.has(eventType)) return action === "WRITE" || action === "CREATE" || action === "RENAME";
-  return false;
+/**
+ * Which audit records can explain which change, and under which name.
+ *
+ * Renames are the subtle one: Windows logs a rename as a DELETE right
+ * requested on the *old* name, and usually logs nothing at all against the
+ * new name — so matching a RENAMED event only by its new path finds nothing,
+ * which is exactly what the first live rename did.
+ */
+function explains(event: { eventType: string; path: string; previousPath?: string | null }, candidate: ActivityCandidate): boolean {
+  const samePath = candidate.path.toLowerCase() === event.path.toLowerCase();
+  const sameOldPath = Boolean(event.previousPath && candidate.path.toLowerCase() === event.previousPath.toLowerCase());
+
+  switch (event.eventType) {
+    case "DELETED":
+      return samePath && candidate.action === "DELETE";
+    case "RENAMED":
+      // The old name being "deleted", or the new name being written.
+      return (
+        (sameOldPath && (candidate.action === "DELETE" || WRITE_ACTIONS.includes(candidate.action))) ||
+        (samePath && WRITE_ACTIONS.includes(candidate.action))
+      );
+    case "CREATED":
+    case "MODIFIED":
+      return samePath && WRITE_ACTIONS.includes(candidate.action);
+    default:
+      return false;
+  }
 }
 
 /**
@@ -122,19 +144,14 @@ function compatible(eventType: string, action: FileActivityActionName): boolean 
  * writer before the scan is the one the scan saw.
  */
 export function matchActivity(
-  event: { path: string; eventType: string; occurredAt: Date },
+  event: { path: string; previousPath?: string | null; eventType: string; occurredAt: Date },
   candidates: readonly ActivityCandidate[],
   window: { beforeMs: number; afterMs: number },
 ): ActivityCandidate | null {
-  const path = event.path.toLowerCase();
   const from = event.occurredAt.getTime() - window.beforeMs;
   const to = event.occurredAt.getTime() + window.afterMs;
   const matches = candidates.filter(
-    (c) =>
-      c.path.toLowerCase() === path &&
-      compatible(event.eventType, c.action) &&
-      c.occurredAt.getTime() >= from &&
-      c.occurredAt.getTime() <= to,
+    (c) => explains(event, c) && c.occurredAt.getTime() >= from && c.occurredAt.getTime() <= to,
   );
   return matches.sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime())[0] ?? null;
 }

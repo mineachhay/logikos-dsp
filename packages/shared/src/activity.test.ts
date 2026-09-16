@@ -121,6 +121,33 @@ describe("matchActivity", () => {
     expect(matchActivity({ path: "q1/payroll.csv", eventType: "DELETED", occurredAt: scanAt }, [candidate({ action: "DELETE" })], activityWindowFor(60))?.userName).toBe("jdoe");
   });
 
+  it("matches a rename by the old name, which is where Windows logs the delete right", () => {
+    const deleteOnOldName = candidate({ path: "q1/old-name.csv", action: "DELETE", userName: "jdoe" });
+    const match = matchActivity(
+      { path: "q1/new-name.csv", previousPath: "q1/old-name.csv", eventType: "RENAMED", occurredAt: scanAt },
+      [deleteOnOldName],
+      activityWindowFor(60),
+    );
+    expect(match?.userName).toBe("jdoe");
+  });
+
+  it("still matches a rename by the new name when the server logged a write there", () => {
+    const writeOnNewName = candidate({ path: "q1/new-name.csv", action: "WRITE", userName: "bob" });
+    const match = matchActivity(
+      { path: "q1/new-name.csv", previousPath: "q1/old-name.csv", eventType: "RENAMED", occurredAt: scanAt },
+      [writeOnNewName],
+      activityWindowFor(60),
+    );
+    expect(match?.userName).toBe("bob");
+  });
+
+  it("doesn't let a delete of the old name explain a plain delete of another file", () => {
+    const deleteElsewhere = candidate({ path: "q1/old-name.csv", action: "DELETE" });
+    expect(
+      matchActivity({ path: "q1/new-name.csv", eventType: "DELETED", occurredAt: scanAt }, [deleteElsewhere], activityWindowFor(60)),
+    ).toBeNull();
+  });
+
   it("ignores a different file, and anything outside the window", () => {
     const other = candidate({ path: "q1/other.csv" });
     expect(matchActivity({ path: "q1/payroll.csv", eventType: "CREATED", occurredAt: scanAt }, [other], activityWindowFor(60))).toBeNull();

@@ -31,14 +31,15 @@ function actorFields(match: ActivityCandidate): Prisma.FileEventUpdateInput {
 
 /** Called when file events are ingested: is the audit record for them already here? */
 export async function findActorForEvent(
-  event: { sourceId: string; path: string; eventType: string; occurredAt: Date },
+  event: { sourceId: string; path: string; previousPath?: string | null; eventType: string; occurredAt: Date },
   scanIntervalSec: number,
 ): Promise<{ actorUser: string; actorIp: string | null } | null> {
   const window = activityWindowFor(scanIntervalSec);
   const candidates = await prisma.fileActivity.findMany({
     where: {
       sourceId: event.sourceId,
-      path: event.path,
+      // A rename is logged against the old name (see matchActivity).
+      path: { in: event.previousPath ? [event.path, event.previousPath] : [event.path] },
       occurredAt: { gte: new Date(event.occurredAt.getTime() - window.beforeMs), lte: new Date(event.occurredAt.getTime() + window.afterMs) },
     },
     orderBy: { occurredAt: "desc" },
@@ -64,7 +65,8 @@ export async function backfillActorsForActivity(records: FileActivity[]): Promis
     const events = await prisma.fileEvent.findMany({
       where: {
         sourceId: record.sourceId,
-        path: record.path,
+        // Either the file itself, or a rename away from this name.
+        OR: [{ path: record.path }, { previousPath: record.path }],
         actorUser: null,
         occurredAt: { gte: new Date(record.occurredAt.getTime() - window.afterMs), lte: new Date(record.occurredAt.getTime() + window.beforeMs) },
       },
