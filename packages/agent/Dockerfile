@@ -18,6 +18,23 @@ FROM node:24-bookworm-slim AS runtime
 # Debian's package, not pip, so the image stays reproducible.
 RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-winrm \
  && rm -rf /var/lib/apt/lists/*
+# NTLM hashes passwords with MD4, which OpenSSL 3 moved to its legacy provider,
+# so Python's hashlib refuses it ("unsupported hash type md4") and every WinRM
+# login fails. Node has the same problem with SMB and solves it with
+# NODE_OPTIONS=--openssl-legacy-provider; Python needs this config file, passed
+# to the collector subprocess only (activityCollector.ts).
+RUN printf '%s\n' \
+  'openssl_conf = openssl_init' \
+  '[openssl_init]' \
+  'providers = provider_sect' \
+  '[provider_sect]' \
+  'default = default_sect' \
+  'legacy = legacy_sect' \
+  '[default_sect]' \
+  'activate = 1' \
+  '[legacy_sect]' \
+  'activate = 1' \
+  > /etc/ssl/openssl-legacy.cnf
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build /app /app

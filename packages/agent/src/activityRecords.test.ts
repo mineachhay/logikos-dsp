@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildActivityRecords, initialBookmark, nextBookmark } from "./activityRecords.js";
+import { buildActivityRecords, describeActivityError, initialBookmark, nextBookmark } from "./activityRecords.js";
 
 function event5145(over: Partial<Record<string, string>> = {}, recordId = 1): string {
   const d: Record<string, string> = {
@@ -76,5 +76,22 @@ describe("initialBookmark", () => {
     expect(initialBookmark(500_000)).toBe(499_800);
     expect(initialBookmark(50)).toBe(0);
     expect(initialBookmark(null)).toBe(0);
+  });
+});
+
+describe("describeActivityError", () => {
+  it("explains the failures a real Windows server produced", () => {
+    expect(describeActivityError("ValueError: unsupported hash type md4", "fs01", 5985)).toMatch(/rebuild the agent image/);
+    expect(describeActivityError("InvalidCredentialsError: the specified credentials were rejected by the server", "fs01", 5985)).toMatch(
+      /rejected the credentials/,
+    );
+    expect(describeActivityError("ConnectionError: HTTPConnectionPool(host='fs01', port=5985): Max retries exceeded", "fs01", 5985)).toMatch(
+      /can't reach WinRM at fs01:5985/,
+    );
+    expect(describeActivityError("WinRMOperationTimeoutError: Access is denied", "fs01", 5985)).toMatch(/Event Log Readers/);
+  });
+
+  it("passes through anything it doesn't recognize, trimmed", () => {
+    expect(describeActivityError("SomeNewError:  weird\n  thing", "fs01", 5985)).toBe("SomeNewError: weird thing");
   });
 });

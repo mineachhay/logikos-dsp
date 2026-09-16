@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import type { ActivityCollectorConfig } from "@logikos-dsp/shared";
 import { config } from "./config.js";
 import { postActivity } from "./client.js";
-import { buildActivityRecords, initialBookmark, nextBookmark } from "./activityRecords.js";
+import { buildActivityRecords, describeActivityError, initialBookmark, nextBookmark } from "./activityRecords.js";
 
 /**
  * "Who changed this file": polls each Windows file server's Security log over
@@ -23,6 +23,9 @@ interface CollectorResult {
   error: string | null;
 }
 
+// See the agent Dockerfile: OpenSSL 3 hides MD4, which NTLM needs.
+const OPENSSL_CONF = process.env.ACTIVITY_OPENSSL_CONF ?? "/etc/ssl/openssl-legacy.cnf";
+
 const SCRIPT_PATH =
   process.env.ACTIVITY_COLLECTOR_SCRIPT ??
   path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "winrm", "collect.py");
@@ -33,7 +36,10 @@ const localBookmarks = new Map<string, number>();
 
 function runCollector(input: object): Promise<CollectorResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn("python3", [SCRIPT_PATH], { stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn("python3", [SCRIPT_PATH], {
+      stdio: ["pipe", "pipe", "pipe"],
+      env: existsSync(OPENSSL_CONF) ? { ...process.env, OPENSSL_CONF } : process.env,
+    });
     let stdout = "";
     let stderr = "";
     const timer = setTimeout(() => child.kill("SIGTERM"), config.activityTimeoutMs);
@@ -75,7 +81,12 @@ async function pollServer(collector: ActivityCollectorConfig): Promise<void> {
     });
 
     if (result.error) {
-      await postActivity({ fileServerId: collector.fileServerId, records: [], bookmark: after, error: result.error });
+      await postActivity({
+        fileServerId: collector.fileServerId,
+        records: [],
+        bookmark: after,
+        error: describeActivityError(result.error, collector.host, collector.winrmPort),
+      });
       return;
     }
 
@@ -104,7 +115,7 @@ async function pollServer(collector: ActivityCollectorConfig): Promise<void> {
       fileServerId: collector.fileServerId,
       records: [],
       bookmark: collector.bookmark ?? 0,
-      error: (err as Error).message.slice(0, 1000),
+      error: describeActivityError((err as Error).message, collector.host, collector.winrmPort),
     }).catch(() => undefined);
   } finally {
     inFlight.delete(collector.fileServerId);
