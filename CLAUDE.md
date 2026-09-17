@@ -60,6 +60,8 @@ watched source → [agent] --FileEvent/StorageSnapshot--> POST /ingest/* → [ba
                                         [dashboard/React] ←── REST ──→ [backend]
 ```
 
+**The Go agent is also a Windows service** (`cmd/agent/service_windows.go`, `install.ps1`): it implements `svc.Handler` and installs itself, because `sc.exe create` on a plain console program produces a service that dies with error 1053. `runAgent(cfg, stop)` in `run.go` is shared by the console, service and container paths.
+
 **The Go agent is configured by `agent.json` next to its executable, or the environment, which wins** (`native-agent/internal/config/file.go`; `Resolve` is the pure part, `Load` the disk-and-exit part). `connectIp` and `caCertFile` exist because this deployment sits behind Cloudflare: a workstation dials the origin's LAN address while still verifying `serverUrl`'s hostname, trusting the Cloudflare Origin CA that Windows doesn't ship. An IP in `serverUrl` cannot work — origin certs carry DNS names, and nginx routes by `server_name`.
 
 **`packages/shared` is the wire contract, and it matters more than its size suggests.** The agent is isolated behind plain HTTP specifically so it can be reimplemented in another language — which has already happened once (`native-agent/`, Go). `native-agent/internal/wire` hand-mirrors the backend's Zod schemas and `internal/config` reproduces the TypeScript agent's key derivation (`agent-<sha256(hostname:local:watchPath)[:24]>`) exactly, so both implementations register as the *same* `Agent` row. Changing an ingest schema means updating the Zod schema, `packages/shared`, and the Go `wire` package together — and since agent auth, agents and backend must be upgraded together too.

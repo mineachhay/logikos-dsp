@@ -116,15 +116,43 @@ for a single debugging run without editing the installed config. With no file at
 all the agent behaves exactly as it always has, which is how it runs under
 docker-compose. `AGENT_CONFIG_FILE` moves the file somewhere else.
 
-Run it as a service so it survives reboots and sign-outs. Until the agent
-registers itself as a proper Windows service, Task Scheduler is the least fuss:
+### Installing it as a service
+
+`install.ps1`, from an elevated PowerShell, with `agent.exe` and the CA file
+beside it. With no arguments it prompts for each setting:
 
 ```powershell
-$action  = New-ScheduledTaskAction -Execute "C:\Program Files\logikos-dsp\agent.exe"
-$trigger = New-ScheduledTaskTrigger -AtStartup
-$principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
-Register-ScheduledTask -TaskName "logikos-dsp agent" -Action $action -Trigger $trigger -Principal $principal
+.\install.ps1
 ```
+
+Pass them all to install unattended, which is what you want for more than a
+machine or two — a GPO startup script, Intune, or any deployment tool:
+
+```powershell
+.\install.ps1 -ServerUrl "https://dsp.example.com/api" -ConnectIp "20.20.0.92" `
+              -EnrollToken "..." -WatchPath "C:\Users\jdoe\Downloads"
+```
+
+It copies everything to `C:\Program Files\logikos-dsp-agent`, writes
+`agent.json` restricted to Administrators and SYSTEM, and registers the
+service. The agent manages the service itself, so these work too:
+
+```powershell
+agent.exe install | uninstall | start | stop | status
+```
+
+The service runs as LocalSystem (watching another user's profile needs more
+than that user's own rights), starts automatically, and restarts itself after
+30s, 60s and 120s if it fails — an agent nobody knows has stopped is worse
+than no agent, because the dashboard just shows no copies. Since a service has
+no console, it logs to `agent.log` next to the executable and reports start,
+stop and configuration errors to the Windows event log.
+
+**Don't use `sc.exe create` on this binary as if it were a plain program.**
+Windows expects a service to report status to the SCM within ~30 seconds;
+`agent install` registers it properly, and the same binary detects when the
+SCM started it (`svc.IsWindowsService`). A hand-rolled `sc create` yields a
+service that looks installed and dies with error 1053.
 
 Notes:
 

@@ -4,6 +4,11 @@
 // runtime footprint chokidar carries, per the tradeoff ARCHITECTURE.md's
 // "Design decisions" section named as v0's biggest deferred cost.
 //
+// One binary runs three ways: in the foreground (the Linux container, and
+// for debugging a workstation), as a Windows service under the SCM, and as
+// its own installer for that service (`agent install`). The subcommands
+// exist only on Windows; elsewhere they say so and exit.
+//
 // Scope note, read before assuming this is "the" native agent:
 // ARCHITECTURE.md's original ambition was a Windows service reading the
 // NTFS USN journal directly (FSCTL_QUERY_USN_JOURNAL/FSCTL_READ_USN_JOURNAL)
@@ -17,107 +22,78 @@
 // DeviceIoControl calls exactly right) is real systems-programming risk on
 // a *production file server's boot/system volume* — the wrong wrinkle
 // there has a much worse failure mode than a userspace directory watch
-// glitching, and there is no Windows machine available to test any of it
-// against a real NTFS volume. Shipping unverified low-level journal code
-// against that specific risk profile was judged not worth it; fsnotify's
-// ReadDirectoryChangesW path still delivers this rewrite's actual goal
-// (drop the Node runtime, ship a single static binary) safely. Revisit
-// USN-journal support if/when a real Windows test environment exists.
+// glitching. Shipping unverified low-level journal code against that risk
+// profile was judged not worth it; fsnotify's ReadDirectoryChangesW path
+// still delivers this rewrite's actual goal (drop the Node runtime, ship a
+// single static binary). Revisit if polling-free ever proves insufficient.
 //
-// What's actually been verified: the Linux/inotify path, live, against
-// this project's real backend (register → detect a change → POST → alert
-// pipeline, same test the TypeScript agent itself was verified with). The
-// Windows/ReadDirectoryChangesW path only compiles cross-platform
-// (GOOS=windows go build) — it has not run on a real Windows machine.
+// What's verified: the Linux/inotify path against the real backend, and —
+// since 2026-09-17, on Windows Server 2019 — registration over TLS to a
+// LAN-dialled origin, recursive watching, and a 21-file copy from an SMB
+// share correlated into COPIED events naming both ends and the user.
 package main
 
 import (
-	"log"
+	"fmt"
 	"os"
-	"sync"
-	"time"
+	"os/signal"
+	"syscall"
 
-	"github.com/logikos-dsp/native-agent/internal/client"
 	"github.com/logikos-dsp/native-agent/internal/config"
-	"github.com/logikos-dsp/native-agent/internal/watch"
-	"github.com/logikos-dsp/native-agent/internal/wire"
 )
 
-const eventBatchSize = 50 // must match packages/agent/src/config.ts's eventBatchSize
+const usage = `logikos-dsp agent
+
+Usage:
+  agent                 run in the foreground (default)
+  agent install         install and start the Windows service
+  agent uninstall       stop and remove the Windows service
+  agent start | stop    control the installed service
+  agent status          report whether the service is installed and running
+
+Configuration comes from agent.json next to this executable, overridden by
+the environment. See the README.
+`
 
 func main() {
+	command := ""
+	if len(os.Args) > 1 {
+		command = os.Args[1]
+	}
+
+	switch command {
+	case "":
+		// On Windows this detects being launched by the SCM and hands over
+		// to it; everywhere else it runs in the foreground.
+		runForegroundOrService()
+	case "install", "uninstall", "start", "stop", "status":
+		if err := serviceCommand(command); err != nil {
+			fmt.Fprintf(os.Stderr, "%s failed: %v\n", command, err)
+			os.Exit(1)
+		}
+	case "-h", "--help", "help":
+		fmt.Print(usage)
+	default:
+		fmt.Fprintf(os.Stderr, "unknown command %q\n\n%s", command, usage)
+		os.Exit(2)
+	}
+}
+
+// runInForeground stops on Ctrl+C or SIGTERM — how it runs in the container
+// and when debugging a workstation with a console open.
+func runInForeground() {
 	cfg := config.Load()
 
-	// A workstation agent may have to dial the backend's LAN address while
-	// still verifying its certificate against the hostname in the URL, and
-	// may need a private CA to verify it at all. Both are no-ops when unset,
-	// which is how the bundled Linux agent runs.
-	var caPEM []byte
-	if cfg.CACertFile != "" {
-		var err error
-		caPEM, err = os.ReadFile(cfg.CACertFile)
-		if err != nil {
-			log.Fatalf("failed to read the configured CA file: %v", err)
-		}
-	}
-	httpClient, err := client.NewHTTPClient(cfg.ConnectIP, caPEM, 15*time.Second)
-	if err != nil {
-		log.Fatalf("failed to configure the connection to %s: %v", cfg.BackendURL, err)
-	}
-	if cfg.ConnectIP != "" {
-		log.Printf("connecting to %s via %s", cfg.BackendURL, cfg.ConnectIP)
-	}
-
-	c := client.New(cfg.BackendURL, cfg.EnrollToken, client.WithHTTPClient(httpClient))
-
-	if err := c.Register(cfg.AgentKey, cfg.Hostname, cfg.WatchedRootLabel); err != nil {
-		log.Fatalf("agent failed to register: %v", err)
-	}
-	log.Printf("registered agent %s watching %s", cfg.AgentKey, cfg.WatchPath)
-
-	var mu sync.Mutex
-	var queue []wire.FileEvent
-
-	w, err := watch.New(cfg.WatchPath, func(evt wire.FileEvent) {
-		evt.AgentKey = cfg.AgentKey
-		mu.Lock()
-		queue = append(queue, evt)
-		mu.Unlock()
-	})
-	if err != nil {
-		log.Fatalf("failed to start watcher: %v", err)
-	}
-	defer w.Close()
-	log.Printf("watching %s for file events", cfg.WatchPath)
-
-	// Flush loop — same eventFlushIntervalMs default (500ms) and
-	// eventBatchSize (50) as watcher.ts, so ingest load looks identical to
-	// the backend either way.
+	stop := make(chan struct{})
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	go func() {
-		ticker := time.NewTicker(500 * time.Millisecond)
-		defer ticker.Stop()
-		for range ticker.C {
-			mu.Lock()
-			if len(queue) == 0 {
-				mu.Unlock()
-				continue
-			}
-			n := eventBatchSize
-			if n > len(queue) {
-				n = len(queue)
-			}
-			batch := queue[:n]
-			queue = queue[n:]
-			mu.Unlock()
-
-			if err := c.PostEvents(batch); err != nil {
-				log.Printf("failed to post events: %v", err)
-			}
-		}
+		<-signals
+		close(stop)
 	}()
 
-	go runStorageScan(c, cfg)
-	go runQuarantinePolling(c, cfg)
-
-	select {} // run forever; each goroutine above logs and continues past its own errors
+	if err := runAgent(cfg, stop); err != nil {
+		fmt.Fprintf(os.Stderr, "agent failed: %v\n", err)
+		os.Exit(1)
+	}
 }
