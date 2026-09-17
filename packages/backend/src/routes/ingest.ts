@@ -4,7 +4,7 @@ import { prisma } from "../db.js";
 import { checkRansomwareRate } from "../rules/ransomwareRate.js";
 import { authenticateAgent } from "../auth/agentAuth.js";
 import { resolveIngestSource } from "../sources.js";
-import { backfillActorsForActivity, findActorForEvent, linkBetweenScanRenames } from "../activity.js";
+import { backfillActorsForActivity, findActorForEvent, linkBetweenScanRenames, linkCopySources } from "../activity.js";
 import { checkBulkRead } from "../rules/bulkRead.js";
 
 const fileEventTypeMap = {
@@ -123,6 +123,9 @@ export async function ingestRoutes(app: FastifyInstance) {
     // A rename between two scans arrives as a create; the audit trail is what
     // identifies it (see linkBetweenScanRenames).
     await linkBetweenScanRenames(source.id);
+    // Identical files in several folders look the same to a scan; the read
+    // that a copy makes of its source is what names it.
+    await linkCopySources(source.id);
     await checkRansomwareRate(source.id);
 
     return reply.send({ created });
@@ -199,6 +202,7 @@ export async function ingestRoutes(app: FastifyInstance) {
     // the delete record that just landed is what identifies it.
     for (const sourceId of new Set(stored.map((r) => r.sourceId).filter((id): id is string => Boolean(id)))) {
       await linkBetweenScanRenames(sourceId);
+      await linkCopySources(sourceId);
     }
     // Reads are only stored when the file server has read recording on; a burst
     // of them from one account is what copying a folder off the share looks like.

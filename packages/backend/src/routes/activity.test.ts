@@ -340,6 +340,79 @@ describe("renames between two scans", () => {
   });
 });
 
+describe("naming a copy's source", () => {
+  it("uses the read a copy makes of its source, when identical files make the scan unsure", async () => {
+    const { app, seeded, server, share } = await setup();
+    const copiedAt = new Date();
+
+    // The scan saw a copy but couldn't say which identical file it came from.
+    await app.inject({
+      method: "POST",
+      url: "/ingest/events",
+      headers: seeded.headers,
+      payload: [
+        {
+          agentKey: seeded.agent.key,
+          sourceId: share.id,
+          eventType: "copied",
+          path: "FN/create file.zip",
+          occurredAt: copiedAt.toISOString(),
+        },
+      ],
+    });
+
+    await app.inject({
+      method: "POST",
+      url: "/ingest/activity",
+      headers: seeded.headers,
+      payload: {
+        ...activityPayload(seeded.agent.key, server.id),
+        records: [
+          {
+            sourceId: share.id,
+            path: "IT/create file.zip",
+            action: "READ",
+            userName: "Administrator",
+            userDomain: "WIN-FS",
+            occurredAt: new Date(copiedAt.getTime() - 20_000).toISOString(),
+            recordId: 1310,
+          },
+        ],
+      },
+    });
+
+    const copy = await prisma.fileEvent.findFirstOrThrow({ where: { eventType: "COPIED" } });
+    expect(copy.previousPath).toBe("IT/create file.zip");
+    expect(copy.actorUser).toBe("WIN-FS\\Administrator");
+  });
+
+  it("leaves the source blank when the same file was read from two folders", async () => {
+    const { app, seeded, server, share } = await setup();
+    const copiedAt = new Date();
+    await app.inject({
+      method: "POST",
+      url: "/ingest/events",
+      headers: seeded.headers,
+      payload: [
+        { agentKey: seeded.agent.key, sourceId: share.id, eventType: "copied", path: "FN/create file.zip", occurredAt: copiedAt.toISOString() },
+      ],
+    });
+    await app.inject({
+      method: "POST",
+      url: "/ingest/activity",
+      headers: seeded.headers,
+      payload: {
+        ...activityPayload(seeded.agent.key, server.id),
+        records: [
+          { sourceId: share.id, path: "IT/create file.zip", action: "READ", userName: "Administrator", occurredAt: new Date(copiedAt.getTime() - 20_000).toISOString(), recordId: 1320 },
+          { sourceId: share.id, path: "create file.zip", action: "READ", userName: "Administrator", occurredAt: new Date(copiedAt.getTime() - 19_000).toISOString(), recordId: 1321 },
+        ],
+      },
+    });
+    expect((await prisma.fileEvent.findFirstOrThrow({ where: { eventType: "COPIED" } })).previousPath).toBeNull();
+  });
+});
+
 describe("collector config over /agent-sync", () => {
   it("hands the agent the WinRM account, falling back to the share account", async () => {
     const { app, seeded, server, share } = await setup();

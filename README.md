@@ -104,7 +104,9 @@ is 5985.
 **Copying:** a file copied or pasted into the share is reported as `COPIED`,
 naming the file it came from when that file is still on the share (copying
 preserves a file's timestamp, which is how a paste is told apart from a file
-written in place). A file copied *out* of the share changes nothing
+written in place). When several identical files could be the source — the same
+file in three folders — the source is only named if read recording is on, since
+the copy's read of the original is the only thing that identifies it. A file copied *out* of the share changes nothing
 on it, so the only trace is a read — tick **Also record who reads files** to
 record those under **File Access**, and logikos-dsp will alert when one account
 reads more than 50 different files within five minutes, which is what copying a

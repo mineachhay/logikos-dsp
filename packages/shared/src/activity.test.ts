@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   accessListToAction,
+  inferCopySourceFromReads,
   inferRenameFromAudit,
   activityPathForSource,
   activityWindowFor,
@@ -195,5 +196,33 @@ describe("inferRenameFromAudit", () => {
   it("ignores deletes outside the window, and a delete of the created path itself", () => {
     expect(inferRenameFromAudit({ path: "HR/new.txt", occurredAt: scanAt }, [del("HR/old.txt", 9999)], [], window)).toBeNull();
     expect(inferRenameFromAudit({ path: "HR/new.txt", occurredAt: scanAt }, [del("HR/new.txt", 20)], [], window)).toBeNull();
+  });
+});
+
+describe("inferCopySourceFromReads", () => {
+  const copiedAt = new Date("2026-09-16T10:18:40Z");
+  const window = activityWindowFor(60);
+  const read = (path: string, secondsBefore: number): ActivityCandidate => ({
+    id: `r-${path}`,
+    path,
+    action: "READ",
+    occurredAt: new Date(copiedAt.getTime() - secondsBefore * 1000),
+    userName: "Administrator",
+  });
+
+  it("names the file a copy was read from, which size and name alone can't settle", () => {
+    const match = inferCopySourceFromReads({ path: "FN/create file.zip", occurredAt: copiedAt }, [read("IT/create file.zip", 30)], window);
+    expect(match?.path).toBe("IT/create file.zip");
+  });
+
+  it("stays silent when identical files were read from two places", () => {
+    const reads = [read("IT/create file.zip", 30), read("create file.zip", 28)];
+    expect(inferCopySourceFromReads({ path: "FN/create file.zip", occurredAt: copiedAt }, reads, window)).toBeNull();
+  });
+
+  it("ignores reads of other files, the copy itself, and reads outside the window", () => {
+    expect(inferCopySourceFromReads({ path: "FN/create file.zip", occurredAt: copiedAt }, [read("IT/other.zip", 30)], window)).toBeNull();
+    expect(inferCopySourceFromReads({ path: "FN/create file.zip", occurredAt: copiedAt }, [read("FN/create file.zip", 30)], window)).toBeNull();
+    expect(inferCopySourceFromReads({ path: "FN/create file.zip", occurredAt: copiedAt }, [read("IT/create file.zip", 99_999)], window)).toBeNull();
   });
 });

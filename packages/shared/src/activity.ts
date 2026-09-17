@@ -192,6 +192,36 @@ export function inferRenameFromAudit(
   return candidates.length === 1 ? candidates[0] : null;
 }
 
+/**
+ * Which file a copy came from, when the filesystem can't say. Identical copies
+ * of the same file — same size, same timestamp, often the same name in several
+ * folders — are indistinguishable to a scan, so `diffSnapshots` reports the
+ * copy without naming a source. The audit log does know: copying reads the
+ * source before writing the target.
+ *
+ * Matched by filename, since a copy keeps it, and only when every matching
+ * read points at the same file. Needs read recording on for that server.
+ */
+export function inferCopySourceFromReads(
+  event: { path: string; occurredAt: Date },
+  readRecords: readonly ActivityCandidate[],
+  window: { beforeMs: number; afterMs: number },
+): ActivityCandidate | null {
+  const name = event.path.split("/").pop()?.toLowerCase();
+  const from = event.occurredAt.getTime() - window.beforeMs;
+  const to = event.occurredAt.getTime() + window.afterMs;
+  const candidates = readRecords.filter(
+    (r) =>
+      r.action === "READ" &&
+      r.path.toLowerCase() !== event.path.toLowerCase() &&
+      r.path.split("/").pop()?.toLowerCase() === name &&
+      r.occurredAt.getTime() >= from &&
+      r.occurredAt.getTime() <= to,
+  );
+  const distinctPaths = new Set(candidates.map((r) => r.path.toLowerCase()));
+  return distinctPaths.size === 1 ? candidates[0] : null;
+}
+
 /** How far back to look for the audit record behind a scan-detected change. */
 export function activityWindowFor(scanIntervalSec: number): { beforeMs: number; afterMs: number } {
   return { beforeMs: scanIntervalSec * 1000 + 120_000, afterMs: 30_000 };

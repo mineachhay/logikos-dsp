@@ -1,5 +1,5 @@
 import type { FileActivity, Prisma } from "@prisma/client";
-import { activityWindowFor, inferRenameFromAudit, matchActivity, type ActivityCandidate } from "@logikos-dsp/shared";
+import { activityWindowFor, inferCopySourceFromReads, inferRenameFromAudit, matchActivity, type ActivityCandidate } from "@logikos-dsp/shared";
 import { prisma } from "./db.js";
 
 /**
@@ -124,4 +124,39 @@ export async function linkBetweenScanRenames(sourceId: string, now = new Date())
     linked++;
   }
   return linked;
+}
+
+/**
+ * Names the file a copy came from, for copies the scan couldn't attribute:
+ * identical files with identical names in several folders are the same to a
+ * scan, but copying reads the source, and that read is in the audit log.
+ * Needs read recording on for the file server — without it there are no read
+ * records and copies simply keep no source, which is honest.
+ */
+export async function linkCopySources(sourceId: string, now = new Date()): Promise<number> {
+  const source = await prisma.source.findUnique({ where: { id: sourceId }, select: { scanIntervalSec: true } });
+  const window = activityWindowFor(source?.scanIntervalSec ?? 300);
+  const since = new Date(now.getTime() - window.beforeMs - window.afterMs);
+
+  const copies = await prisma.fileEvent.findMany({
+    where: { sourceId, eventType: "COPIED", previousPath: null, occurredAt: { gte: since } },
+    orderBy: { occurredAt: "asc" },
+  });
+  if (copies.length === 0) return 0;
+
+  const reads = await prisma.fileActivity.findMany({ where: { sourceId, action: "READ", occurredAt: { gte: since } } });
+  if (reads.length === 0) return 0;
+
+  const candidates = reads.map(toCandidate);
+  let named = 0;
+  for (const copy of copies) {
+    const match = inferCopySourceFromReads(copy, candidates, window);
+    if (!match) continue;
+    await prisma.fileEvent.update({
+      where: { id: copy.id },
+      data: { previousPath: match.path, ...(copy.actorUser ? {} : actorFields(match)) },
+    });
+    named++;
+  }
+  return named;
 }
