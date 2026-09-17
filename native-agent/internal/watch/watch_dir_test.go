@@ -46,3 +46,39 @@ func TestFoldersAreWatchedButNeverReported(t *testing.T) {
 		}
 	}
 }
+
+// Deleting a folder must not report the folder as a deleted file. The path is
+// already gone by then, so os.Stat can't answer — it has to be remembered.
+func TestDeletingAFolderReportsOnlyItsFiles(t *testing.T) {
+	root := t.TempDir()
+	sub := filepath.Join(root, "IT")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "report.zip"), []byte("payload"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	events := make(chan wire.FileEvent, 16)
+	w, err := New(root, func(e wire.FileEvent) { events <- e })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+
+	if err := os.RemoveAll(sub); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case e := <-events:
+			if filepath.Base(e.Path) == "IT" {
+				t.Fatalf("the folder was reported as deleted: %+v", e)
+			}
+		case <-deadline:
+			return // no folder event within the window: what we want
+		}
+	}
+}

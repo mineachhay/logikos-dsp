@@ -61,6 +61,7 @@ type Watcher struct {
 	mu      sync.Mutex
 	pending map[string]*time.Timer // debounce: one pending flush timer per path
 	known   map[string]bool        // paths this watcher has already reported as existing — see debounce's doc comment
+	dirs    map[string]bool        // paths known to be directories, so a removal can tell a folder from a file
 }
 
 // New walks `root` recursively, adds an inotify/ReadDirectoryChangesW
@@ -77,7 +78,7 @@ func New(root string, handler EventHandler) (*Watcher, error) {
 	if err != nil {
 		return nil, err
 	}
-	w := &Watcher{root: root, handler: handler, fsw: fsw, pending: map[string]*time.Timer{}, known: map[string]bool{}}
+	w := &Watcher{root: root, handler: handler, fsw: fsw, pending: map[string]*time.Timer{}, known: map[string]bool{}, dirs: map[string]bool{}}
 
 	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -87,6 +88,7 @@ func New(root string, handler EventHandler) (*Watcher, error) {
 			if d.Name() == quarantineDirName {
 				return filepath.SkipDir // never watch our own quarantine folder — moving a file into it must not look like a "created" event
 			}
+			w.dirs[path] = true
 			return fsw.Add(path)
 		}
 		w.known[path] = true
@@ -136,10 +138,18 @@ func (w *Watcher) handleRaw(event fsnotify.Event) {
 				return
 			}
 			_ = w.fsw.Add(event.Name)
+			w.mu.Lock()
+			w.dirs[event.Name] = true
+			w.mu.Unlock()
 			_ = filepath.WalkDir(event.Name, func(path string, d os.DirEntry, err error) error {
 				if err != nil || d.IsDir() {
 					return nil
 				}
+				w.mu.Lock()
+				if d.IsDir() {
+					w.dirs[path] = true
+				}
+				w.mu.Unlock()
 				w.debounce(path)
 				return nil
 			})
@@ -163,9 +173,18 @@ func (w *Watcher) handleRaw(event fsnotify.Event) {
 		// fsnotify (like chokidar) reports a move as a Remove/Rename of the
 		// old path plus a separate Create of the new one — no correlated
 		// "renamed" event, matching watcher.ts's documented limitation.
+		// A removed path can't be stat'd to ask whether it was a folder, so
+		// the answer has to come from what we watched. Without this, deleting
+		// a copied folder reported the folder itself as a deleted file —
+		// seen live alongside the directory-Write case handled in debounce.
 		w.mu.Lock()
 		delete(w.known, event.Name)
+		wasDir := w.dirs[event.Name]
+		delete(w.dirs, event.Name)
 		w.mu.Unlock()
+		if wasDir {
+			return
+		}
 		w.emit(event.Name, wire.Deleted, 0, false)
 	}
 }
