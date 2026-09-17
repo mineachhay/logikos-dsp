@@ -259,13 +259,15 @@ below and can forge `X-Forwarded-For`. With `BACKEND_ENV_FILE` set, point
 another port (`PORT=4001`, plus `VITE_BACKEND_URL=http://localhost:4001` in
 `packages/dashboard/.env.local` and `BACKEND_URL` for the agent).
 
-The vhost returns 403 for `/api/ingest/*`, `/api/agent-commands` and
-`/api/agents/register`. Those authenticate agents rather than users (and
-`register` takes no credential at all), so they are not safe to expose; the
-bundled agent reaches the backend over the compose network and is unaffected.
-Agents do authenticate now (see Quickstart), so running one on a **remote** host
-is possible by removing those blocks — but that exposes the enroll token to
-online guessing, so read ARCHITECTURE.md's "Agent authentication" first.
+The vhost used to return 403 for `/api/ingest/*`, `/api/agent-commands` and
+`/api/agents/register`, from before agents authenticated. They now carry a
+per-agent secret, so they are exposed like any other authenticated route, which
+is what lets an agent run on a **remote** machine — a workstation watching the
+folders people copy files into. `/api/agents/register` is the exception: it
+takes the deployment-wide `AGENT_ENROLL_TOKEN`, so the vhost rate limits it to
+6 requests/minute per IP (429 when exceeded) to keep that one shared secret out
+of reach of online guessing. Real agents register at startup and after a 401,
+far below the limit.
 
 ## Sign-in protection
 
