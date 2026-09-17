@@ -247,6 +247,10 @@ function FileEventsView() {
 
   return (
     <>
+      <p className="muted view-note">
+        Changes to watched folders. Files <strong>read</strong> — opened, or copied out to somewhere else — change nothing here and appear under{" "}
+        <strong>File Access</strong>.
+      </p>
       <TableToolbar
         search={search}
         onSearch={setSearch}

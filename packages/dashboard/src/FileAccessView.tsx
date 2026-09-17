@@ -55,6 +55,10 @@ export default function FileAccessView() {
 
   return (
     <>
+      <p className="muted view-note">
+        Who touched what, from the file server's own audit log. A file copied out of the share, or just opened, shows here as a <strong>read</strong> —
+        Windows records both identically, so what marks an exfiltration is the volume, which raises an alert.
+      </p>
       <TableToolbar
         search={search}
         onSearch={setSearch}
