@@ -77,16 +77,47 @@ machine, watching the folders people copy into, and logikos-dsp joins the two
 halves: a file appearing here, seconds after the same file was read from a
 share, is recorded as one `COPIED` event naming both ends and the person.
 
-```powershell
-# On the workstation, as administrator. The agent is one binary, no runtime.
-$env:BACKEND_URL       = "https://dsp.example.com/api"
-$env:AGENT_ENROLL_TOKEN = "<the same token the server uses>"
-$env:WATCH_PATH        = "C:\Users\jdoe\Downloads"
-.\agent.exe
+Configure it with an `agent.json` sitting next to the executable — an
+installer can write that file, and an administrator can read it, neither of
+which is true of environment variables under a service account:
+
+```json
+{
+  "serverUrl": "https://dsp.example.com/api",
+  "connectIp": "20.20.0.92",
+  "caCertFile": "cloudflare-origin-ca.pem",
+  "enrollToken": "<the same token the server uses>",
+  "watchPath": "C:\\Users\\jdoe\\Downloads"
+}
 ```
 
-Run it as a service so it survives reboots and sign-outs — Task Scheduler is
-the least fuss:
+Then just `.\agent.exe`. Only `enrollToken` and `watchPath` are required.
+
+**`serverUrl` keeps the hostname even when the server is on your LAN.**
+`connectIp` changes the address dialled, not the name verified — so TLS still
+checks the certificate against `serverUrl`'s hostname. That combination is what
+lets a workstation reach a server sitting beside it instead of sending every
+file event out to a CDN and back. Putting an IP in `serverUrl` does not work:
+origin certificates carry DNS names, so `https://<ip>/` fails hostname
+verification, and nginx routes by `server_name`, so a bare IP lands on whichever
+vhost happens to be first.
+
+**`caCertFile` trusts a private CA in addition to the system roots** — needed
+when the origin's certificate is issued by one Windows doesn't know, such as
+Cloudflare's Origin CA. Relative paths resolve next to `agent.json`, which
+matters because a Windows service's working directory is `C:\Windows\System32`.
+Trust is only ever added, never relaxed; there is deliberately no option to skip
+certificate verification.
+
+Every setting can also come from the environment — `BACKEND_URL`,
+`AGENT_ENROLL_TOKEN`, `WATCH_PATH`, `BACKEND_CONNECT_IP`, `BACKEND_CA_CERT_FILE`
+— and **the environment wins over the file**, so one setting can be overridden
+for a single debugging run without editing the installed config. With no file at
+all the agent behaves exactly as it always has, which is how it runs under
+docker-compose. `AGENT_CONFIG_FILE` moves the file somewhere else.
+
+Run it as a service so it survives reboots and sign-outs. Until the agent
+registers itself as a proper Windows service, Task Scheduler is the least fuss:
 
 ```powershell
 $action  = New-ScheduledTaskAction -Execute "C:\Program Files\logikos-dsp\agent.exe"
@@ -95,17 +126,16 @@ $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
 Register-ScheduledTask -TaskName "logikos-dsp agent" -Action $action -Trigger $trigger -Principal $principal
 ```
 
-Environment variables for a task run as SYSTEM are easiest to set in a small
-wrapper `.cmd` that sets them and then starts `agent.exe`.
-
 Notes:
 
 - **One watch path per agent process.** Watching several folders means several
   services, or one agent per user profile root.
 - **Each machine becomes its own source** in the dashboard, named by its watch
   path, so its events are separate from the share's.
-- **The enroll token is a deployment-wide secret.** An agent on a laptop can
-  register and send events with it, so treat it accordingly; revoking a
-  machine's access is a click on the Agents page.
+- **The enroll token is a deployment-wide secret**, and `agent.json` holds it in
+  plaintext on every machine. Anyone with local administrator rights there can
+  read it and register or impersonate agents. Acceptable for a handful of
+  servers; before rolling this out to many workstations, per-machine enrollment
+  tokens are the fix. Revoking a machine is a click on the Agents page.
 - Copies to a machine with no agent — an unmanaged laptop, a USB stick — still
   show only as reads on the share, plus the bulk-read alert.

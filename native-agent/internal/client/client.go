@@ -38,14 +38,29 @@ type Client struct {
 	lastReregister time.Time
 }
 
-func New(baseURL, enrollToken string) *Client {
-	return &Client{
+// Option adjusts a Client at construction. Variadic rather than a second
+// constructor so every existing call site — and the Linux deployment they
+// represent — keeps working untouched.
+type Option func(*Client)
+
+// WithHTTPClient supplies the transport, for agents that must dial a specific
+// address or trust a private CA (see NewHTTPClient).
+func WithHTTPClient(h *http.Client) Option {
+	return func(c *Client) { c.http = h }
+}
+
+func New(baseURL, enrollToken string, opts ...Option) *Client {
+	c := &Client{
 		baseURL:               baseURL,
 		enrollToken:           enrollToken,
 		http:                  &http.Client{Timeout: 15 * time.Second},
 		minReregisterInterval: 5 * time.Second,
 		now:                   time.Now,
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 // send builds a fresh request per attempt (a body reader can't be replayed).

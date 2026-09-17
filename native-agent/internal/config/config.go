@@ -11,16 +11,21 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strconv"
 )
 
 type Config struct {
-	BackendURL               string
-	EnrollToken              string
-	WatchPath                string
-	WatchedRootLabel         string
-	AgentKey                 string
-	Hostname                 string
+	BackendURL       string
+	EnrollToken      string
+	WatchPath        string
+	WatchedRootLabel string
+	AgentKey         string
+	Hostname         string
+	// ConnectIP dials a specific address while still verifying BackendURL's
+	// hostname; CACertFile trusts a private CA alongside the system roots.
+	// Both are for agents on workstations reaching a backend behind a CDN or
+	// a private CA — see internal/client.NewHTTPClient.
+	ConnectIP                string
+	CACertFile               string
 	StorageScanIntervalMs    int
 	QuarantinePollIntervalMs int
 }
@@ -39,58 +44,32 @@ func deriveKey(hostname, watchPath string) string {
 	return "agent-" + hex.EncodeToString(sum[:])[:24]
 }
 
+// Load resolves configuration from the file next to the executable and the
+// environment, exiting on anything unusable — the same contract
+// packages/agent/src/config.ts has, so a misconfigured agent fails at startup
+// rather than silently running against the wrong backend.
 func Load() Config {
-	backendURL := os.Getenv("BACKEND_URL")
-	if backendURL == "" {
-		backendURL = "http://localhost:4000"
-	}
-
-	enrollToken := os.Getenv("AGENT_ENROLL_TOKEN")
-	if enrollToken == "" {
-		log.Fatal("AGENT_ENROLL_TOKEN environment variable is required (same value as the backend's)")
-	}
-
-	watchPath := os.Getenv("WATCH_PATH")
-	if watchPath == "" {
-		log.Fatal("WATCH_PATH environment variable is required")
-	}
-
 	hostname, err := os.Hostname()
 	if err != nil {
 		log.Fatalf("failed to determine hostname: %v", err)
 	}
 
-	agentKey := os.Getenv("AGENT_KEY")
-	if agentKey == "" {
-		agentKey = deriveKey(hostname, watchPath)
+	executable, err := os.Executable()
+	if err != nil {
+		// Only affects where the config file is looked for; the working
+		// directory is a reasonable guess and the environment may well
+		// carry everything needed anyway.
+		executable = "."
+	}
+	path := FindConfigFile(os.Getenv, executable)
+	file, err := LoadFile(path)
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	storageScanIntervalMs := 60_000
-	if v := os.Getenv("STORAGE_SCAN_INTERVAL_MS"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil {
-			log.Fatalf("STORAGE_SCAN_INTERVAL_MS must be a number, got %q", v)
-		}
-		storageScanIntervalMs = n
+	cfg, err := Resolve(file, os.Getenv, hostname)
+	if err != nil {
+		log.Fatal(err)
 	}
-
-	quarantinePollIntervalMs := 10_000
-	if v := os.Getenv("QUARANTINE_POLL_INTERVAL_MS"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil {
-			log.Fatalf("QUARANTINE_POLL_INTERVAL_MS must be a number, got %q", v)
-		}
-		quarantinePollIntervalMs = n
-	}
-
-	return Config{
-		BackendURL:               backendURL,
-		EnrollToken:              enrollToken,
-		WatchPath:                watchPath,
-		WatchedRootLabel:         watchPath,
-		AgentKey:                 agentKey,
-		Hostname:                 hostname,
-		StorageScanIntervalMs:    storageScanIntervalMs,
-		QuarantinePollIntervalMs: quarantinePollIntervalMs,
-	}
+	return cfg
 }

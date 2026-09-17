@@ -33,6 +33,7 @@ package main
 
 import (
 	"log"
+	"os"
 	"sync"
 	"time"
 
@@ -46,7 +47,28 @@ const eventBatchSize = 50 // must match packages/agent/src/config.ts's eventBatc
 
 func main() {
 	cfg := config.Load()
-	c := client.New(cfg.BackendURL, cfg.EnrollToken)
+
+	// A workstation agent may have to dial the backend's LAN address while
+	// still verifying its certificate against the hostname in the URL, and
+	// may need a private CA to verify it at all. Both are no-ops when unset,
+	// which is how the bundled Linux agent runs.
+	var caPEM []byte
+	if cfg.CACertFile != "" {
+		var err error
+		caPEM, err = os.ReadFile(cfg.CACertFile)
+		if err != nil {
+			log.Fatalf("failed to read the configured CA file: %v", err)
+		}
+	}
+	httpClient, err := client.NewHTTPClient(cfg.ConnectIP, caPEM, 15*time.Second)
+	if err != nil {
+		log.Fatalf("failed to configure the connection to %s: %v", cfg.BackendURL, err)
+	}
+	if cfg.ConnectIP != "" {
+		log.Printf("connecting to %s via %s", cfg.BackendURL, cfg.ConnectIP)
+	}
+
+	c := client.New(cfg.BackendURL, cfg.EnrollToken, client.WithHTTPClient(httpClient))
 
 	if err := c.Register(cfg.AgentKey, cfg.Hostname, cfg.WatchedRootLabel); err != nil {
 		log.Fatalf("agent failed to register: %v", err)
