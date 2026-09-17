@@ -68,3 +68,44 @@ implementations are provably consistent on filename/sampling decisions.
 Not covered by automated tests (same boundary the TypeScript agent draws):
 the actual `fsnotify` event handling — that's what got live-verified
 against a real backend instead (see above).
+
+## Running on a workstation, to see where files are copied *to*
+
+A file server only ever learns that its file was **read** — where the bytes
+went is known solely to the machine that received them. Run this agent on that
+machine, watching the folders people copy into, and logikos-dsp joins the two
+halves: a file appearing here, seconds after the same file was read from a
+share, is recorded as one `COPIED` event naming both ends and the person.
+
+```powershell
+# On the workstation, as administrator. The agent is one binary, no runtime.
+$env:BACKEND_URL       = "https://dsp.example.com/api"
+$env:AGENT_ENROLL_TOKEN = "<the same token the server uses>"
+$env:WATCH_PATH        = "C:\Users\jdoe\Downloads"
+.\agent.exe
+```
+
+Run it as a service so it survives reboots and sign-outs — Task Scheduler is
+the least fuss:
+
+```powershell
+$action  = New-ScheduledTaskAction -Execute "C:\Program Files\logikos-dsp\agent.exe"
+$trigger = New-ScheduledTaskTrigger -AtStartup
+$principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
+Register-ScheduledTask -TaskName "logikos-dsp agent" -Action $action -Trigger $trigger -Principal $principal
+```
+
+Environment variables for a task run as SYSTEM are easiest to set in a small
+wrapper `.cmd` that sets them and then starts `agent.exe`.
+
+Notes:
+
+- **One watch path per agent process.** Watching several folders means several
+  services, or one agent per user profile root.
+- **Each machine becomes its own source** in the dashboard, named by its watch
+  path, so its events are separate from the share's.
+- **The enroll token is a deployment-wide secret.** An agent on a laptop can
+  register and send events with it, so treat it accordingly; revoking a
+  machine's access is a click on the Agents page.
+- Copies to a machine with no agent — an unmanaged laptop, a USB stick — still
+  show only as reads on the share, plus the bulk-read alert.

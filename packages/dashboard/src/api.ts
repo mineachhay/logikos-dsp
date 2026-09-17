@@ -246,8 +246,10 @@ export interface FileEvent {
   id: string;
   eventType: string;
   path: string;
-  /** The old name, on a RENAMED event. */
+  /** The old name on a RENAMED event, or the file a COPIED event came from. */
   previousPath: string | null;
+  /** Set when the copy came from a different watched place — another share, or a PC running an agent. */
+  previousSource: SourceRef | null;
   sizeBytes: number | null;
   occurredAt: string;
   agent: { hostname: string; watchedRoot: string };

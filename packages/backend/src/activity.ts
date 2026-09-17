@@ -1,5 +1,13 @@
-import type { FileActivity, Prisma } from "@prisma/client";
-import { activityWindowFor, inferCopySourceFromReads, inferRenameFromAudit, matchActivity, type ActivityCandidate } from "@logikos-dsp/shared";
+import type { FileActivity } from "@prisma/client";
+import {
+  activityWindowFor,
+  inferCopySourceFromReads,
+  inferCrossSourceCopy,
+  inferRenameFromAudit,
+  matchActivity,
+  type ActivityCandidate,
+  type CrossSourceRead,
+} from "@logikos-dsp/shared";
 import { prisma } from "./db.js";
 
 /**
@@ -22,7 +30,7 @@ function toCandidate(a: FileActivity): ActivityCandidate {
   };
 }
 
-function actorFields(match: ActivityCandidate): Prisma.FileEventUpdateInput {
+function actorFields(match: ActivityCandidate): { actorUser: string; actorIp: string | null } {
   return {
     actorUser: match.userDomain ? `${match.userDomain}\\${match.userName}` : match.userName,
     actorIp: match.clientIp ?? null,
@@ -47,8 +55,7 @@ export async function findActorForEvent(
   });
   const match = matchActivity(event, candidates.map(toCandidate), window);
   if (!match) return null;
-  const fields = actorFields(match);
-  return { actorUser: fields.actorUser as string, actorIp: (fields.actorIp as string) ?? null };
+  return actorFields(match);
 }
 
 /**
@@ -168,4 +175,54 @@ export async function linkCopySources(sourceId: string, now = new Date()): Promi
     named++;
   }
   return named;
+}
+
+/**
+ * Copies between watched places: a share to a laptop's Downloads, or one
+ * share to another. The file server only records that its file was *read* —
+ * where the bytes went is known solely to the machine that received them — so
+ * this joins a file arriving on one source to it being read from another,
+ * moments earlier, by filename and time.
+ *
+ * Only reaches a conclusion when every matching read points at the same file
+ * on the same source, and only for events that don't already know where they
+ * came from.
+ */
+export async function linkCrossSourceCopies(sourceId: string, now = new Date()): Promise<number> {
+  const source = await prisma.source.findUnique({ where: { id: sourceId }, select: { scanIntervalSec: true } });
+  const window = activityWindowFor(source?.scanIntervalSec ?? 300);
+  const since = new Date(now.getTime() - window.beforeMs - window.afterMs);
+
+  const arrivals = await prisma.fileEvent.findMany({
+    where: { sourceId, eventType: { in: ["CREATED", "COPIED"] }, previousPath: null, occurredAt: { gte: since } },
+    orderBy: { occurredAt: "asc" },
+  });
+  if (arrivals.length === 0) return 0;
+
+  // Reads recorded anywhere *else* — another share, or another machine's agent.
+  const reads = await prisma.fileActivity.findMany({
+    where: { action: "READ", sourceId: { not: sourceId }, occurredAt: { gte: since } },
+  });
+  if (reads.length === 0) return 0;
+
+  const candidates: CrossSourceRead[] = reads
+    .filter((r): r is typeof r & { sourceId: string } => Boolean(r.sourceId))
+    .map((r) => ({ ...toCandidate(r), sourceId: r.sourceId }));
+
+  let linked = 0;
+  for (const arrival of arrivals) {
+    const match = inferCrossSourceCopy({ ...arrival, sourceId }, candidates, window);
+    if (!match) continue;
+    await prisma.fileEvent.update({
+      where: { id: arrival.id },
+      data: {
+        eventType: "COPIED",
+        previousPath: match.path,
+        previousSourceId: match.sourceId,
+        ...(arrival.actorUser ? {} : actorFields(match)),
+      },
+    });
+    linked++;
+  }
+  return linked;
 }

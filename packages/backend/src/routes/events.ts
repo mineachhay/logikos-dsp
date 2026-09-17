@@ -18,7 +18,7 @@ export async function eventRoutes(app: FastifyInstance) {
       where: { agentId, sourceId },
       orderBy: { occurredAt: "desc" },
       take: limit,
-      include: { agent: { select: { hostname: true, watchedRoot: true } }, source: { select: { id: true, kind: true, rootLabel: true, fileServer: { select: { name: true } } } } },
+      include: { agent: { select: { hostname: true, watchedRoot: true } }, source: { select: { id: true, kind: true, rootLabel: true, fileServer: { select: { name: true } } } }, previousSource: { select: { id: true, kind: true, rootLabel: true, fileServer: { select: { name: true } } } } },
     });
   });
 }

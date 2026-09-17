@@ -525,6 +525,92 @@ describe("naming a copy's source", () => {
   });
 });
 
+describe("copies between machines", () => {
+  it("joins a file arriving on a laptop to it being read from the share", async () => {
+    const { app, seeded, server, share } = await setup();
+    // A second source: the agent on someone's PC, watching their Downloads folder.
+    const laptop = await prisma.source.create({
+      data: { kind: "LOCAL", rootLabel: "C:/Users/Administrator/Downloads", agentId: seeded.agent.id, scanIntervalSec: 60 },
+    });
+    const at = new Date();
+
+    // The share records only that the file was read — it never learns where it went.
+    await app.inject({
+      method: "POST",
+      url: "/ingest/activity",
+      headers: seeded.headers,
+      payload: {
+        ...activityPayload(seeded.agent.key, server.id),
+        records: [
+          {
+            sourceId: share.id,
+            path: "HR/payroll.csv",
+            action: "READ",
+            userName: "Administrator",
+            userDomain: "WIN-FS",
+            clientIp: "10.0.0.42",
+            occurredAt: new Date(at.getTime() - 20_000).toISOString(),
+            recordId: 1400,
+          },
+        ],
+      },
+    });
+
+    // The agent on the PC sees the file appear.
+    const res = await app.inject({
+      method: "POST",
+      url: "/ingest/events",
+      headers: seeded.headers,
+      payload: [
+        { agentKey: seeded.agent.key, sourceId: laptop.id, eventType: "created", path: "payroll.csv", occurredAt: at.toISOString() },
+      ],
+    });
+    expect(res.statusCode).toBe(200);
+
+    const event = await prisma.fileEvent.findFirstOrThrow({ where: { sourceId: laptop.id } });
+    expect(event.eventType).toBe("COPIED");
+    expect(event.previousPath).toBe("HR/payroll.csv");
+    expect(event.previousSourceId).toBe(share.id);
+    expect(event.actorUser).toBe("WIN-FS\\Administrator");
+  });
+
+  it("doesn't link a file that merely shares a name with something read elsewhere long before", async () => {
+    const { app, seeded, server, share } = await setup();
+    const laptop = await prisma.source.create({
+      data: { kind: "LOCAL", rootLabel: "C:/Users/Administrator/Downloads", agentId: seeded.agent.id, scanIntervalSec: 60 },
+    });
+    const at = new Date();
+    await app.inject({
+      method: "POST",
+      url: "/ingest/activity",
+      headers: seeded.headers,
+      payload: {
+        ...activityPayload(seeded.agent.key, server.id),
+        records: [
+          {
+            sourceId: share.id,
+            path: "HR/payroll.csv",
+            action: "READ",
+            userName: "Administrator",
+            occurredAt: new Date(at.getTime() - 6 * 3600_000).toISOString(),
+            recordId: 1410,
+          },
+        ],
+      },
+    });
+    await app.inject({
+      method: "POST",
+      url: "/ingest/events",
+      headers: seeded.headers,
+      payload: [{ agentKey: seeded.agent.key, sourceId: laptop.id, eventType: "created", path: "payroll.csv", occurredAt: at.toISOString() }],
+    });
+
+    const event = await prisma.fileEvent.findFirstOrThrow({ where: { sourceId: laptop.id } });
+    expect(event.eventType).toBe("CREATED");
+    expect(event.previousSourceId).toBeNull();
+  });
+});
+
 describe("collector config over /agent-sync", () => {
   it("hands the agent the WinRM account, falling back to the share account", async () => {
     const { app, seeded, server, share } = await setup();

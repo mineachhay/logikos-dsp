@@ -222,6 +222,42 @@ export function inferCopySourceFromReads(
   return distinctPaths.size === 1 ? candidates[0] : null;
 }
 
+/** A read with the source it happened on, for matching copies across machines. */
+export interface CrossSourceRead extends ActivityCandidate {
+  sourceId: string;
+}
+
+/**
+ * A copy from one watched place to another — a share to a laptop's Downloads,
+ * or between two shares. The file server only ever learns that its file was
+ * *read*; where the bytes went is known solely to the machine that received
+ * them. So the destination has to be watched too, and then the two halves are
+ * one event: the same filename appearing here, moments after being read there.
+ *
+ * Matched by filename and time, and only when every candidate read points at
+ * the same file on the same source — with reads of the same name from two
+ * places there's no telling which was copied.
+ */
+export function inferCrossSourceCopy(
+  event: { path: string; occurredAt: Date; sourceId: string },
+  reads: readonly CrossSourceRead[],
+  window: { beforeMs: number; afterMs: number },
+): CrossSourceRead | null {
+  const name = event.path.split("/").pop()?.toLowerCase();
+  const from = event.occurredAt.getTime() - window.beforeMs;
+  const to = event.occurredAt.getTime() + window.afterMs;
+  const candidates = reads.filter(
+    (r) =>
+      r.sourceId !== event.sourceId &&
+      r.action === "READ" &&
+      r.path.split("/").pop()?.toLowerCase() === name &&
+      r.occurredAt.getTime() >= from &&
+      r.occurredAt.getTime() <= to,
+  );
+  const distinct = new Set(candidates.map((r) => `${r.sourceId}|${r.path.toLowerCase()}`));
+  return distinct.size === 1 ? candidates[0] : null;
+}
+
 /** How far back to look for the audit record behind a scan-detected change. */
 export function activityWindowFor(scanIntervalSec: number): { beforeMs: number; afterMs: number } {
   return { beforeMs: scanIntervalSec * 1000 + 120_000, afterMs: 30_000 };

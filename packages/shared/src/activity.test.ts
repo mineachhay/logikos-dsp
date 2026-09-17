@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   accessListToAction,
   inferCopySourceFromReads,
+  inferCrossSourceCopy,
   inferRenameFromAudit,
   activityPathForSource,
   activityWindowFor,
@@ -224,5 +225,52 @@ describe("inferCopySourceFromReads", () => {
     expect(inferCopySourceFromReads({ path: "FN/create file.zip", occurredAt: copiedAt }, [read("IT/other.zip", 30)], window)).toBeNull();
     expect(inferCopySourceFromReads({ path: "FN/create file.zip", occurredAt: copiedAt }, [read("FN/create file.zip", 30)], window)).toBeNull();
     expect(inferCopySourceFromReads({ path: "FN/create file.zip", occurredAt: copiedAt }, [read("IT/create file.zip", 99_999)], window)).toBeNull();
+  });
+});
+
+describe("inferCrossSourceCopy", () => {
+  const arrivedAt = new Date("2026-09-17T06:30:00Z");
+  const window = activityWindowFor(60);
+  const read = (sourceId: string, path: string, secondsBefore: number, userName = "Administrator") => ({
+    id: `r-${sourceId}-${path}`,
+    sourceId,
+    path,
+    action: "READ" as const,
+    occurredAt: new Date(arrivedAt.getTime() - secondsBefore * 1000),
+    userName,
+  });
+
+  it("joins a file arriving on one machine to it being read from another", () => {
+    const match = inferCrossSourceCopy(
+      { path: "payroll.csv", occurredAt: arrivedAt, sourceId: "laptop-downloads" },
+      [read("finance-share", "HR/payroll.csv", 20)],
+      window,
+    );
+    expect(match?.path).toBe("HR/payroll.csv");
+    expect(match?.sourceId).toBe("finance-share");
+  });
+
+  it("ignores reads on the same source — that's a copy within one share, handled by the scan", () => {
+    expect(
+      inferCrossSourceCopy(
+        { path: "payroll.csv", occurredAt: arrivedAt, sourceId: "finance-share" },
+        [read("finance-share", "HR/payroll.csv", 20)],
+        window,
+      ),
+    ).toBeNull();
+  });
+
+  it("stays silent when the same filename was read from two different places", () => {
+    const reads = [read("finance-share", "HR/payroll.csv", 20), read("hr-share", "payroll.csv", 22)];
+    expect(inferCrossSourceCopy({ path: "payroll.csv", occurredAt: arrivedAt, sourceId: "laptop" }, reads, window)).toBeNull();
+  });
+
+  it("ignores a different filename, or a read too long before", () => {
+    expect(
+      inferCrossSourceCopy({ path: "payroll.csv", occurredAt: arrivedAt, sourceId: "laptop" }, [read("share", "other.csv", 20)], window),
+    ).toBeNull();
+    expect(
+      inferCrossSourceCopy({ path: "payroll.csv", occurredAt: arrivedAt, sourceId: "laptop" }, [read("share", "payroll.csv", 99_999)], window),
+    ).toBeNull();
   });
 });

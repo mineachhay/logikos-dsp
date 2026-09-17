@@ -189,6 +189,7 @@ model Source {
   updatedAt       DateTime    @updatedAt
 
   fileEvents       FileEvent[]
+  copiedFromHere   FileEvent[]       @relation("CopiedFrom")
   storageSnapshots StorageSnapshot[]
   alerts           Alert[]
   activity         FileActivity[]
@@ -280,6 +281,11 @@ model FileEvent {
   previousPath   String?
   sizeBytes      Int?
   contentSample  String?
+  /// Where a copy came from, when it came from a *different* watched place —
+  /// another share, or a laptop running an agent. previousPath alone is enough
+  /// within one source.
+  previousSourceId String?
+  previousSource   Source?  @relation("CopiedFrom", fields: [previousSourceId], references: [id])
   /// Filled in from FileActivity when a Windows audit record matches this
   /// event's path and time; null when activity collection is off or nothing matched.
   actorUser      String?

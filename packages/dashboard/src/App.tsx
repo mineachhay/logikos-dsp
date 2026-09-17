@@ -237,6 +237,7 @@ function readsAsEvents(reads: FileActivityRow[]): FileEvent[] {
     eventType: "READ",
     path: r.path,
     previousPath: null,
+    previousSource: null,
     sizeBytes: null,
     occurredAt: r.occurredAt,
     agent: { hostname: "", watchedRoot: "" },
@@ -336,6 +337,8 @@ function FileEventsView() {
                 <td data-label="Path" className="path cell-wide">
                   {e.previousPath ? (
                     <>
+                      {/* A copy from somewhere else names that place, or the two paths look unrelated. */}
+                      {e.previousSource && <span className="muted">{sourceName({ source: e.previousSource })}: </span>}
                       {e.previousPath} <span className="muted">{e.eventType === "COPIED" ? "⧉" : "→"}</span> {e.path}
                     </>
                   ) : (

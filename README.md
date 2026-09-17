@@ -110,6 +110,13 @@ stand out is volume, which is what the `BULK_FILE_READ` alert is for. Folder
 listings are logged the same way as file reads and are filtered out, or they
 would bury everything else.
 
+**Copying to a laptop or another machine:** install the Go agent on that
+machine (see `native-agent/README.md`) pointed at the folders people copy into.
+Each machine becomes its own source, and a file arriving there seconds after
+being read from a share is recorded as one `COPIED` event naming both ends and
+the person. Without an agent on the receiving machine the copy can only ever
+appear as a read — the file server never learns where the bytes went.
+
 **Copying:** a file copied or pasted into the share is reported as `COPIED`,
 naming the file it came from when that file is still on the share (copying
 preserves a file's timestamp, which is how a paste is told apart from a file
