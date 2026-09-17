@@ -263,7 +263,12 @@ The vhost used to return 403 for `/api/ingest/*`, `/api/agent-commands` and
 `/api/agents/register`, from before agents authenticated. They now carry a
 per-agent secret, so they are exposed like any other authenticated route, which
 is what lets an agent run on a **remote** machine — a workstation watching the
-folders people copy files into. `/api/agents/register` is the exception: it
+folders people copy files into. The vhost also configures `set_real_ip_from`/`real_ip_header CF-Connecting-IP`
+for Cloudflare, and sets `X-Forwarded-For` to `$remote_addr` rather than
+appending to it. Without that, the site being behind a CDN means every request
+arrives from an edge address, per-IP rate limits key on the wrong thing, and a
+caller can forge its own client IP into the audit log.
+`/api/agents/register` is the exception: it
 takes the deployment-wide `AGENT_ENROLL_TOKEN`, so the vhost rate limits it to
 6 requests/minute per IP (429 when exceeded) to keep that one shared secret out
 of reach of online guessing. Real agents register at startup and after a 401,
