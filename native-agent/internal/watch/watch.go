@@ -192,6 +192,14 @@ func (w *Watcher) debounce(path string) {
 		if err != nil {
 			return // gone again before the debounce fired; nothing to report
 		}
+		// Directories are watched, never reported. Creating one is handled
+		// above (add a watch, walk what's inside), but Windows also fires a
+		// Write on a directory whenever its contents change, which lands
+		// here — and reported a folder as a 4096-byte file, seen live on a
+		// real copy of a share into Downloads.
+		if info.IsDir() {
+			return
+		}
 		eventType := wire.Modified
 		if !alreadyKnown {
 			eventType = wire.Created

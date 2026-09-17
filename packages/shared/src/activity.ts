@@ -239,23 +239,87 @@ export interface CrossSourceRead extends ActivityCandidate {
  * places there's no telling which was copied.
  */
 export function inferCrossSourceCopy(
-  event: { path: string; occurredAt: Date; sourceId: string },
+  event: { path: string; occurredAt: Date; sourceId: string; root?: string | null },
   reads: readonly CrossSourceRead[],
   window: { beforeMs: number; afterMs: number },
 ): CrossSourceRead | null {
-  const name = event.path.split("/").pop()?.toLowerCase();
+  const eventRel = relativeSegments(event.path, event.root);
+  if (eventRel.length === 0) return null;
   const from = event.occurredAt.getTime() - window.beforeMs;
   const to = event.occurredAt.getTime() + window.afterMs;
-  const candidates = reads.filter(
-    (r) =>
-      r.sourceId !== event.sourceId &&
-      r.action === "READ" &&
-      r.path.split("/").pop()?.toLowerCase() === name &&
-      r.occurredAt.getTime() >= from &&
-      r.occurredAt.getTime() <= to,
-  );
-  const distinct = new Set(candidates.map((r) => `${r.sourceId}|${r.path.toLowerCase()}`));
-  return distinct.size === 1 ? candidates[0] : null;
+
+  const candidates = reads
+    .filter(
+      (r) =>
+        r.sourceId !== event.sourceId &&
+        r.action === "READ" &&
+        r.occurredAt.getTime() >= from &&
+        r.occurredAt.getTime() <= to,
+    )
+    .map((read) => ({ read, segments: pathSegments(read.path) }))
+    .map((c) => ({ ...c, tail: sharedTailLength(eventRel, c.segments) }))
+    .filter((c) => c.tail > 0);
+  if (candidates.length === 0) return null;
+
+  // Two different places having read the same filename stays unresolvable:
+  // structure is only evidence about *which file within a share* was copied,
+  // never about which share it came from, and naming the wrong server is
+  // worse than naming none.
+  if (new Set(candidates.map((c) => c.read.sourceId)).size > 1) return null;
+
+  // Within one share, a copied folder keeps its shape, so the strongest
+  // signal is the whole relative path matching: "IT/report.zip" read from the
+  // share arriving at <watched root>/IT/report.zip. Without this, a share that
+  // reuses filenames across folders — report.zip in HR, IT and the root, which
+  // is completely ordinary — makes every bulk copy ambiguous, because copying
+  // the tree reads all of them at once and they all match on filename alone.
+  // Measured against a real share before this rule existed: 12 files copied,
+  // 0 attributed.
+  const exact = candidates.filter((c) => c.tail === c.segments.length && c.tail === eventRel.length);
+  const best = exact.length > 0 ? exact : longestTail(candidates);
+
+  // Still refuse to guess between genuinely indistinguishable candidates —
+  // the same file, at the same depth, in two different folders.
+  const distinct = new Set(best.map((c) => c.read.path.toLowerCase()));
+  return distinct.size === 1 ? best[0].read : null;
+}
+
+function longestTail<T extends { tail: number }>(candidates: readonly T[]): T[] {
+  const max = Math.max(...candidates.map((c) => c.tail));
+  return candidates.filter((c) => c.tail === max);
+}
+
+/** Case-insensitive, separator-agnostic segments: Windows and SMB paths meet here. */
+function pathSegments(path: string): string[] {
+  return path
+    .replace(/\\/g, "/")
+    .toLowerCase()
+    .split("/")
+    .filter((segment) => segment.length > 0);
+}
+
+/**
+ * A file event carries an absolute path ("C:/Users/jdoe/Downloads/IT/a.zip")
+ * while an audit read carries one relative to its share ("IT/a.zip"), so they
+ * can only be compared once the watched root is taken off the front.
+ */
+function relativeSegments(path: string, root?: string | null): string[] {
+  const segments = pathSegments(path);
+  if (!root) return segments;
+  const rootSegments = pathSegments(root);
+  for (let i = 0; i < rootSegments.length; i++) {
+    if (segments[i] !== rootSegments[i]) return segments;
+  }
+  return segments.slice(rootSegments.length);
+}
+
+/** How many trailing segments two paths have in common. */
+function sharedTailLength(a: readonly string[], b: readonly string[]): number {
+  let shared = 0;
+  while (shared < a.length && shared < b.length && a[a.length - 1 - shared] === b[b.length - 1 - shared]) {
+    shared++;
+  }
+  return shared;
 }
 
 /** How far back to look for the audit record behind a scan-detected change. */

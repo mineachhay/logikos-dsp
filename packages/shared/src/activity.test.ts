@@ -10,6 +10,7 @@ import {
   parseSecurityEvent,
   shareNameFromEvent,
   type ActivityCandidate,
+  type CrossSourceRead,
 } from "./activity.js";
 
 /** Shaped like PowerShell's .ToXml() for a 5145, with the fields Windows actually writes. */
@@ -272,5 +273,110 @@ describe("inferCrossSourceCopy", () => {
     expect(
       inferCrossSourceCopy({ path: "payroll.csv", occurredAt: arrivedAt, sourceId: "laptop" }, [read("share", "payroll.csv", 99_999)], window),
     ).toBeNull();
+  });
+});
+
+describe("inferCrossSourceCopy with repeated filenames", () => {
+  const window = { beforeMs: 300_000, afterMs: 30_000 };
+  const at = new Date("2026-09-17T07:45:39Z");
+  const read = (path: string, sourceId = "share"): CrossSourceRead => ({
+    id: `r-${path}`,
+    path,
+    action: "READ",
+    occurredAt: new Date("2026-09-17T07:45:38Z"),
+    userName: "Administrator",
+    userDomain: null,
+    clientIp: null,
+    sourceId,
+  });
+
+  // The case that made a real 12-file copy attribute nothing: the same
+  // filename lives in several folders of the share, and copying the tree
+  // reads every one of them.
+  it("uses the folder structure a copy preserves", () => {
+    const reads = [
+      read("New Compressed (zipped) Folder.zip"),
+      read("IT/New Compressed (zipped) Folder.zip"),
+      read("HR/New Compressed (zipped) Folder.zip"),
+      read("New folder/New Compressed (zipped) Folder.zip"),
+    ];
+    const match = inferCrossSourceCopy(
+      { path: "C:\\Users\\Administrator\\Downloads\\IT\\New Compressed (zipped) Folder.zip", occurredAt: at, sourceId: "laptop", root: "C:\\Users\\Administrator\\Downloads" },
+      reads,
+      window,
+    );
+    expect(match?.path).toBe("IT/New Compressed (zipped) Folder.zip");
+  });
+
+  it("matches a file copied from the share root, not one of its folders", () => {
+    const reads = [
+      read("New Compressed (zipped) Folder.zip"),
+      read("IT/New Compressed (zipped) Folder.zip"),
+      read("HR/New Compressed (zipped) Folder.zip"),
+    ];
+    const match = inferCrossSourceCopy(
+      { path: "C:\\Users\\Administrator\\Downloads\\New Compressed (zipped) Folder.zip", occurredAt: at, sourceId: "laptop", root: "C:\\Users\\Administrator\\Downloads" },
+      reads,
+      window,
+    );
+    expect(match?.path).toBe("New Compressed (zipped) Folder.zip");
+  });
+
+  // Copying one file out of a folder into the root of the watched path: the
+  // structure isn't preserved, so the filename is all there is — and that's
+  // enough when only one file has it.
+  it("falls back to the filename when the structure wasn't kept", () => {
+    const match = inferCrossSourceCopy(
+      { path: "C:\\Users\\Administrator\\Downloads\\payroll.csv", occurredAt: at, sourceId: "laptop", root: "C:\\Users\\Administrator\\Downloads" },
+      [read("HR/payroll.csv")],
+      window,
+    );
+    expect(match?.path).toBe("HR/payroll.csv");
+  });
+
+  it("still refuses when two identical names sit at the same depth", () => {
+    const match = inferCrossSourceCopy(
+      { path: "C:\\Users\\Administrator\\Downloads\\report.zip", occurredAt: at, sourceId: "laptop", root: "C:\\Users\\Administrator\\Downloads" },
+      [read("HR/report.zip"), read("IT/report.zip")],
+      window,
+    );
+    expect(match).toBeNull();
+  });
+
+  it("works without a root, treating the whole path as relative", () => {
+    const match = inferCrossSourceCopy(
+      { path: "IT/report.zip", occurredAt: at, sourceId: "other-share" },
+      [read("IT/report.zip")],
+      window,
+    );
+    expect(match?.path).toBe("IT/report.zip");
+  });
+});
+
+describe("inferCrossSourceCopy never guesses which share", () => {
+  const window = { beforeMs: 300_000, afterMs: 30_000 };
+  const at = new Date("2026-09-17T07:45:39Z");
+  const read = (path: string, sourceId: string): CrossSourceRead => ({
+    id: `r-${sourceId}-${path}`,
+    path,
+    action: "READ",
+    occurredAt: new Date("2026-09-17T07:45:38Z"),
+    userName: "Administrator",
+    userDomain: null,
+    clientIp: null,
+    sourceId,
+  });
+
+  // Structure says which file within a share was copied. It says nothing
+  // about which share, so an exact structural match on one server must not
+  // outvote a plainer match on another — naming the wrong server is worse
+  // than naming none.
+  it("refuses even when one candidate matches the folder structure exactly", () => {
+    const match = inferCrossSourceCopy(
+      { path: "C:\\Users\\jdoe\\Downloads\\payroll.csv", occurredAt: at, sourceId: "laptop", root: "C:\\Users\\jdoe\\Downloads" },
+      [read("payroll.csv", "hr-share"), read("HR/payroll.csv", "finance-share")],
+      window,
+    );
+    expect(match).toBeNull();
   });
 });
