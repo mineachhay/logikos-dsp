@@ -198,6 +198,7 @@ th.sortable:hover { color: #ccc; }
 .backup-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
 .backup-message { max-width: 520px; overflow-wrap: anywhere; font-size: 12px; }
 .restore-help summary { cursor: pointer; font-size: 13px; }
+.inline-toggle { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: #aab4c8; }
 .view-note { font-size: 12px; margin: 0 0 12px; max-width: 900px; line-height: 1.5; }
 .retention-table input { width: 110px; background: #1c1f26; color: #e6e6e6; border: 1px solid #2a2e37; border-radius: 6px; padding: 6px 8px; font-size: 13px; }
 .retention-table input:disabled { opacity: 0.5; }

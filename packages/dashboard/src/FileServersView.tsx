@@ -109,6 +109,7 @@ function ServerForm({
   const [winrmUsername, setWinrmUsername] = useState(initial?.winrmUsername ?? "");
   const [winrmPassword, setWinrmPassword] = useState("");
   const [recordReads, setRecordReads] = useState(initial?.recordReads ?? false);
+  const [bulkReadThreshold, setBulkReadThreshold] = useState(initial?.bulkReadThreshold ? String(initial.bulkReadThreshold) : "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -126,6 +127,7 @@ function ServerForm({
         ...(password ? { password } : {}),
         activityEnabled,
         recordReads: activityEnabled && recordReads,
+        bulkReadThreshold: bulkReadThreshold ? Number(bulkReadThreshold) : null,
         winrmPort: winrmPort ? Number(winrmPort) : null,
         winrmUsername: winrmUsername || null,
         ...(winrmPassword ? { winrmPassword } : {}),
@@ -186,6 +188,23 @@ function ServerForm({
             <input type="checkbox" checked={recordReads} onChange={(e) => setRecordReads(e.target.checked)} />
             Also record who <strong>reads</strong> files (shows copies off the share, under File Access)
           </label>
+          {recordReads && (
+            <div className="fs-form-grid">
+              <label>
+                Alert after this many files read
+                <input
+                  value={bulkReadThreshold}
+                  onChange={(e) => setBulkReadThreshold(e.target.value)}
+                  placeholder="50 by default"
+                  inputMode="numeric"
+                />
+                <span className="field-hint">
+                  Distinct files one account reads within five minutes — copying a folder away looks like this. Lower it for a share that should
+                  rarely be read.
+                </span>
+              </label>
+            </div>
+          )}
           <p className="muted fs-hint">
             The agent reads the server's Security log over WinRM every 30 seconds, so file events can say who made the change. On the server, run{" "}
             <code>auditpol /set /subcategory:"Detailed File Share" /success:enable</code> once, and put the account in <strong>Event Log Readers</strong>{" "}

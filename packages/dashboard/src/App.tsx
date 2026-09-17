@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usePolling } from "./usePolling.js";
 import { patchAlertStatus, approveResponseAction, rejectResponseAction } from "./api.js";
 import { sourceName } from "./api.js";
-import type { Alert, FileEvent, StorageSnapshot, ClassificationMatch, ResponseAction } from "./api.js";
+import type { Alert, FileEvent, FileActivityRow, StorageSnapshot, ClassificationMatch, ResponseAction } from "./api.js";
 import { AuthProvider, useAuth } from "./auth.js";
 import LoginView from "./LoginView.js";
 import UsersView from "./UsersView.js";
@@ -224,23 +224,52 @@ function AlertsView() {
   );
 }
 
+/**
+ * Reads shown as timeline rows. Copying a file *out* of a share changes
+ * nothing on it, so it can never be a file event — but it is what a read is,
+ * and people look for it here. Windows records opening a file and copying it
+ * identically, so the row says READ and the bulk-read alert is what calls a
+ * burst of them a copy.
+ */
+function readsAsEvents(reads: FileActivityRow[]): FileEvent[] {
+  return reads.map((r) => ({
+    id: `read-${r.id}`,
+    eventType: "READ",
+    path: r.path,
+    previousPath: null,
+    sizeBytes: null,
+    occurredAt: r.occurredAt,
+    agent: { hostname: "", watchedRoot: "" },
+    source: r.source,
+    actorUser: r.userDomain ? `${r.userDomain}\\${r.userName}` : r.userName,
+    actorIp: r.clientIp,
+  }));
+}
+
 function FileEventsView() {
   const { data, error } = usePolling<FileEvent[]>("/events?limit=100", 4000);
+  const reads = usePolling<FileActivityRow[]>("/file-activity?action=READ&limit=100", 5000);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
+  const [showReads, setShowReads] = useState(true);
+
+  const combined = useMemo(() => {
+    if (!data) return null;
+    return showReads && reads.data ? [...data, ...readsAsEvents(reads.data)] : data;
+  }, [data, reads.data, showReads]);
 
   const filtered = useMemo(() => {
-    if (!data) return null;
+    if (!combined) return null;
     const q = search.trim().toLowerCase();
-    return data.filter((e) => {
+    return combined.filter((e) => {
       if (typeFilter && e.eventType !== typeFilter) return false;
       if (q && !`${e.path} ${sourceName(e)} ${e.actorUser ?? ""}`.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [data, search, typeFilter]);
+  }, [combined, search, typeFilter]);
 
   const { sorted, sortKey, sortDir, toggleSort } = useSort<FileEvent>(filtered, "occurredAt", "desc");
-  const eventTypes = useMemo(() => Array.from(new Set((data ?? []).map((e) => e.eventType))).sort(), [data]);
+  const eventTypes = useMemo(() => Array.from(new Set((combined ?? []).map((e) => e.eventType))).sort(), [combined]);
 
   if (error) return <p className="error">Failed to load events: {error}</p>;
   if (!data) return <p>Loading…</p>;
@@ -248,8 +277,8 @@ function FileEventsView() {
   return (
     <>
       <p className="muted view-note">
-        Changes to watched folders. Files <strong>read</strong> — opened, or copied out to somewhere else — change nothing here and appear under{" "}
-        <strong>File Access</strong>.
+        Changes to watched folders, plus file <strong>reads</strong> where they're recorded — copying a file out of a share changes nothing on it, so
+        a read is all it can ever be. Windows records opening a file and copying it identically; a burst of reads raises an alert.
       </p>
       <TableToolbar
         search={search}
@@ -257,12 +286,18 @@ function FileEventsView() {
         searchPlaceholder="Search path, source, user…"
         resultCount={sorted?.length ?? 0}
         filters={
-          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
-            <option value="">All types</option>
-            {eventTypes.map((t) => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </select>
+          <>
+            <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+              <option value="">All types</option>
+              {eventTypes.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+            <label className="inline-toggle">
+              <input type="checkbox" checked={showReads} onChange={(e) => setShowReads(e.target.checked)} />
+              reads
+            </label>
+          </>
         }
         onExport={() =>
           downloadCsv(

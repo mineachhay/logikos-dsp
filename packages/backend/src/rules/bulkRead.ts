@@ -13,13 +13,19 @@ import { prisma } from "../db.js";
 export async function checkBulkRead(sourceId: string, userName: string, now = new Date()): Promise<void> {
   const windowStart = new Date(now.getTime() - BULK_READ_WINDOW_SECONDS * 1000);
 
+  // Per server: 50 suits a busy share where people open documents all day,
+  // but on a share that should barely be read, five files in five minutes is
+  // already worth knowing about.
+  const source = await prisma.source.findUnique({ where: { id: sourceId }, include: { fileServer: true } });
+  const threshold = source?.fileServer?.bulkReadThreshold ?? BULK_READ_THRESHOLD;
+
   const distinct = await prisma.fileActivity.findMany({
     where: { sourceId, userName, action: "READ", occurredAt: { gte: windowStart } },
     select: { path: true },
     distinct: ["path"],
-    take: BULK_READ_THRESHOLD + 1,
+    take: threshold + 1,
   });
-  if (distinct.length <= BULK_READ_THRESHOLD) return;
+  if (distinct.length <= threshold) return;
 
   // One alert per burst, not one per poll.
   const existing = await prisma.alert.findFirst({
@@ -27,7 +33,6 @@ export async function checkBulkRead(sourceId: string, userName: string, now = ne
   });
   if (existing) return;
 
-  const source = await prisma.source.findUnique({ where: { id: sourceId } });
   const alert = await prisma.alert.create({
     data: {
       type: "BULK_FILE_READ",

@@ -144,6 +144,9 @@ model FileServer {
   /// Also record file *reads* — the only trace a copy off the share leaves.
   /// Off by default: on a busy share reads are most of the audit volume.
   recordReads      Boolean  @default(false)
+  /// How many distinct files one account may read in five minutes before it
+  /// looks like copying a folder away. Null = the default (50).
+  bulkReadThreshold Int?
   /// EventRecordID of the last Security event read, so each poll asks only for newer ones.
   activityBookmark BigInt?
   lastActivityAt   DateTime?

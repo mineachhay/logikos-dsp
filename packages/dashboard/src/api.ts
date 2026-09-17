@@ -115,6 +115,8 @@ export interface FileServer {
   activityEnabled: boolean;
   /** Also record reads — the only trace of a file copied off the share. */
   recordReads: boolean;
+  /** Distinct files one account may read in 5 minutes before it looks like a bulk copy. Null = 50. */
+  bulkReadThreshold: number | null;
   winrmPort: number | null;
   winrmUsername: string | null;
   hasWinrmPassword: boolean;
@@ -150,6 +152,7 @@ export interface FileServerInput {
   password?: string;
   activityEnabled?: boolean;
   recordReads?: boolean;
+  bulkReadThreshold?: number | null;
   winrmPort?: number | null;
   winrmUsername?: string | null;
   winrmPassword?: string;

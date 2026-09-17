@@ -51,6 +51,7 @@ const activityFields = {
   winrmUsername: z.string().trim().max(256).nullable().optional(),
   winrmPassword: z.string().max(1024).optional(),
   recordReads: z.boolean().optional(),
+  bulkReadThreshold: z.number().int().min(2).max(10_000).nullable().optional(),
 };
 
 const createServerSchema = z.object({ ...serverFields, ...activityFields, password: z.string().min(1).max(1024) });
@@ -94,6 +95,7 @@ const serverSelect = {
   winrmPort: true,
   winrmUsername: true,
   recordReads: true,
+  bulkReadThreshold: true,
   lastActivityAt: true,
   lastActivityError: true,
   createdAt: true,
@@ -182,6 +184,7 @@ export async function fileServerRoutes(app: FastifyInstance) {
           winrmUsername: body.winrmUsername || null,
           winrmPasswordEnc: body.winrmPassword ? encryptSecret(body.winrmPassword) : null,
           recordReads: body.recordReads ?? false,
+          bulkReadThreshold: body.bulkReadThreshold ?? null,
         },
         select: serverSelect,
       });
@@ -208,6 +211,7 @@ export async function fileServerRoutes(app: FastifyInstance) {
     if (body.activityEnabled !== undefined) data.activityEnabled = body.activityEnabled;
     if (body.winrmPort !== undefined) data.winrmPort = body.winrmPort;
     if (body.recordReads !== undefined) data.recordReads = body.recordReads;
+    if (body.bulkReadThreshold !== undefined) data.bulkReadThreshold = body.bulkReadThreshold;
     if (body.winrmUsername !== undefined) data.winrmUsername = body.winrmUsername || null;
     // Blank keeps the stored one, like the share password.
     if (body.winrmPassword) data.winrmPasswordEnc = encryptSecret(body.winrmPassword);

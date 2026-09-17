@@ -68,3 +68,24 @@ describe("checkBulkRead", () => {
     expect(await prisma.alert.count({ where: { type: "BULK_FILE_READ" } })).toBe(1);
   });
 });
+
+describe("per-server threshold", () => {
+  it("alerts sooner on a share that should barely be read", async () => {
+    const { server, source } = await seedShare();
+    await prisma.fileServer.update({ where: { id: server.id }, data: { bulkReadThreshold: 5 } });
+    await seedReads(server.id, source.id, 6);
+
+    await checkBulkRead(source.id, "jdoe");
+
+    const alert = await prisma.alert.findFirstOrThrow({ where: { type: "BULK_FILE_READ" } });
+    expect(alert.message).toContain("6");
+  });
+
+  it("keeps quiet below that threshold", async () => {
+    const { server, source } = await seedShare();
+    await prisma.fileServer.update({ where: { id: server.id }, data: { bulkReadThreshold: 5 } });
+    await seedReads(server.id, source.id, 4);
+    await checkBulkRead(source.id, "jdoe");
+    expect(await prisma.alert.count()).toBe(0);
+  });
+});

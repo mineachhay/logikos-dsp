@@ -102,8 +102,9 @@ share account can stay read-only — or blank to reuse it. WinRM's default port
 is 5985.
 
 **Reading and copying out:** a file copied *out* of the share, or simply opened,
-changes nothing on it — so neither appears in File Events. Both appear under
-**File Access** as reads (with read recording on). Windows logs opening a file
+changes nothing on it — so there is no file event to record, only a read. Those
+reads appear both under **File Access** and (toggleable) in **File Events**, so
+a copy to someone's laptop is visible where you'd look for it. Windows logs opening a file
 and copying it identically, so a single read can't be called a copy; what does
 stand out is volume, which is what the `BULK_FILE_READ` alert is for. Folder
 listings are logged the same way as file reads and are filtered out, or they
