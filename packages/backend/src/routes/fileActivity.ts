@@ -18,11 +18,21 @@ export async function fileActivityRoutes(app: FastifyInstance) {
 
   app.get("/file-activity", async (req) => {
     const { sourceId, action, limit } = querySchema.parse(req.query);
+    // Explicit fields, not the whole row: recordId is a BigInt (the Windows
+    // EventRecordID), which JSON can't serialize — and it's a bookmarking
+    // detail nothing outside the collector needs.
     return prisma.fileActivity.findMany({
       where: { sourceId, action },
       orderBy: { occurredAt: "desc" },
       take: limit,
-      include: {
+      select: {
+        id: true,
+        path: true,
+        action: true,
+        userName: true,
+        userDomain: true,
+        clientIp: true,
+        occurredAt: true,
         fileServer: { select: { name: true } },
         source: { select: { id: true, kind: true, rootLabel: true, fileServer: { select: { name: true } } } },
       },

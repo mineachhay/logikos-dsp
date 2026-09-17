@@ -340,6 +340,46 @@ describe("renames between two scans", () => {
   });
 });
 
+describe("GET /file-activity", () => {
+  it("returns the audit trail as JSON — the row holds a BigInt that would otherwise fail serialization", async () => {
+    const { app, seeded, server, share } = await setup();
+    await app.inject({
+      method: "POST",
+      url: "/ingest/activity",
+      headers: seeded.headers,
+      payload: {
+        ...activityPayload(seeded.agent.key, server.id),
+        records: [
+          {
+            sourceId: share.id,
+            path: "HR/payroll.csv",
+            action: "READ",
+            userName: "jdoe",
+            userDomain: "CORP",
+            clientIp: "10.0.0.42",
+            occurredAt: new Date().toISOString(),
+            recordId: 9_007_199_254_740_993,
+          },
+        ],
+      },
+    });
+
+    const cookie = await adminCookie(app);
+    const res = await app.inject({ method: "GET", url: "/file-activity?limit=200", headers: { cookie } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual([
+      expect.objectContaining({ path: "HR/payroll.csv", action: "READ", userName: "jdoe", clientIp: "10.0.0.42" }),
+    ]);
+  });
+
+  it("filters by action, and requires a login", async () => {
+    const { app } = await setup();
+    expect((await app.inject({ method: "GET", url: "/file-activity" })).statusCode).toBe(401);
+    const cookie = await adminCookie(app);
+    expect((await app.inject({ method: "GET", url: "/file-activity?action=READ", headers: { cookie } })).statusCode).toBe(200);
+  });
+});
+
 describe("naming a copy's source", () => {
   it("uses the read a copy makes of its source, when identical files make the scan unsure", async () => {
     const { app, seeded, server, share } = await setup();
