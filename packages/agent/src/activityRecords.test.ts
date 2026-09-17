@@ -112,3 +112,20 @@ describe("describeActivityError", () => {
     expect(describeActivityError("SomeNewError:  weird\n  thing", "fs01", 5985)).toBe("SomeNewError: weird thing");
   });
 });
+
+describe("the agent's own access", () => {
+  it("ignores the account the agent scans with — that's us reading the share, not a person", () => {
+    const ours = event5145({ SubjectUserName: "dsp", AccessList: "%%4416" }, 30);
+    const theirs = event5145({ SubjectUserName: "jdoe", AccessList: "%%4416" }, 31);
+    const built = buildActivityRecords([ours, theirs], shares, { recordReads: true, scanAccount: "dsp" });
+    expect(built.records.map((r) => r.userName)).toEqual(["jdoe"]);
+    expect(built.ignored).toBe(1);
+    // Both still advance the bookmark, or the ignored one is re-read forever.
+    expect(built.recordIds).toEqual([30, 31]);
+  });
+
+  it("matches the scan account regardless of a domain prefix", () => {
+    const ours = event5145({ SubjectUserName: "dsp" }, 32);
+    expect(buildActivityRecords([ours], shares, { scanAccount: "CORP\\dsp" }).records).toEqual([]);
+  });
+});

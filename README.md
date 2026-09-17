@@ -114,8 +114,11 @@ folder off a share looks like. Reads are most of a busy share's audit volume, so
 this is off by default.
 
 Notes: the username appears within a few seconds of the change, not instantly;
-only changes are recorded (reads are discarded by the agent); and this is
-Windows-only — Samba doesn't produce 5145 events.
+this is Windows-only (Samba doesn't produce 5145 events); the agent's own
+access through the share account is ignored, so it never reports itself; and
+**only access over the share is recorded** — changes made while signed in to
+the server itself, in a local folder, produce no share-access events and so
+carry no user.
 
 ### SMB connector via env (dev)
 

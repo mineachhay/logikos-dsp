@@ -253,6 +253,8 @@ export interface ActivityIngestRequest {
 /** One Windows server an agent should collect activity from, as /agent-sync hands it over. */
 export interface ActivityCollectorConfig {
   fileServerId: string;
+  /** The account the agent scans the share with; its own access isn't user activity. */
+  scanAccount?: string;
   /** Send read records too, so copies *off* the share are visible. */
   recordReads?: boolean;
   host: string;

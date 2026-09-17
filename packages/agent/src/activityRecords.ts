@@ -28,8 +28,13 @@ export interface BuiltRecords {
 export function buildActivityRecords(
   eventsXml: readonly string[],
   shares: readonly CollectorShare[],
-  options: { recordReads?: boolean } = {},
+  options: { recordReads?: boolean; scanAccount?: string } = {},
 ): BuiltRecords {
+  // The agent reads every file it samples and lists every folder it walks, all
+  // through the share account — that's this product looking at the share, not
+  // a person using it, and counting it would eventually raise a bulk-read
+  // alert against ourselves.
+  const scanAccount = options.scanAccount?.split("\\").pop()?.toLowerCase();
   const records: FileActivityInput[] = [];
   const recordIds: number[] = [];
   let ignored = 0;
@@ -38,6 +43,10 @@ export function buildActivityRecords(
     const parsed = parseSecurityEvent(xml);
     if (!parsed) continue;
     recordIds.push(parsed.recordId);
+    if (scanAccount && parsed.userName.toLowerCase() === scanAccount) {
+      ignored++;
+      continue;
+    }
     if ((parsed.action === "READ" && !options.recordReads) || parsed.action === "OTHER") {
       ignored++;
       continue;
