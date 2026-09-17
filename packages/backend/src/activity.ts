@@ -138,8 +138,13 @@ export async function linkCopySources(sourceId: string, now = new Date()): Promi
   const window = activityWindowFor(source?.scanIntervalSec ?? 300);
   const since = new Date(now.getTime() - window.beforeMs - window.afterMs);
 
+  // CREATED too, not just COPIED: when a file and its copy first appear in the
+  // same scan — created and copied within one interval — neither existed
+  // before, so the scan has nothing to compare and reports two new files. A
+  // read of the same filename elsewhere, moments earlier, is what makes it a
+  // copy.
   const copies = await prisma.fileEvent.findMany({
-    where: { sourceId, eventType: "COPIED", previousPath: null, occurredAt: { gte: since } },
+    where: { sourceId, eventType: { in: ["COPIED", "CREATED"] }, previousPath: null, occurredAt: { gte: since } },
     orderBy: { occurredAt: "asc" },
   });
   if (copies.length === 0) return 0;
@@ -152,9 +157,13 @@ export async function linkCopySources(sourceId: string, now = new Date()): Promi
   for (const copy of copies) {
     const match = inferCopySourceFromReads(copy, candidates, window);
     if (!match) continue;
+    // If we already know who created the file, only that person's read can
+    // explain it — someone else opening a same-named file is a coincidence.
+    const reader = actorFields(match).actorUser as string;
+    if (copy.actorUser && copy.actorUser !== reader) continue;
     await prisma.fileEvent.update({
       where: { id: copy.id },
-      data: { previousPath: match.path, ...(copy.actorUser ? {} : actorFields(match)) },
+      data: { eventType: "COPIED", previousPath: match.path, ...(copy.actorUser ? {} : actorFields(match)) },
     });
     named++;
   }

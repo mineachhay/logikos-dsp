@@ -386,6 +386,78 @@ describe("naming a copy's source", () => {
     expect(copy.actorUser).toBe("WIN-FS\\Administrator");
   });
 
+  it("turns a create into a copy when the same file was read moments earlier — both appeared in one scan", async () => {
+    const { app, seeded, server, share } = await setup();
+    const at = new Date();
+    await app.inject({
+      method: "POST",
+      url: "/ingest/events",
+      headers: seeded.headers,
+      payload: [
+        {
+          agentKey: seeded.agent.key,
+          sourceId: share.id,
+          eventType: "created",
+          path: "FN/new file for testing copy.zip",
+          occurredAt: at.toISOString(),
+        },
+      ],
+    });
+    await app.inject({
+      method: "POST",
+      url: "/ingest/activity",
+      headers: seeded.headers,
+      payload: {
+        ...activityPayload(seeded.agent.key, server.id),
+        records: [
+          {
+            sourceId: share.id,
+            path: "IT/new file for testing copy.zip",
+            action: "READ",
+            userName: "Administrator",
+            userDomain: "WIN-FS",
+            occurredAt: new Date(at.getTime() - 15_000).toISOString(),
+            recordId: 1330,
+          },
+        ],
+      },
+    });
+
+    const event = await prisma.fileEvent.findFirstOrThrow();
+    expect(event.eventType).toBe("COPIED");
+    expect(event.previousPath).toBe("IT/new file for testing copy.zip");
+    expect(event.actorUser).toBe("WIN-FS\\Administrator");
+  });
+
+  it("won't call it a copy when someone else happened to read a same-named file", async () => {
+    const { app, seeded, server, share } = await setup();
+    const at = new Date();
+    await prisma.fileEvent.create({
+      data: {
+        agentId: seeded.agent.id,
+        sourceId: share.id,
+        eventType: "CREATED",
+        path: "FN/report.zip",
+        occurredAt: at,
+        actorUser: "WIN-FS\\alice",
+      },
+    });
+    await app.inject({
+      method: "POST",
+      url: "/ingest/activity",
+      headers: seeded.headers,
+      payload: {
+        ...activityPayload(seeded.agent.key, server.id),
+        records: [
+          { sourceId: share.id, path: "IT/report.zip", action: "READ", userName: "bob", userDomain: "WIN-FS", occurredAt: new Date(at.getTime() - 10_000).toISOString(), recordId: 1340 },
+        ],
+      },
+    });
+    const event = await prisma.fileEvent.findFirstOrThrow();
+    expect(event.eventType).toBe("CREATED");
+    expect(event.previousPath).toBeNull();
+  });
+
   it("leaves the source blank when the same file was read from two folders", async () => {
     const { app, seeded, server, share } = await setup();
     const copiedAt = new Date();
