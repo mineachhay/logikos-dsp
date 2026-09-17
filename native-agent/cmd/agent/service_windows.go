@@ -206,8 +206,19 @@ func installService(m *mgr.Mgr, options installOptions) error {
 
 	// Fail before creating the service rather than leaving one that can only
 	// fail at startup: at this point the console is still there to read.
-	if _, err := configForExecutable(executable); err != nil {
+	cfg, err := configForExecutable(executable)
+	if err != nil {
 		return fmt.Errorf("%w\n(fix %s beside the agent, then install again)", err, config.ConfigFileName)
+	}
+
+	// Actually reach the backend and register. A service that can't
+	// authenticate restarts every 30 seconds forever while the dashboard
+	// simply shows no agent — a silence that reads exactly like "nobody
+	// copied anything". Far better to refuse to install and say why, while
+	// someone is still looking at a console. Registration is idempotent and
+	// the secret rotates on every call, so doing it here costs nothing.
+	if err := verifyBackend(cfg); err != nil {
+		return err
 	}
 
 	s, err := m.CreateService(serviceName, executable, mgr.Config{
@@ -327,4 +338,28 @@ func stateName(state svc.State) string {
 		return "paused"
 	}
 	return fmt.Sprintf("state %d", state)
+}
+
+// verifyBackend proves the configuration works before a service is created
+// around it, turning the three most common deployment mistakes — a wrong
+// token, an unreachable server, an untrusted certificate — into one clear
+// message instead of a restart loop nobody is watching.
+func verifyBackend(cfg config.Config) error {
+	c, err := connect(cfg)
+	if err != nil {
+		return fmt.Errorf("could not set up the connection to %s: %w", cfg.BackendURL, err)
+	}
+	if err := c.Register(cfg.AgentKey, cfg.Hostname, cfg.WatchedRootLabel); err != nil {
+		return fmt.Errorf("could not register with %s: %w\n"+
+			"Check the enroll token, and that this machine can reach the server"+
+			connectHint(cfg), cfg.BackendURL, err)
+	}
+	return nil
+}
+
+func connectHint(cfg config.Config) string {
+	if cfg.ConnectIP == "" {
+		return "."
+	}
+	return fmt.Sprintf(" at %s.", cfg.ConnectIP)
 }

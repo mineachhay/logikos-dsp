@@ -14,32 +14,38 @@ import (
 
 const eventBatchSize = 50 // must match packages/agent/src/config.ts's eventBatchSize
 
-// runAgent does the actual work, and returns when stop is closed. Split out
-// of main so the same code runs three ways — a console process, a Windows
-// service under the control of the SCM, and the Linux container — with no
-// behavioural difference between them beyond how they're asked to stop.
-func runAgent(cfg config.Config, stop <-chan struct{}) error {
-	// A workstation agent may have to dial the backend's LAN address while
-	// still verifying its certificate against the hostname in the URL, and
-	// may need a private CA to verify it at all. Both are no-ops when unset,
-	// which is how the bundled Linux agent runs.
+// connect builds the backend client. A workstation agent may have to dial the
+// backend's LAN address while still verifying its certificate against the
+// hostname in the URL, and may need a private CA to verify it at all. Both are
+// no-ops when unset, which is how the bundled Linux agent runs.
+func connect(cfg config.Config) (*client.Client, error) {
 	var caPEM []byte
 	if cfg.CACertFile != "" {
 		var err error
 		caPEM, err = os.ReadFile(cfg.CACertFile)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 	httpClient, err := client.NewHTTPClient(cfg.ConnectIP, caPEM, 15*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	return client.New(cfg.BackendURL, cfg.EnrollToken, client.WithHTTPClient(httpClient)), nil
+}
+
+// runAgent does the actual work, and returns when stop is closed. Split out
+// of main so the same code runs three ways — a console process, a Windows
+// service under the control of the SCM, and the Linux container — with no
+// behavioural difference between them beyond how they're asked to stop.
+func runAgent(cfg config.Config, stop <-chan struct{}) error {
+	c, err := connect(cfg)
 	if err != nil {
 		return err
 	}
 	if cfg.ConnectIP != "" {
 		log.Printf("connecting to %s via %s", cfg.BackendURL, cfg.ConnectIP)
 	}
-
-	c := client.New(cfg.BackendURL, cfg.EnrollToken, client.WithHTTPClient(httpClient))
 	if err := c.Register(cfg.AgentKey, cfg.Hostname, cfg.WatchedRootLabel); err != nil {
 		return err
 	}
