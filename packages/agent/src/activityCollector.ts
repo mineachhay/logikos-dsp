@@ -6,6 +6,7 @@ import type { ActivityCollectorConfig } from "@logikos-dsp/shared";
 import { config } from "./config.js";
 import { postActivity } from "./client.js";
 import { buildActivityRecords, describeActivityError, initialBookmark, nextBookmark } from "./activityRecords.js";
+import { knownFilesFor } from "./knownFiles.js";
 
 /**
  * "Who changed this file": polls each Windows file server's Security log over
@@ -98,7 +99,8 @@ async function pollServer(collector: ActivityCollectorConfig): Promise<void> {
       return;
     }
 
-    const built = buildActivityRecords(result.events, collector.shares, {
+    const shares = collector.shares.map((share) => ({ ...share, knownFiles: knownFilesFor(share.sourceId) }));
+    const built = buildActivityRecords(result.events, shares, {
       recordReads: collector.recordReads,
       scanAccount: collector.scanAccount,
     });

@@ -10,6 +10,8 @@ export interface CollectorShare {
   sourceId: string;
   shareName: string;
   subPath: string;
+  /** Files the last scan found, when known — used to tell a file read from a folder listing. */
+  knownFiles?: ReadonlySet<string>;
 }
 
 export interface BuiltRecords {
@@ -56,9 +58,17 @@ export function buildActivityRecords(
       ignored++;
       continue;
     }
+    const path = activityPathForSource(parsed, share)!;
+    // Windows logs listing a folder as a read of that folder, and on a share
+    // people are browsing that is most of the read volume. A read of something
+    // the last scan didn't see as a file is a folder, so it isn't file access.
+    if (parsed.action === "READ" && share.knownFiles && !share.knownFiles.has(path)) {
+      ignored++;
+      continue;
+    }
     records.push({
       sourceId: share.sourceId,
-      path: activityPathForSource(parsed, share)!,
+      path,
       action: parsed.action,
       userName: parsed.userName,
       userDomain: parsed.userDomain,

@@ -129,3 +129,24 @@ describe("the agent's own access", () => {
     expect(buildActivityRecords([ours], shares, { scanAccount: "CORP\\dsp" }).records).toEqual([]);
   });
 });
+
+describe("folder listings versus file reads", () => {
+  const withFiles = [{ ...shares[0], knownFiles: new Set(["q1/payroll.csv"]) }];
+
+  it("keeps a read of a file the last scan saw", () => {
+    const read = event5145({ AccessList: "%%4416" }, 40);
+    expect(buildActivityRecords([read], withFiles, { recordReads: true }).records.map((r) => r.path)).toEqual(["q1/payroll.csv"]);
+  });
+
+  it("drops a read of a folder — Windows logs listing one exactly like reading a file", () => {
+    const listing = event5145({ AccessList: "%%4416", RelativeTargetName: "exports\\q1" }, 41);
+    const built = buildActivityRecords([listing], withFiles, { recordReads: true });
+    expect(built.records).toEqual([]);
+    expect(built.ignored).toBe(1);
+  });
+
+  it("still records writes and deletes of paths the scan hasn't seen yet — a brand new file", () => {
+    const write = event5145({ AccessList: "%%4417", RelativeTargetName: "exports\\q1\\brand new.csv" }, 42);
+    expect(buildActivityRecords([write], withFiles, { recordReads: true }).records.map((r) => r.action)).toEqual(["WRITE"]);
+  });
+});

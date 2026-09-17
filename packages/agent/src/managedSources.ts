@@ -2,6 +2,7 @@ import type { ManagedSmbSource, PendingConnectionTest } from "@logikos-dsp/share
 import { config } from "./config.js";
 import { completeConnectionTest, fetchAgentSync, reportSourceStatus } from "./client.js";
 import { collectActivity } from "./activityCollector.js";
+import { forgetKnownFiles, setKnownFiles } from "./knownFiles.js";
 import { SmbSource } from "./sources/smb.js";
 import { startDiffLoop, type DiffLoop } from "./snapshotDiff.js";
 import { connectionKey, createLimiter, describeSmbError, planReconcile, type RunningSource } from "./sourceReconcile.js";
@@ -40,6 +41,7 @@ function start(spec: ManagedSmbSource): void {
     sourceId: spec.id,
     runScan: (scan) => limiter.run(scan),
     onScanComplete: (result) => {
+      if (result.ok) setKnownFiles(spec.id, result.paths);
       const status = result.ok
         ? { ok: true as const, fileCount: result.fileCount, totalBytes: result.totalBytes }
         : { ok: false as const, error: describeSmbError(result.error) };
@@ -59,6 +61,7 @@ function stop(id: string): void {
     // already disconnected
   }
   running.delete(id);
+  forgetKnownFiles(id);
   console.log(`stopped managed source ${id}`);
 }
 

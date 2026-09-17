@@ -101,6 +101,14 @@ wevtutil sl Security /ca:"O:BAG:SYD:(A;;0xf0005;;;SY)(A;;0x5;;;BA)(A;;0x1;;;S-1-
 share account can stay read-only — or blank to reuse it. WinRM's default port
 is 5985.
 
+**Reading and copying out:** a file copied *out* of the share, or simply opened,
+changes nothing on it — so neither appears in File Events. Both appear under
+**File Access** as reads (with read recording on). Windows logs opening a file
+and copying it identically, so a single read can't be called a copy; what does
+stand out is volume, which is what the `BULK_FILE_READ` alert is for. Folder
+listings are logged the same way as file reads and are filtered out, or they
+would bury everything else.
+
 **Copying:** a file copied or pasted into the share is reported as `COPIED`,
 naming the file it came from when that file is still on the share (copying
 preserves a file's timestamp, which is how a paste is told apart from a file

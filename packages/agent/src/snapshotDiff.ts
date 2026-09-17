@@ -11,7 +11,9 @@ export interface DiffLoopOptions {
   sourceId?: string;
   /** Wraps each walk, e.g. managedSources.ts's concurrency limiter. */
   runScan?: <T>(scan: () => Promise<T>) => Promise<T>;
-  onScanComplete?: (result: { ok: true; fileCount: number; totalBytes: number } | { ok: false; error: unknown }) => void;
+  onScanComplete?: (
+    result: { ok: true; fileCount: number; totalBytes: number; paths: ReadonlySet<string> } | { ok: false; error: unknown },
+  ) => void;
 }
 
 export interface DiffLoop {
@@ -154,7 +156,12 @@ export function startDiffLoop(source: Source, intervalMs: number, opts: DiffLoop
       if (result) {
         baseline = result.baseline;
         previousScanAt = startedAt;
-        opts.onScanComplete?.({ ok: true, fileCount: result.fileCount, totalBytes: result.totalBytes });
+        opts.onScanComplete?.({
+          ok: true,
+          fileCount: result.fileCount,
+          totalBytes: result.totalBytes,
+          paths: new Set(result.baseline.keys()),
+        });
       }
     } catch (err) {
       console.error(`${source.describe()}: snapshot scan failed`, err);
