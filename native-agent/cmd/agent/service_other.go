@@ -9,6 +9,6 @@ import "fmt"
 // have nothing to install.
 func runForegroundOrService() { runInForeground() }
 
-func serviceCommand(command string) error {
+func serviceCommand(command string, _ []string) error {
 	return fmt.Errorf("%q is a Windows-only command; on this platform the agent runs in the foreground", command)
 }

@@ -46,13 +46,30 @@ const usage = `logikos-dsp agent
 
 Usage:
   agent                 run in the foreground (default)
-  agent install         install and start the Windows service
+  agent install [...]   install and start the Windows service
   agent uninstall       stop and remove the Windows service
   agent start | stop    control the installed service
   agent status          report whether the service is installed and running
 
-Configuration comes from agent.json next to this executable, overridden by
-the environment. See the README.
+Install options (everything the service needs, so one command deploys a
+machine with no other files and nothing to edit):
+
+  -server URL      backend base URL, e.g. https://dsp.example.com/api
+  -watch PATH      folder to watch, e.g. C:\Users\jdoe\Downloads
+  -token TOKEN     the deployment's agent enroll token
+  -ip ADDR         dial this address instead of resolving the URL's hostname,
+                   while still verifying the certificate against that hostname
+  -ca PATH         PEM file with a CA to trust alongside the system roots,
+                   or the word "cloudflare-origin" for the copy built in
+  -dir PATH        where to install (default: Program Files)
+
+Example:
+  agent install -server https://dsp.example.com/api -ip 20.20.0.92 ^
+    -token abc123 -watch "C:\Users\jdoe\Downloads" -ca cloudflare-origin
+
+Without options, install reads agent.json next to this executable. A running
+agent always reads agent.json from its own folder, overridden by the
+environment. See the README.
 `
 
 func main() {
@@ -67,7 +84,7 @@ func main() {
 		// to it; everywhere else it runs in the foreground.
 		runForegroundOrService()
 	case "install", "uninstall", "start", "stop", "status":
-		if err := serviceCommand(command); err != nil {
+		if err := serviceCommand(command, os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "%s failed: %v\n", command, err)
 			os.Exit(1)
 		}

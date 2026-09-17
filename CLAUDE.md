@@ -60,7 +60,7 @@ watched source → [agent] --FileEvent/StorageSnapshot--> POST /ingest/* → [ba
                                         [dashboard/React] ←── REST ──→ [backend]
 ```
 
-**The Go agent is also a Windows service** (`cmd/agent/service_windows.go`, `install.ps1`): it implements `svc.Handler` and installs itself, because `sc.exe create` on a plain console program produces a service that dies with error 1053. `runAgent(cfg, stop)` in `run.go` is shared by the console, service and container paths.
+**The Go agent is also a Windows service** (`cmd/agent/service_windows.go`, `install_windows.go`): it implements `svc.Handler` and installs itself, because `sc.exe create` on a plain console program produces a service that dies with error 1053. `runAgent(cfg, stop)` in `run.go` is shared by the console, service and container paths.
 
 **The Go agent is configured by `agent.json` next to its executable, or the environment, which wins** (`native-agent/internal/config/file.go`; `Resolve` is the pure part, `Load` the disk-and-exit part). `connectIp` and `caCertFile` exist because this deployment sits behind Cloudflare: a workstation dials the origin's LAN address while still verifying `serverUrl`'s hostname, trusting the Cloudflare Origin CA that Windows doesn't ship. An IP in `serverUrl` cannot work — origin certs carry DNS names, and nginx routes by `server_name`.
 

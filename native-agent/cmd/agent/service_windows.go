@@ -136,6 +136,13 @@ func loadConfigForService() (config.Config, error) {
 	if err != nil {
 		return config.Config{}, err
 	}
+	return configForExecutable(executable)
+}
+
+// configForExecutable reads the config belonging to a particular copy of the
+// agent — used at install time, when the copy being configured is the one
+// just placed in Program Files rather than the one running.
+func configForExecutable(executable string) (config.Config, error) {
 	hostname, err := os.Hostname()
 	if err != nil {
 		return config.Config{}, err
@@ -158,7 +165,7 @@ func openServiceLog() (*os.File, error) {
 	return os.OpenFile(filepath.Join(filepath.Dir(executable), logFileName), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 }
 
-func serviceCommand(command string) error {
+func serviceCommand(command string, args []string) error {
 	m, err := mgr.Connect()
 	if err != nil {
 		return fmt.Errorf("could not reach the service manager (run as administrator): %w", err)
@@ -167,7 +174,11 @@ func serviceCommand(command string) error {
 
 	switch command {
 	case "install":
-		return installService(m)
+		options, err := parseInstallOptions(args)
+		if err != nil {
+			return err
+		}
+		return installService(m, options)
 	case "uninstall":
 		return uninstallService(m)
 	case "start":
@@ -180,21 +191,23 @@ func serviceCommand(command string) error {
 	return fmt.Errorf("unknown command %q", command)
 }
 
-func installService(m *mgr.Mgr) error {
-	executable, err := os.Executable()
+func installService(m *mgr.Mgr, options installOptions) error {
+	if s, err := m.OpenService(serviceName); err == nil {
+		s.Close()
+		return fmt.Errorf("%s is already installed; uninstall it first", serviceName)
+	}
+
+	// Lay down the executable, CA and agent.json first, so the check below
+	// validates what the service will actually read.
+	executable, err := prepareInstall(options)
 	if err != nil {
 		return err
 	}
 
-	// Fail before installing rather than leaving a service that can only
+	// Fail before creating the service rather than leaving one that can only
 	// fail at startup: at this point the console is still there to read.
-	if _, err := loadConfigForService(); err != nil {
-		return fmt.Errorf("%w\n(fix %s next to the executable, then install again)", err, config.ConfigFileName)
-	}
-
-	if s, err := m.OpenService(serviceName); err == nil {
-		s.Close()
-		return fmt.Errorf("%s is already installed; uninstall it first", serviceName)
+	if _, err := configForExecutable(executable); err != nil {
+		return fmt.Errorf("%w\n(fix %s beside the agent, then install again)", err, config.ConfigFileName)
 	}
 
 	s, err := m.CreateService(serviceName, executable, mgr.Config{

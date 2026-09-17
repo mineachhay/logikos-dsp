@@ -118,41 +118,52 @@ docker-compose. `AGENT_CONFIG_FILE` moves the file somewhere else.
 
 ### Installing it as a service
 
-`install.ps1`, from an elevated PowerShell, with `agent.exe` and the CA file
-beside it. With no arguments it prompts for each setting:
+One file, one command, from an elevated PowerShell or cmd. Nothing else needs
+to be copied to the machine and nothing needs editing:
 
 ```powershell
-.\install.ps1
+.\agent.exe install -server "https://dsp.example.com/api" -ip "20.20.0.92" `
+                    -token "<enroll token>" -watch "C:\Users\jdoe\Downloads" `
+                    -ca cloudflare-origin
 ```
 
-Pass them all to install unattended, which is what you want for more than a
-machine or two — a GPO startup script, Intune, or any deployment tool:
+That copies itself to `C:\Program Files\logikos-dsp-agent`, writes `agent.json`
+restricted to Administrators and SYSTEM, writes the CA, registers the service
+and starts it. It is the same command for the fiftieth machine as the first, so
+a deployment tool, a GPO startup script or Intune can run it unattended.
+
+- `-ip` is optional, and is how a workstation reaches a server on its own
+  network rather than resolving a public name — see above.
+- `-ca cloudflare-origin` uses the Cloudflare Origin CA built into the binary.
+  Any other private CA: give `-ca` a path to a PEM file, which is copied in.
+  Omit it entirely when the server's certificate is publicly trusted.
+- `-dir` installs somewhere other than Program Files.
+- With no options at all, `install` uses whatever `agent.json` sits beside the
+  executable — useful when a config was prepared by hand.
+
+Managing it afterwards:
 
 ```powershell
-.\install.ps1 -ServerUrl "https://dsp.example.com/api" -ConnectIp "20.20.0.92" `
-              -EnrollToken "..." -WatchPath "C:\Users\jdoe\Downloads"
-```
-
-It copies everything to `C:\Program Files\logikos-dsp-agent`, writes
-`agent.json` restricted to Administrators and SYSTEM, and registers the
-service. The agent manages the service itself, so these work too:
-
-```powershell
-agent.exe install | uninstall | start | stop | status
+agent.exe status        # installed? running?
+agent.exe stop | start
+agent.exe uninstall
 ```
 
 The service runs as LocalSystem (watching another user's profile needs more
 than that user's own rights), starts automatically, and restarts itself after
 30s, 60s and 120s if it fails — an agent nobody knows has stopped is worse
-than no agent, because the dashboard just shows no copies. Since a service has
-no console, it logs to `agent.log` next to the executable and reports start,
-stop and configuration errors to the Windows event log.
+than no agent, because the dashboard just shows no copies. Having no console,
+it logs to `agent.log` beside the executable and reports start, stop and
+configuration errors to the Windows event log.
 
-**Don't use `sc.exe create` on this binary as if it were a plain program.**
-Windows expects a service to report status to the SCM within ~30 seconds;
-`agent install` registers it properly, and the same binary detects when the
-SCM started it (`svc.IsWindowsService`). A hand-rolled `sc create` yields a
-service that looks installed and dies with error 1053.
+**Two things deliberately avoided.** Don't use `sc.exe create` on this binary:
+Windows expects a service to report status to the SCM within ~30 seconds, and
+a plain console program registered that way looks installed and dies with
+error 1053. And there is no PowerShell installer — one existed briefly and
+broke on a real machine three ways at once (execution policy, the
+mark-of-the-web on a copied file, and Windows PowerShell 5.1 reading a UTF-8
+script as ANSI, which turned an em dash into a parse error). A single
+executable has none of those failure modes.
 
 Notes:
 
