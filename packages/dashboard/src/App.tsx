@@ -31,6 +31,22 @@ const NAV_GROUPS: { label: string | null; items: readonly string[] }[] = [
   { label: "Disk Analysis", items: ["Storage"] },
 ];
 
+/**
+ * The current view lives in the URL hash, so a refresh stays where you were,
+ * the browser's back button works, and a link to a page can be sent to
+ * someone. The hash rather than a path because the dashboard is served as a
+ * static bundle: any other path would need the web server taught to fall back
+ * to index.html, and getting that wrong turns a refresh into a 404.
+ */
+function tabToSlug(tab: string): string {
+  return tab.toLowerCase().replace(/\s+/g, "-");
+}
+
+function slugToTab(slug: string, available: readonly string[]): string | null {
+  const wanted = slug.replace(/^#\/?/, "");
+  return available.find((tab) => tabToSlug(tab) === wanted) ?? null;
+}
+
 function SeverityBadge({ severity }: { severity: Alert["severity"] }) {
   return <span className={`badge badge-${severity.toLowerCase()}`}>{severity}</span>;
 }
@@ -576,7 +592,10 @@ function formatBytes(bytes: number): string {
 function Dashboard() {
   const { user, logout } = useAuth();
   const groups = user?.role === "ADMIN" ? [...NAV_GROUPS, { label: "Administration", items: ["File Servers", "Backups", "Retention", "Agents", "Users"] }] : NAV_GROUPS;
-  const [tab, setTab] = useState<string>("Overview");
+  const allTabs = useMemo(() => groups.flatMap((g) => g.items), [groups]);
+  // Read the hash on first render rather than in an effect, so the right view
+  // is painted immediately instead of flashing Overview first.
+  const [tab, setTab] = useState<string>(() => slugToTab(window.location.hash, allTabs) ?? "Overview");
   // Below 900px the sidebar is an off-canvas drawer (see index.css); on wider
   // screens it's always visible and this flag has no effect.
   const [navOpen, setNavOpen] = useState(false);
@@ -588,10 +607,28 @@ function Dashboard() {
     return () => window.removeEventListener("keydown", onKey);
   }, [navOpen]);
 
+  // Back and forward move between views, and a hash typed by hand works too.
+  useEffect(() => {
+    const onHashChange = () => setTab(slugToTab(window.location.hash, allTabs) ?? "Overview");
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, [allTabs]);
+
+  // A VIEWER who follows an admin's link to, say, #/users would otherwise
+  // land on a blank page: the tab isn't in their nav, so nothing renders.
+  useEffect(() => {
+    if (!allTabs.includes(tab)) {
+      setTab("Overview");
+      window.location.hash = "";
+    }
+  }, [allTabs, tab]);
+
   function selectTab(t: string) {
     setTab(t);
     setNavOpen(false);
     window.scrollTo(0, 0);
+    // Pushes a history entry, so Back returns to the previous view.
+    window.location.hash = `/${tabToSlug(t)}`;
   }
 
   return (
