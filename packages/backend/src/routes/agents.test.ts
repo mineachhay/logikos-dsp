@@ -232,3 +232,114 @@ describe("agent installer", () => {
     await app.close();
   });
 });
+
+describe("DELETE /agents/:id", () => {
+  async function seedRevokedAgent(hostname = "OLD-AGENT") {
+    const agent = await prisma.agent.create({
+      data: { key: `agent-${randomUUID()}`, hostname, watchedRoot: "C:\\Users\\x\\Downloads", revokedAt: new Date() },
+    });
+    const source = await prisma.source.create({
+      data: { kind: "LOCAL", rootLabel: agent.watchedRoot, agentId: agent.id },
+    });
+    await prisma.fileEvent.create({
+      data: { agentId: agent.id, sourceId: source.id, eventType: "CREATED", path: "C:\\x.txt", occurredAt: new Date() },
+    });
+    return { agent, source };
+  }
+
+  it("removes a revoked agent and the history it collected", async () => {
+    const app = await buildApp();
+    const cookie = await loginAs(app, "ADMIN");
+    const { agent, source } = await seedRevokedAgent();
+
+    const res = await app.inject({ method: "DELETE", url: `/agents/${agent.id}`, headers: { cookie } });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().deleted.fileEvents).toBe(1);
+    expect(await prisma.agent.findUnique({ where: { id: agent.id } })).toBeNull();
+    expect(await prisma.source.findUnique({ where: { id: source.id } })).toBeNull();
+    await app.close();
+  });
+
+  // A running agent would register again on its next request, leaving a row
+  // that reappears seconds after someone deleted it.
+  it("refuses to delete an agent that hasn't been revoked", async () => {
+    const app = await buildApp();
+    const cookie = await loginAs(app, "ADMIN");
+    const agent = await prisma.agent.create({
+      data: { key: `agent-${randomUUID()}`, hostname: "LIVE", watchedRoot: "/data" },
+    });
+
+    const res = await app.inject({ method: "DELETE", url: `/agents/${agent.id}`, headers: { cookie } });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("revoke the agent first");
+    await app.close();
+  });
+
+  it("is ADMIN-only", async () => {
+    const app = await buildApp();
+    const cookie = await loginAs(app, "VIEWER");
+    const { agent } = await seedRevokedAgent();
+
+    const res = await app.inject({ method: "DELETE", url: `/agents/${agent.id}`, headers: { cookie } });
+    expect(res.statusCode).toBe(403);
+    await app.close();
+  });
+
+  // A share's history belongs to the file server, not to whoever was scanning
+  // it — deleting a stale agent must not take it along.
+  it("won't delete an agent that reported a share's history", async () => {
+    const app = await buildApp();
+    const cookie = await loginAs(app, "ADMIN");
+    const { agent } = await seedRevokedAgent("SCANNER");
+    const server = await prisma.fileServer.create({
+      data: { name: `fs-${randomUUID()}`, host: "fs", username: "u", passwordEnc: "x" },
+    });
+    const share = await prisma.source.create({
+      data: { kind: "SMB", rootLabel: "smb://fs/share", fileServerId: server.id, shareName: "share", agentId: agent.id },
+    });
+    await prisma.fileEvent.create({
+      data: { agentId: agent.id, sourceId: share.id, eventType: "CREATED", path: "a.txt", occurredAt: new Date() },
+    });
+
+    const res = await app.inject({ method: "DELETE", url: `/agents/${agent.id}`, headers: { cookie } });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toContain("reassign those shares");
+    expect(await prisma.agent.findUnique({ where: { id: agent.id } })).not.toBeNull();
+    await app.close();
+  });
+
+  it("unassigns shares it scanned but never reported for, keeping them", async () => {
+    const app = await buildApp();
+    const cookie = await loginAs(app, "ADMIN");
+    const { agent } = await seedRevokedAgent("IDLE-SCANNER");
+    const server = await prisma.fileServer.create({
+      data: { name: `fs-${randomUUID()}`, host: "fs", username: "u", passwordEnc: "x" },
+    });
+    const share = await prisma.source.create({
+      data: { kind: "SMB", rootLabel: "smb://fs/idle", fileServerId: server.id, shareName: "idle", agentId: agent.id },
+    });
+
+    const res = await app.inject({ method: "DELETE", url: `/agents/${agent.id}`, headers: { cookie } });
+
+    expect(res.statusCode).toBe(200);
+    const kept = await prisma.source.findUnique({ where: { id: share.id } });
+    expect(kept).not.toBeNull();
+    expect(kept?.agentId).toBeNull();
+    await app.close();
+  });
+
+  it("records the deletion, since it destroys audit history", async () => {
+    const app = await buildApp();
+    const cookie = await loginAs(app, "ADMIN");
+    const { agent } = await seedRevokedAgent("AUDITED");
+
+    await app.inject({ method: "DELETE", url: `/agents/${agent.id}`, headers: { cookie } });
+    const audit = await prisma.auditLog.findFirst({ where: { targetId: agent.id, action: "agent.delete" } });
+
+    expect(audit).not.toBeNull();
+    await app.close();
+  });
+});

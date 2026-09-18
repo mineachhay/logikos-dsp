@@ -132,7 +132,7 @@ async function checkAssignableAgent(agentId: string, reply: FastifyReply): Promi
  * everything). One transaction, children first; FKs are RESTRICT so nothing
  * is left dangling if a step is missed.
  */
-async function deleteSourcesWithHistory(tx: Prisma.TransactionClient, sourceIds: string[]) {
+export async function deleteSourcesWithHistory(tx: Prisma.TransactionClient, sourceIds: string[]) {
   const alerts = await tx.alert.findMany({ where: { sourceId: { in: sourceIds } }, select: { id: true } });
   const alertIds = alerts.map((a) => a.id);
   await tx.responseAction.deleteMany({ where: { alertId: { in: alertIds } } });

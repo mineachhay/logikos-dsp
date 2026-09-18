@@ -226,6 +226,10 @@ export async function revokeAgent(id: string): Promise<ManagedAgent> {
   return postJson<ManagedAgent>(`/agents/${id}/revoke`, {});
 }
 
+export async function deleteAgent(id: string): Promise<{ deleted: { fileEvents: number } }> {
+  return requestJson<{ deleted: { fileEvents: number } }>("DELETE", `/agents/${id}`);
+}
+
 export async function restoreAgent(id: string): Promise<ManagedAgent> {
   return postJson<ManagedAgent>(`/agents/${id}/restore`, {});
 }

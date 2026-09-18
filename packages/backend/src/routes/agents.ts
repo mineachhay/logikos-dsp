@@ -7,6 +7,7 @@ import { z } from "zod";
 import { prisma } from "../db.js";
 import { generateAgentSecret, hashAgentSecret, isValidEnrollToken } from "../auth/agentAuth.js";
 import { upsertDefaultSource } from "../sources.js";
+import { deleteSourcesWithHistory } from "./fileServers.js";
 import { recordAudit } from "../audit.js";
 
 const registerSchema = z.object({
@@ -115,6 +116,76 @@ export async function agentRoutes(app: FastifyInstance) {
   });
 
   // Dashboard-facing from here down.
+  /**
+   * Removing an agent for good, with the history it collected.
+   *
+   * Only a revoked agent: a running one would simply register again on its
+   * next request, leaving a row that reappears seconds after someone deleted
+   * it — and revoking first forces the decision to be made twice, which is
+   * appropriate for something that destroys audit history.
+   *
+   * Shares the agent was *assigned* are not touched. Those belong to a file
+   * server, not to whoever happened to be scanning them, and their history
+   * outlives any one agent — they are simply unassigned, and the dashboard
+   * can hand them to another agent.
+   */
+  app.delete<{ Params: { id: string } }>(
+    "/agents/:id",
+    { preHandler: [app.authenticate, app.requireRole("ADMIN")] },
+    async (req, reply) => {
+      const agent = await prisma.agent.findUnique({
+        where: { id: req.params.id },
+        include: { sources: true },
+      });
+      if (!agent) return reply.code(404).send({ error: "agent not found" });
+      if (!agent.revokedAt) {
+        return reply.code(400).send({ error: "revoke the agent first — a running agent would just register again" });
+      }
+
+      const ownSourceIds = agent.sources.filter((s) => s.fileServerId === null).map((s) => s.id);
+      const assignedShareIds = agent.sources.filter((s) => s.fileServerId !== null).map((s) => s.id);
+
+      // Events this agent reported *for a share* belong to the share, not to
+      // the agent, and must survive it. FileEvent.agentId is required, so
+      // those rows can't simply be reassigned — refuse rather than quietly
+      // delete a file server's history along with a stale agent row.
+      const shareEvents = await prisma.fileEvent.count({
+        where: { agentId: agent.id, sourceId: { in: assignedShareIds } },
+      });
+      if (shareEvents > 0) {
+        return reply.code(409).send({
+          error: `${agent.hostname} reported ${shareEvents} event(s) for shares it was assigned. Deleting it would take that history with it — reassign those shares and delete the server's history instead, if that's what you want.`,
+        });
+      }
+
+      const deleted = await prisma.$transaction(
+        async (tx) => {
+          await tx.source.updateMany({ where: { id: { in: assignedShareIds } }, data: { agentId: null } });
+          await tx.connectionTest.deleteMany({ where: { agentId: agent.id } });
+          await tx.discoveryScan.deleteMany({ where: { agentId: agent.id } });
+          await tx.deployment.deleteMany({ where: { agentId: agent.id } });
+          const counts = await deleteSourcesWithHistory(tx, ownSourceIds);
+          // Anything left hanging off the agent rather than a source.
+          const alerts = await tx.alert.findMany({ where: { agentId: agent.id }, select: { id: true } });
+          await tx.responseAction.deleteMany({ where: { alertId: { in: alerts.map((a) => a.id) } } });
+          await tx.alert.deleteMany({ where: { id: { in: alerts.map((a) => a.id) } } });
+          await tx.storageSnapshot.deleteMany({ where: { agentId: agent.id } });
+          await tx.agent.delete({ where: { id: agent.id } });
+          return counts;
+        },
+        { timeout: 120_000 },
+      );
+
+      await recordAudit(req, "agent.delete", { type: "Agent", id: agent.id }, {
+        hostname: agent.hostname,
+        watchedRoot: agent.watchedRoot,
+        unassignedShares: assignedShareIds.length,
+        deleted,
+      });
+      return reply.send({ deleted });
+    },
+  );
+
   app.get("/agents", { preHandler: app.authenticate }, async () => {
     return prisma.agent.findMany({ select: agentPublicFields, orderBy: { lastSeenAt: "desc" } });
   });

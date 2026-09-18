@@ -4,6 +4,33 @@ import * as api from "./api.js";
 import type { ManagedAgent } from "./api.js";
 
 /**
+ * An agent that stopped reporting hours ago looked identical to one reporting
+ * now, because status came only from whether it was revoked. That is the exact
+ * blindness the coverage panel's "gone quiet" state exists to prevent: silence
+ * from a dead agent reads as "nothing happened on that machine".
+ */
+/**
+ * Matches AGENT_STALE_AFTER_MS in packages/shared's discovery.ts. Copied
+ * rather than imported: the dashboard deliberately doesn't depend on the
+ * shared package — it talks to the backend over HTTP like any other client.
+ */
+const STALE_AFTER_MS = 60 * 60 * 1000;
+
+function agentStatus(agent: ManagedAgent) {
+  if (agent.revokedAt) return <span className="muted">revoked {new Date(agent.revokedAt).toLocaleString()}</span>;
+
+  const quietMs = Date.now() - new Date(agent.lastSeenAt).getTime();
+  if (quietMs > STALE_AFTER_MS) {
+    return (
+      <span className="badge badge-cov-stale" title={`Last seen ${new Date(agent.lastSeenAt).toLocaleString()}`}>
+        Gone quiet
+      </span>
+    );
+  }
+  return <span className="badge badge-cov-protected">Active</span>;
+}
+
+/**
  * ADMIN-only (it sits under Administration). Revoking clears the agent's
  * secret on the backend, so a running agent is cut off at its next request
  * and can't re-register even with the enroll token. Restoring only lifts the
@@ -373,6 +400,26 @@ export default function AgentsView() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  /**
+   * Deleting an agent takes the history it collected with it, so it asks
+   * plainly and only appears once the agent is revoked — two deliberate steps
+   * for something irreversible.
+   */
+  async function remove(agent: ManagedAgent) {
+    if (!window.confirm(`Delete ${agent.hostname} (${agent.watchedRoot})?\n\nThe file events, snapshots and alerts it collected are deleted with it. This cannot be undone.`)) {
+      return;
+    }
+    setBusyId(agent.id);
+    setActionError(null);
+    try {
+      await api.deleteAgent(agent.id);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : `Failed to delete ${agent.hostname}`);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function toggle(agent: ManagedAgent) {
     if (!agent.revokedAt && !window.confirm(`Revoke ${agent.hostname} (${agent.watchedRoot})? It stops reporting immediately.`)) {
       return;
@@ -418,11 +465,16 @@ export default function AgentsView() {
                   <code>{a.key}</code>
                 </td>
                 <td data-label="Last seen">{new Date(a.lastSeenAt).toLocaleString()}</td>
-                <td data-label="Status">{a.revokedAt ? `revoked ${new Date(a.revokedAt).toLocaleString()}` : "active"}</td>
+                <td data-label="Status">{agentStatus(a)}</td>
                 <td className="cell-actions">
                   <button className={`btn btn-sm ${a.revokedAt ? "" : "btn-secondary danger"}`} onClick={() => toggle(a)} disabled={busyId === a.id}>
                     {a.revokedAt ? "Restore" : "Revoke"}
                   </button>
+                  {a.revokedAt && (
+                    <button className="btn btn-sm btn-secondary danger" onClick={() => remove(a)} disabled={busyId === a.id}>
+                      Delete
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
