@@ -1,4 +1,8 @@
 import type { FastifyInstance } from "fastify";
+import { createReadStream } from "node:fs";
+import { stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { prisma } from "../db.js";
 import { generateAgentSecret, hashAgentSecret, isValidEnrollToken } from "../auth/agentAuth.js";
@@ -24,7 +28,57 @@ const agentPublicFields = {
   capabilities: true,
 } as const;
 
+/**
+ * Where the built Windows agent is kept for download. A file on disk rather
+ * than something baked into the image, so a new agent build can be dropped in
+ * without rebuilding and redeploying the backend — the agent and the backend
+ * are deliberately only coupled by the HTTP contract, and this keeps that true
+ * for shipping it too.
+ */
+const INSTALLER_PATH = process.env.AGENT_INSTALLER_PATH ?? "/app/installers/agent.exe";
+
+/**
+ * Both of these are ADMIN-only, and deliberately so: the installer is not
+ * secret, but the enroll token returned alongside it is the credential that
+ * lets a machine register. Handing it to every VIEWER who opens the page would
+ * undo the point of having roles.
+ */
+async function installerInfo(): Promise<{ available: boolean; sizeBytes?: number; sha256?: string; builtAt?: string }> {
+  try {
+    const info = await stat(INSTALLER_PATH);
+    // Shown next to the download so an administrator can check that what
+    // landed on the machine is what the server offered.
+    const sha256 = createHash("sha256").update(await readFile(INSTALLER_PATH)).digest("hex");
+    return { available: true, sizeBytes: info.size, sha256, builtAt: info.mtime.toISOString() };
+  } catch {
+    return { available: false };
+  }
+}
+
 export async function agentRoutes(app: FastifyInstance) {
+  // What the dashboard needs to show an install command someone can paste.
+  app.get(
+    "/agents/installer-info",
+    { preHandler: [app.authenticate, app.requireRole("ADMIN")] },
+    async () => ({ ...(await installerInfo()), enrollToken: process.env.AGENT_ENROLL_TOKEN ?? "" }),
+  );
+
+  app.get(
+    "/agents/installer",
+    { preHandler: [app.authenticate, app.requireRole("ADMIN")] },
+    async (_req, reply) => {
+      const info = await installerInfo();
+      if (!info.available) {
+        return reply.code(404).send({ error: "no agent build is available on this server" });
+      }
+      return reply
+        .header("content-type", "application/vnd.microsoft.portable-executable")
+        .header("content-disposition", 'attachment; filename="agent.exe"')
+        .header("content-length", String(info.sizeBytes))
+        .send(createReadStream(INSTALLER_PATH));
+    },
+  );
+
   // Agent-facing. Agents call this on startup — and again whenever an ingest
   // call comes back 401 — with AGENT_ENROLL_TOKEN as the bearer. Idempotent on
   // `key`, but every call issues a fresh secret and invalidates the previous

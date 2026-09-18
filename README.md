@@ -110,6 +110,13 @@ stand out is volume, which is what the `BULK_FILE_READ` alert is for. Folder
 listings are logged the same way as file reads and are filtered out, or they
 would bury everything else.
 
+**Deploying the agent:** sign in as an ADMIN and open Administration →
+Agents. The page offers `agent.exe` for download and shows the exact install
+command for this deployment, with the server URL and enroll token filled in.
+The binary is served from whatever is mounted at `AGENT_INSTALLER_PATH`
+(`./dist` in `docker-compose.yml`), so publishing a new agent build is a file
+copy on the server.
+
 **Copying to a USB drive:** install the agent with `-removable` (see
 `native-agent/README.md`). While a drive is plugged in it is watched like any
 other folder, and every file landing on it is recorded with the device's label

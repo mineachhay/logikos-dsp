@@ -207,6 +207,21 @@ export interface ManagedAgent {
   capabilities: string[];
 }
 
+export interface InstallerInfo {
+  available: boolean;
+  sizeBytes?: number;
+  sha256?: string;
+  builtAt?: string;
+  /** The deployment-wide enroll token. ADMIN-only, like this whole endpoint. */
+  enrollToken: string;
+}
+
+/** Where the browser downloads the agent from — same origin, so the session cookie goes with it. */
+export const INSTALLER_URL = `${BASE}/agents/installer`;
+
+/** The URL an agent should be pointed at: this dashboard's own backend. */
+export const BACKEND_URL = BASE;
+
 export async function revokeAgent(id: string): Promise<ManagedAgent> {
   return postJson<ManagedAgent>(`/agents/${id}/revoke`, {});
 }

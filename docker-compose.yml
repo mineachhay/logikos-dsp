@@ -51,6 +51,13 @@ services:
       # From the root .env, shared with the agent service below so the two
       # can't drift. Empty makes the backend refuse to start, with a message.
       AGENT_ENROLL_TOKEN: ${AGENT_ENROLL_TOKEN:-}
+      AGENT_INSTALLER_PATH: /app/installers/agent.exe
+    volumes:
+      # The built Windows agent, offered for download on the Agents page. Read
+      # only, and outside the image so a new agent build is a file copy rather
+      # than a backend rebuild — the two are coupled by the HTTP contract and
+      # nothing else.
+      - ./dist:/app/installers:ro
     ports:
       # PUBLISH_ADDR: behind a reverse proxy, bind to the address the proxy
       # connects to (e.g. the docker0 bridge for host.docker.internal) so the

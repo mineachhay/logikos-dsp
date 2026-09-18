@@ -179,3 +179,56 @@ describe("revoking an agent", () => {
     expect(res.json()[0]).not.toHaveProperty("secretHash");
   });
 });
+
+describe("agent installer", () => {
+  // The installer itself isn't secret, but the enroll token served beside it
+  // is the credential that lets a machine register. Handing it to every
+  // VIEWER who opens the Agents page would undo the point of having roles.
+  it("keeps the installer and the enroll token to ADMINs", async () => {
+    const app = await buildApp();
+    const viewer = await loginAs(app, "VIEWER");
+
+    for (const url of ["/agents/installer-info", "/agents/installer"]) {
+      const res = await app.inject({ method: "GET", url, headers: { cookie: viewer } });
+      expect(res.statusCode).toBe(403);
+    }
+    await app.close();
+  });
+
+  it("refuses both without a session at all", async () => {
+    const app = await buildApp();
+    for (const url of ["/agents/installer-info", "/agents/installer"]) {
+      expect((await app.inject({ method: "GET", url })).statusCode).toBe(401);
+    }
+    await app.close();
+  });
+
+  it("gives an ADMIN the enroll token, so the dashboard can show a command that works", async () => {
+    const app = await buildApp();
+    const admin = await loginAs(app, "ADMIN");
+
+    const res = await app.inject({ method: "GET", url: "/agents/installer-info", headers: { cookie: admin } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().enrollToken).toBe(process.env.AGENT_ENROLL_TOKEN);
+    await app.close();
+  });
+
+  // A deployment that hasn't had an agent build dropped in should say so
+  // rather than serve an empty file that fails mysteriously on Windows.
+  it("reports plainly when no build is available", async () => {
+    const app = await buildApp();
+    const admin = await loginAs(app, "ADMIN");
+
+    const info = await app.inject({ method: "GET", url: "/agents/installer-info", headers: { cookie: admin } });
+    const download = await app.inject({ method: "GET", url: "/agents/installer", headers: { cookie: admin } });
+
+    // The test environment has no installer mounted, which is the case here.
+    if (!info.json().available) {
+      expect(download.statusCode).toBe(404);
+      expect(download.json().error).toContain("no agent build");
+    } else {
+      expect(download.statusCode).toBe(200);
+    }
+    await app.close();
+  });
+});

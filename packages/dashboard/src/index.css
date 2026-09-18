@@ -296,3 +296,32 @@ th.sortable:hover { color: #ccc; }
   .stat-value { font-size: 22px; }
   .framework-stats { flex-wrap: wrap; gap: 12px; }
 }
+
+/* Agents → install panel. Sits above the agent list: putting the binary, the
+   command and the token together is what makes deploying a machine a copy and
+   a paste rather than a procedure. */
+.install-panel {
+  background: #14171d; border: 1px solid #22252c; border-radius: 8px;
+  padding: 16px 18px; margin-bottom: 24px;
+}
+.install-panel h3 { margin: 0 0 6px; font-size: 15px; }
+.install-panel p { margin: 6px 0; font-size: 13px; }
+.install-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 12px 0; }
+.install-fields { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; }
+.install-fields label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #999; }
+.install-fields input {
+  background: #0f1115; color: #e6e6e6; border: 1px solid #2a2e37; border-radius: 6px;
+  padding: 7px 9px; font: inherit; font-size: 13px; min-width: 240px;
+}
+.install-hint { color: #8b93a3; }
+.install-command {
+  background: #0b0d11; border: 1px solid #22252c; border-radius: 6px; padding: 12px;
+  font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; color: #aab4c8;
+  /* The command is long and has no spaces inside paths, so let it wrap rather
+     than scroll — the whole point is to read it before pasting it. */
+  white-space: pre-wrap; overflow-wrap: anywhere; margin: 12px 0 0;
+}
+@media (max-width: 900px) {
+  .install-fields input { min-width: 0; width: 100%; }
+  .install-fields label { width: 100%; }
+}

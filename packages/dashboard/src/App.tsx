@@ -258,6 +258,30 @@ function removableNote(event: FileEvent) {
   return <span className="badge badge-removable">USB{device ? ` · ${device}` : ""}</span>;
 }
 
+/**
+ * Drops the reads that a copy already accounts for.
+ *
+ * At the file-server level a copy *is* a read: the client opens the file and
+ * reads its bytes, and Windows records that identically to someone opening a
+ * document to look at it — there is no flag distinguishing the two, which is
+ * the whole reason an agent on the destination machine exists. So both rows
+ * are true, but showing them together counts one action twice: copying five
+ * files produced five COPIED rows and five READ rows saying the same thing.
+ *
+ * A read is considered explained when a copy in the same batch names it as
+ * where it came from. Anything else — opening a document, a read whose
+ * destination was never seen because the machine has no agent — stays, which
+ * is what the timeline is for.
+ */
+function readsExplainedByCopies(events: FileEvent[]): Set<string> {
+  const explained = new Set<string>();
+  for (const event of events) {
+    if (event.eventType !== "COPIED" || !event.previousPath || !event.previousSource) continue;
+    explained.add(`${event.previousSource.id}|${event.previousPath.toLowerCase()}`);
+  }
+  return explained;
+}
+
 function readsAsEvents(reads: FileActivityRow[]): FileEvent[] {
   return reads.map((r) => ({
     id: `read-${r.id}`,
@@ -286,7 +310,10 @@ function FileEventsView() {
 
   const combined = useMemo(() => {
     if (!data) return null;
-    return showReads && reads.data ? [...data, ...readsAsEvents(reads.data)] : data;
+    if (!showReads || !reads.data) return data;
+    const explained = readsExplainedByCopies(data);
+    const unexplained = reads.data.filter((r) => !explained.has(`${r.source?.id ?? ""}|${r.path.toLowerCase()}`));
+    return [...data, ...readsAsEvents(unexplained)];
   }, [data, reads.data, showReads]);
 
   const filtered = useMemo(() => {
@@ -308,8 +335,9 @@ function FileEventsView() {
   return (
     <>
       <p className="muted view-note">
-        Changes to watched folders, plus file <strong>reads</strong> where they're recorded — copying a file out of a share changes nothing on it, so
-        a read is all it can ever be. Windows records opening a file and copying it identically; a burst of reads raises an alert.
+        Changes to watched folders, plus file <strong>reads</strong> where they're recorded. Windows records opening a file and copying it
+        identically — a file server only ever learns its file was read, never where the bytes went — so a read whose destination an agent saw is
+        shown as the copy it turned out to be, and only reads nothing explains are listed on their own. Every read is still in File Access.
       </p>
       <TableToolbar
         search={search}
