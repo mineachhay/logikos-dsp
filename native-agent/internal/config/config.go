@@ -60,11 +60,6 @@ func deriveKey(hostname, watchPath string) string {
 // packages/agent/src/config.ts has, so a misconfigured agent fails at startup
 // rather than silently running against the wrong backend.
 func Load() Config {
-	hostname, err := os.Hostname()
-	if err != nil {
-		log.Fatalf("failed to determine hostname: %v", err)
-	}
-
 	executable, err := os.Executable()
 	if err != nil {
 		// Only affects where the config file is looked for; the working
@@ -72,24 +67,47 @@ func Load() Config {
 		// carry everything needed anyway.
 		executable = "."
 	}
-	path := FindConfigFile(os.Getenv, executable)
-	file, err := LoadFile(path)
+	cfg, err := ForExecutable(executable)
 	if err != nil {
 		log.Fatal(err)
+	}
+	return cfg
+}
+
+// ForExecutable is the whole of configuration resolution: find the file, read
+// it, merge the environment over it, then expand whatever has to be discovered
+// from the machine.
+//
+// It exists because there were briefly two paths — this and the Windows
+// service's own — and only one of them expanded watchAllFixedDrives. The
+// service is the only way the agent runs on Windows, so the flag silently did
+// nothing there: a machine configured to watch every drive watched one folder,
+// and copies onto C:\ were recorded nowhere. Anything that must happen for
+// every caller belongs here, not in a caller.
+func ForExecutable(executable string) (Config, error) {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return Config{}, fmt.Errorf("failed to determine hostname: %w", err)
+	}
+
+	file, err := LoadFile(FindConfigFile(os.Getenv, executable))
+	if err != nil {
+		return Config{}, err
 	}
 
 	cfg, err := Resolve(file, os.Getenv, hostname)
 	if err != nil {
-		log.Fatal(err)
+		return Config{}, err
 	}
+
 	cfg.WatchPaths = ExpandFixedDrives(cfg, drives.Roots(drives.List(drives.Fixed)))
-	if len(cfg.WatchPaths) == 0 {
-		log.Fatal("no folder to watch: watchAllFixedDrives found no drives, and no path was configured")
+	if len(cfg.WatchPaths) == 0 && !cfg.WatchRemovableDrives {
+		return Config{}, fmt.Errorf("no folder to watch: watchAllFixedDrives found no drives, and no path was configured")
 	}
-	if cfg.WatchPath == "" {
+	if cfg.WatchPath == "" && len(cfg.WatchPaths) > 0 {
 		cfg.WatchPath = cfg.WatchPaths[0]
 	}
-	return cfg
+	return cfg, nil
 }
 
 // ExpandFixedDrives adds the machine's fixed drives to the configured roots.

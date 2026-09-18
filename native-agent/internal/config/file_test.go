@@ -286,3 +286,76 @@ func TestRemovableAloneIsEnoughToConfigure(t *testing.T) {
 		t.Fatalf("got %+v", cfg)
 	}
 }
+
+// Regression: watchAllFixedDrives was resolved in one code path and ignored in
+// the other, and the one that ignored it was the Windows service — the only
+// way the agent runs there. A machine told to watch every drive watched a
+// single folder, and copies onto C:\ were recorded nowhere at all. Expansion
+// belongs to resolution, so it can't be skipped by a caller.
+func TestFixedDriveExpansionBelongsToResolutionNotTheCaller(t *testing.T) {
+	cfg, err := Resolve(FileConfig{
+		EnrollToken:         "tok",
+		WatchPath:           `C:\Users`,
+		WatchAllFixedDrives: true,
+	}, noEnv, "WIN-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.WatchAllFixedDrives {
+		t.Fatal("the flag must survive resolution for expansion to be possible")
+	}
+	expanded := ExpandFixedDrives(cfg, []string{`C:\`, `D:\`})
+	// C:\Users collapses into C:\, which covers it — see
+	// TestANestedRootIsCollapsedIntoTheBroaderOne.
+	if len(expanded) != 2 || expanded[0] != `C:\` || expanded[1] != `D:\` {
+		t.Fatalf("every drive should be watched: %v", expanded)
+	}
+}
+
+// "-watch C:\Users -all-drives" asks for both C:\Users and C:\. Watching both
+// means two watchers over the same files, and every copy onto a desktop
+// reported twice.
+func TestANestedRootIsCollapsedIntoTheBroaderOne(t *testing.T) {
+	cfg := Config{WatchAllFixedDrives: true, WatchPaths: []string{`C:\Users`}}
+	got := ExpandFixedDrives(cfg, []string{`C:\`, `D:\`})
+	if len(got) != 2 {
+		t.Fatalf("C:\\Users is inside C:\\ and should be dropped: %v", got)
+	}
+	if got[0] != `C:\` || got[1] != `D:\` {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestSiblingRootsAreBothKept(t *testing.T) {
+	cfg, err := Resolve(FileConfig{EnrollToken: "t", WatchPaths: []string{`C:\Users`, `C:\Shared`, `D:\`}}, noEnv, "WIN-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.WatchPaths) != 3 {
+		t.Fatalf("got %v", cfg.WatchPaths)
+	}
+}
+
+// A name that merely starts the same is not inside it.
+func TestASimilarlyNamedFolderIsNotTreatedAsNested(t *testing.T) {
+	cfg, err := Resolve(FileConfig{EnrollToken: "t", WatchPaths: []string{`C:\Users`, `C:\Usersdata`}}, noEnv, "WIN-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.WatchPaths) != 2 {
+		t.Fatalf("got %v", cfg.WatchPaths)
+	}
+}
+
+func TestDeeplyNestedRootsCollapse(t *testing.T) {
+	cfg, err := Resolve(FileConfig{
+		EnrollToken: "t",
+		WatchPaths:  []string{`C:\`, `C:\Users`, `C:\Users\jdoe\Downloads`, `D:\data`},
+	}, noEnv, "WIN-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.WatchPaths) != 2 || cfg.WatchPaths[0] != `C:\` || cfg.WatchPaths[1] != `D:\data` {
+		t.Fatalf("got %v", cfg.WatchPaths)
+	}
+}

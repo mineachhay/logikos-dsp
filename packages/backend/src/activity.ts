@@ -189,7 +189,7 @@ export async function linkCopySources(sourceId: string, now = new Date()): Promi
  * came from.
  */
 export async function linkCrossSourceCopies(sourceId: string, now = new Date()): Promise<number> {
-  const source = await prisma.source.findUnique({ where: { id: sourceId }, select: { scanIntervalSec: true, rootLabel: true } });
+  const source = await prisma.source.findUnique({ where: { id: sourceId }, select: { scanIntervalSec: true } });
   const window = activityWindowFor(source?.scanIntervalSec ?? 300);
   const since = new Date(now.getTime() - window.beforeMs - window.afterMs);
 
@@ -211,7 +211,7 @@ export async function linkCrossSourceCopies(sourceId: string, now = new Date()):
 
   let linked = 0;
   for (const arrival of arrivals) {
-    const match = inferCrossSourceCopy({ ...arrival, sourceId, root: source?.rootLabel }, candidates, window);
+    const match = inferCrossSourceCopy({ ...arrival, sourceId }, candidates, window);
     if (!match) continue;
     await prisma.fileEvent.update({
       where: { id: arrival.id },

@@ -239,12 +239,12 @@ export interface CrossSourceRead extends ActivityCandidate {
  * places there's no telling which was copied.
  */
 export function inferCrossSourceCopy(
-  event: { path: string; occurredAt: Date; sourceId: string; root?: string | null },
+  event: { path: string; occurredAt: Date; sourceId: string },
   reads: readonly CrossSourceRead[],
   window: { beforeMs: number; afterMs: number },
 ): CrossSourceRead | null {
-  const eventRel = relativeSegments(event.path, event.root);
-  if (eventRel.length === 0) return null;
+  const eventSegments = pathSegments(event.path);
+  if (eventSegments.length === 0) return null;
   const from = event.occurredAt.getTime() - window.beforeMs;
   const to = event.occurredAt.getTime() + window.afterMs;
 
@@ -257,7 +257,7 @@ export function inferCrossSourceCopy(
         r.occurredAt.getTime() <= to,
     )
     .map((read) => ({ read, segments: pathSegments(read.path) }))
-    .map((c) => ({ ...c, tail: sharedTailLength(eventRel, c.segments) }))
+    .map((c) => ({ ...c, tail: sharedTailLength(eventSegments, c.segments) }))
     .filter((c) => c.tail > 0);
   if (candidates.length === 0) return null;
 
@@ -268,15 +268,24 @@ export function inferCrossSourceCopy(
   if (new Set(candidates.map((c) => c.read.sourceId)).size > 1) return null;
 
   // Within one share, a copied folder keeps its shape, so the strongest
-  // signal is the whole relative path matching: "IT/report.zip" read from the
-  // share arriving at <watched root>/IT/report.zip. Without this, a share that
-  // reuses filenames across folders — report.zip in HR, IT and the root, which
-  // is completely ordinary — makes every bulk copy ambiguous, because copying
-  // the tree reads all of them at once and they all match on filename alone.
+  // signal is the read's whole path appearing at the end of where the file
+  // landed: "IT/report.zip" read from the share, arriving at
+  // "C:/Users/jdoe/Desktop/IT/report.zip". Without this, a share that reuses
+  // filenames across folders — report.zip in HR, IT and the root, which is
+  // completely ordinary — makes every bulk copy ambiguous, because copying the
+  // tree reads all of them at once and they all match on filename alone.
   // Measured against a real share before this rule existed: 12 files copied,
   // 0 attributed.
-  const exact = candidates.filter((c) => c.tail === c.segments.length && c.tail === eventRel.length);
-  const best = exact.length > 0 ? exact : longestTail(candidates);
+  //
+  // Compared as a suffix rather than by stripping the destination's root,
+  // because the destination's root often isn't knowable: an agent watching
+  // several drives is identified by its machine, not by a path. Stripping a
+  // root that didn't match left the share's *own* root-level files — the
+  // "create file.zip" sitting beside the FN, HR and IT folders — looking no
+  // better than the three copies of that name inside them, so exactly those
+  // files fell back to CREATED while everything in a subfolder resolved.
+  const whole = candidates.filter((c) => c.tail === c.segments.length);
+  const best = whole.length > 0 ? longestTail(whole) : longestTail(candidates);
 
   // Still refuse to guess between genuinely indistinguishable candidates —
   // the same file, at the same depth, in two different folders.
@@ -296,21 +305,6 @@ function pathSegments(path: string): string[] {
     .toLowerCase()
     .split("/")
     .filter((segment) => segment.length > 0);
-}
-
-/**
- * A file event carries an absolute path ("C:/Users/jdoe/Downloads/IT/a.zip")
- * while an audit read carries one relative to its share ("IT/a.zip"), so they
- * can only be compared once the watched root is taken off the front.
- */
-function relativeSegments(path: string, root?: string | null): string[] {
-  const segments = pathSegments(path);
-  if (!root) return segments;
-  const rootSegments = pathSegments(root);
-  for (let i = 0; i < rootSegments.length; i++) {
-    if (segments[i] !== rootSegments[i]) return segments;
-  }
-  return segments.slice(rootSegments.length);
 }
 
 /** How many trailing segments two paths have in common. */

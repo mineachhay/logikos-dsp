@@ -25,8 +25,76 @@ import (
 //go:embed cloudflare-origin-ca.pem
 var cloudflareOriginCA []byte
 
+// configToVerify builds the configuration an install *would* produce, without
+// writing anything, so the backend can be asked whether it works before the
+// machine's existing setup is touched.
+//
+// This ordering was learned the hard way: the config was previously written
+// first and verified after, so a single mistyped token overwrote a working
+// agent.json and left the machine unable to register — with the credential it
+// needed now destroyed. An installer must never break a working install by
+// failing.
+func configToVerify(o installOptions) (config.Config, func(), error) {
+	cleanup := func() {}
+	if o.serverURL == "" && o.token == "" && len(o.watchPaths) == 0 && !o.allDrives && !o.removable {
+		// Nothing given: verify whatever is already installed.
+		executable, err := os.Executable()
+		if err != nil {
+			return config.Config{}, cleanup, err
+		}
+		cfg, err := configForExecutable(executable)
+		return cfg, cleanup, err
+	}
+
+	caPath := ""
+	switch {
+	case o.caPath == embeddedCAName:
+		// The CA has to exist somewhere on disk for the check; it is written
+		// to its real home only once the check has passed.
+		temporary, err := os.CreateTemp("", "logikos-ca-*.pem")
+		if err != nil {
+			return config.Config{}, cleanup, err
+		}
+		cleanup = func() { os.Remove(temporary.Name()) }
+		if _, err := temporary.Write(cloudflareOriginCA); err != nil {
+			temporary.Close()
+			return config.Config{}, cleanup, err
+		}
+		temporary.Close()
+		caPath = temporary.Name()
+	case o.caPath != "":
+		absolute, err := filepath.Abs(o.caPath)
+		if err != nil {
+			return config.Config{}, cleanup, err
+		}
+		caPath = absolute
+	}
+
+	hostname, err := os.Hostname()
+	if err != nil {
+		return config.Config{}, cleanup, err
+	}
+	cfg, err := config.Resolve(config.FileConfig{
+		ServerURL:            o.serverURL,
+		ConnectIP:            o.connectIP,
+		CACertFile:           caPath,
+		EnrollToken:          o.token,
+		WatchPaths:           o.watchPaths,
+		WatchAllFixedDrives:  o.allDrives,
+		WatchRemovableDrives: o.removable,
+		Exclude:              o.exclude,
+	}, os.Getenv, hostname)
+	if err != nil {
+		return config.Config{}, cleanup, err
+	}
+	// Only to make the check representative; the agent expands these itself.
+	cfg.WatchPaths = config.ExpandFixedDrives(cfg, nil)
+	return cfg, cleanup, nil
+}
+
 // prepareInstall lays down everything the service will need: the executable,
-// the CA, and agent.json. Returns the installed executable's path.
+// the CA, and agent.json. Returns the installed executable's path. Called only
+// after configToVerify has proved the settings work.
 //
 // Doing this in the binary rather than a script is deliberate. A PowerShell
 // installer has to survive execution policy, the mark-of-the-web on a copied

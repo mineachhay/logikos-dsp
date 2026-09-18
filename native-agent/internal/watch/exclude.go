@@ -65,12 +65,14 @@ var DefaultExclusions = []string{
 	"*.evtx",
 	`**/AppData/Local/Temp`,
 	`**/AppData/Local/Packages`,
-	`**/AppData/Local/Microsoft/Windows/INetCache`,
-	`**/AppData/Local/Microsoft/Windows/Explorer`,
-	`**/AppData/Local/Microsoft/Windows/WebCache`,
-	`**/AppData/Local/Google/Chrome/User Data/Default/Cache`,
+	// The whole of AppData\Local\Microsoft\Windows is operating-system
+	// state — INetCache, WebCache, Explorer, History, UPPS, WER, and more
+	// added by every Windows release. Excluding the children one at a time
+	// was a losing game: three rounds of live testing turned up three more.
+	// Nobody copies a file into it on purpose, so the subtree goes.
+	`**/AppData/Local/Microsoft/Windows`,
 	`**/AppData/Roaming/Microsoft/Windows/Recent`,
-	`**/AppData/Local/Microsoft/Windows/WER`,
+	`**/AppData/Local/Google/Chrome/User Data/Default/Cache`,
 	`**/AppData/Local/CrashDumps`,
 	`**/AppData/LocalLow`,
 	`**/node_modules`,

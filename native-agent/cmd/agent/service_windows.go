@@ -140,18 +140,12 @@ func loadConfigForService() (config.Config, error) {
 }
 
 // configForExecutable reads the config belonging to a particular copy of the
-// agent — used at install time, when the copy being configured is the one
-// just placed in Program Files rather than the one running.
+// agent — used at install time, when the copy being configured is the one just
+// placed in Program Files rather than the one running. It goes through the
+// same resolution as every other caller; having its own once meant
+// watchAllFixedDrives was silently ignored by the service.
 func configForExecutable(executable string) (config.Config, error) {
-	hostname, err := os.Hostname()
-	if err != nil {
-		return config.Config{}, err
-	}
-	file, err := config.LoadFile(config.FindConfigFile(os.Getenv, executable))
-	if err != nil {
-		return config.Config{}, err
-	}
-	return config.Resolve(file, os.Getenv, hostname)
+	return config.ForExecutable(executable)
 }
 
 // openServiceLog writes next to the executable. A service has no console, so
@@ -197,27 +191,26 @@ func installService(m *mgr.Mgr, options installOptions) error {
 		return fmt.Errorf("%s is already installed; uninstall it first", serviceName)
 	}
 
-	// Lay down the executable, CA and agent.json first, so the check below
-	// validates what the service will actually read.
-	executable, err := prepareInstall(options)
+	// Prove the settings work *before* writing anything. A service that can't
+	// authenticate restarts every 30 seconds forever while the dashboard
+	// simply shows no agent — a silence that reads exactly like "nobody
+	// copied anything" — so an install that can't register should refuse,
+	// while someone is still looking at a console. Registration is idempotent
+	// and the secret rotates on every call, so checking here costs nothing.
+	//
+	// Nothing is written until this passes: a mistyped token must not destroy
+	// the working configuration of a machine that was fine a moment ago.
+	cfg, cleanup, err := configToVerify(options)
 	if err != nil {
+		return fmt.Errorf("%w\n(fix the options, or %s beside the agent, then install again)", err, config.ConfigFileName)
+	}
+	defer cleanup()
+	if err := verifyBackend(cfg); err != nil {
 		return err
 	}
 
-	// Fail before creating the service rather than leaving one that can only
-	// fail at startup: at this point the console is still there to read.
-	cfg, err := configForExecutable(executable)
+	executable, err := prepareInstall(options)
 	if err != nil {
-		return fmt.Errorf("%w\n(fix %s beside the agent, then install again)", err, config.ConfigFileName)
-	}
-
-	// Actually reach the backend and register. A service that can't
-	// authenticate restarts every 30 seconds forever while the dashboard
-	// simply shows no agent — a silence that reads exactly like "nobody
-	// copied anything". Far better to refuse to install and say why, while
-	// someone is still looking at a console. Registration is idempotent and
-	// the secret rotates on every call, so doing it here costs nothing.
-	if err := verifyBackend(cfg); err != nil {
 		return err
 	}
 

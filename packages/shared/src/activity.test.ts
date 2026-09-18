@@ -301,7 +301,7 @@ describe("inferCrossSourceCopy with repeated filenames", () => {
       read("New folder/New Compressed (zipped) Folder.zip"),
     ];
     const match = inferCrossSourceCopy(
-      { path: "C:\\Users\\Administrator\\Downloads\\IT\\New Compressed (zipped) Folder.zip", occurredAt: at, sourceId: "laptop", root: "C:\\Users\\Administrator\\Downloads" },
+      { path: "C:\\Users\\Administrator\\Downloads\\IT\\New Compressed (zipped) Folder.zip", occurredAt: at, sourceId: "laptop" },
       reads,
       window,
     );
@@ -315,7 +315,7 @@ describe("inferCrossSourceCopy with repeated filenames", () => {
       read("HR/New Compressed (zipped) Folder.zip"),
     ];
     const match = inferCrossSourceCopy(
-      { path: "C:\\Users\\Administrator\\Downloads\\New Compressed (zipped) Folder.zip", occurredAt: at, sourceId: "laptop", root: "C:\\Users\\Administrator\\Downloads" },
+      { path: "C:\\Users\\Administrator\\Downloads\\New Compressed (zipped) Folder.zip", occurredAt: at, sourceId: "laptop" },
       reads,
       window,
     );
@@ -327,7 +327,7 @@ describe("inferCrossSourceCopy with repeated filenames", () => {
   // enough when only one file has it.
   it("falls back to the filename when the structure wasn't kept", () => {
     const match = inferCrossSourceCopy(
-      { path: "C:\\Users\\Administrator\\Downloads\\payroll.csv", occurredAt: at, sourceId: "laptop", root: "C:\\Users\\Administrator\\Downloads" },
+      { path: "C:\\Users\\Administrator\\Downloads\\payroll.csv", occurredAt: at, sourceId: "laptop" },
       [read("HR/payroll.csv")],
       window,
     );
@@ -336,7 +336,7 @@ describe("inferCrossSourceCopy with repeated filenames", () => {
 
   it("still refuses when two identical names sit at the same depth", () => {
     const match = inferCrossSourceCopy(
-      { path: "C:\\Users\\Administrator\\Downloads\\report.zip", occurredAt: at, sourceId: "laptop", root: "C:\\Users\\Administrator\\Downloads" },
+      { path: "C:\\Users\\Administrator\\Downloads\\report.zip", occurredAt: at, sourceId: "laptop" },
       [read("HR/report.zip"), read("IT/report.zip")],
       window,
     );
@@ -373,10 +373,73 @@ describe("inferCrossSourceCopy never guesses which share", () => {
   // than naming none.
   it("refuses even when one candidate matches the folder structure exactly", () => {
     const match = inferCrossSourceCopy(
-      { path: "C:\\Users\\jdoe\\Downloads\\payroll.csv", occurredAt: at, sourceId: "laptop", root: "C:\\Users\\jdoe\\Downloads" },
+      { path: "C:\\Users\\jdoe\\Downloads\\payroll.csv", occurredAt: at, sourceId: "laptop" },
       [read("payroll.csv", "hr-share"), read("HR/payroll.csv", "finance-share")],
       window,
     );
     expect(match).toBeNull();
+  });
+});
+
+// Found on a live machine: an agent watching several drives is identified by
+// its hostname, not a path, so the destination's root can't be stripped. The
+// share's own root-level files then looked no better than the copies of the
+// same name inside its folders, and exactly those fell back to CREATED while
+// everything in a subfolder resolved.
+describe("inferCrossSourceCopy with an unknown destination root", () => {
+  const window = { beforeMs: 300_000, afterMs: 30_000 };
+  const at = new Date("2026-09-18T09:13:55Z");
+  const read = (path: string): CrossSourceRead => ({
+    id: `r-${path}`,
+    path,
+    action: "READ",
+    occurredAt: new Date("2026-09-18T09:13:54Z"),
+    userName: "Administrator",
+    userDomain: null,
+    clientIp: null,
+    sourceId: "share",
+  });
+
+  const reads = [
+    read("create file.zip"),
+    read("FN/create file.zip"),
+    read("HR/create file.zip"),
+    read("IT/create file.zip"),
+  ];
+
+  it("matches a file from the share root, copied to a drive root", () => {
+    const match = inferCrossSourceCopy(
+      { path: "C:\\create file.zip", occurredAt: at, sourceId: "machine" },
+      reads,
+      window,
+    );
+    expect(match?.path).toBe("create file.zip");
+  });
+
+  it("still prefers the deeper match for a file from a subfolder", () => {
+    const match = inferCrossSourceCopy(
+      { path: "C:\\IT\\create file.zip", occurredAt: at, sourceId: "machine" },
+      reads,
+      window,
+    );
+    expect(match?.path).toBe("IT/create file.zip");
+  });
+
+  it("works just as well deep inside a profile", () => {
+    const match = inferCrossSourceCopy(
+      { path: "C:\\Users\\Administrator\\Pictures\\create file.zip", occurredAt: at, sourceId: "machine" },
+      reads,
+      window,
+    );
+    expect(match?.path).toBe("create file.zip");
+  });
+
+  it("keeps working when a copy is flattened out of its folder", () => {
+    const match = inferCrossSourceCopy(
+      { path: "C:\\payroll.csv", occurredAt: at, sourceId: "machine" },
+      [read("HR/payroll.csv")],
+      window,
+    );
+    expect(match?.path).toBe("HR/payroll.csv");
   });
 });

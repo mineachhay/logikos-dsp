@@ -206,7 +206,7 @@ function AlertsView() {
                 <td data-label="Message" className="cell-wide">{a.message}</td>
                 <td data-label="Source" title={a.source?.rootLabel}>{sourceName(a)}</td>
                 <td data-label="Status">{a.status}</td>
-                <td data-label="When">{new Date(a.createdAt).toLocaleString()}</td>
+                <td data-label="When" className="cell-time">{new Date(a.createdAt).toLocaleString()}</td>
                 <td className="cell-actions">
                   {a.status === "OPEN" && user?.role === "ADMIN" && (
                     <button className="btn btn-sm btn-secondary" disabled={busyId === a.id} onClick={() => acknowledge(a.id)}>
@@ -382,7 +382,7 @@ function FileEventsView() {
                 <td data-label="Size">{e.sizeBytes ?? "—"}</td>
                 <td data-label="Source" title={e.source?.rootLabel}>{sourceName(e)}</td>
                 <td data-label="Who" title={e.actorIp ? `from ${e.actorIp}` : undefined}>{e.actorUser ?? <span className="muted">—</span>}</td>
-                <td data-label="When">{new Date(e.occurredAt).toLocaleString()}</td>
+                <td data-label="When" className="cell-time">{new Date(e.occurredAt).toLocaleString()}</td>
               </tr>
             ))}
           </tbody>

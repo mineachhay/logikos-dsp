@@ -54,7 +54,9 @@ func runStorageScan(c *client.Client, cfg config.Config) {
 				log.Printf("storage scan of %s failed: %v", root, err)
 				continue
 			}
-			log.Printf("storage snapshot: %s — %d files, %d bytes", root, fileCount, totalBytes)
+			// ASCII only: Windows PowerShell reads this log as ANSI, and anything else
+			// arrives as mojibake in the one place an administrator looks.
+			log.Printf("storage snapshot: %s - %d files, %d bytes", root, fileCount, totalBytes)
 		}
 	}
 

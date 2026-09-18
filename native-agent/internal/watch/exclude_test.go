@@ -184,3 +184,24 @@ func TestDefaultsDropTheRegistryHiveChurn(t *testing.T) {
 		t.Error("a user's own file must be watched")
 	}
 }
+
+// Three rounds of live testing each turned up another child of
+// AppData\Local\Microsoft\Windows, so the subtree is excluded as a whole.
+func TestWindowsStateUnderAppDataIsExcludedWholesale(t *testing.T) {
+	e := NewExcluder(DefaultExclusions)
+	for _, path := range []string{
+		`C:\Users\Administrator\AppData\Local\Microsoft\Windows\UPPS\UPPS.bin`,
+		`C:\Users\Administrator\AppData\Local\Microsoft\Windows\History\History.IE5\MSHist01\container.dat`,
+		`C:\Users\Administrator\AppData\Local\Microsoft\Windows\INetCache\IE\x.dat`,
+		`C:\Users\Administrator\AppData\Local\Microsoft\Windows\UsrClass.dat`,
+	} {
+		if !e.Excludes(path) {
+			t.Errorf("%q should be excluded", path)
+		}
+	}
+	// Other parts of AppData stay watched: someone tucking a file away in one
+	// is exactly what this product should still see.
+	if e.Excludes(`C:\Users\Administrator\AppData\Roaming\secret-plans.xlsx`) {
+		t.Error("AppData as a whole must not be excluded")
+	}
+}

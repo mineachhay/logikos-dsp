@@ -249,12 +249,52 @@ func dedupe(paths []string) []string {
 	seen := map[string]bool{}
 	out := make([]string, 0, len(paths))
 	for _, path := range paths {
-		key := strings.ToLower(strings.TrimRight(strings.ReplaceAll(path, `\`, "/"), "/"))
+		key := watchKey(path)
 		if key == "" || seen[key] {
 			continue
 		}
 		seen[key] = true
 		out = append(out, path)
 	}
+	return collapseNested(out)
+}
+
+// collapseNested drops a root that lies inside another. "-watch C:\Users
+// -all-drives" asks for both C:\Users and C:\, and watching both means two
+// watchers over the same files and every copy onto a desktop reported twice.
+// The broader root wins: it covers everything the narrower one did.
+func collapseNested(paths []string) []string {
+	out := make([]string, 0, len(paths))
+	for _, path := range paths {
+		nested := false
+		for _, other := range paths {
+			if watchKey(other) != watchKey(path) && isUnder(path, other) {
+				nested = true
+				break
+			}
+		}
+		if !nested {
+			out = append(out, path)
+		}
+	}
 	return out
+}
+
+// isUnder reports whether path lies inside root. Compared by whole segments,
+// so C:\Usersdata is not treated as being inside C:\Users.
+func isUnder(path, root string) bool {
+	rootKey, pathKey := watchKey(root), watchKey(path)
+	if rootKey == "" {
+		return false
+	}
+	// A drive root normalizes to "c:", whose children are "c:/..." — the
+	// separator check below covers both that and ordinary folders.
+	return strings.HasPrefix(pathKey, rootKey+"/")
+}
+
+// watchKey normalizes a path for comparison: lowercase, forward slashes, no
+// trailing separator. Windows paths are case-insensitive and arrive written
+// either way.
+func watchKey(path string) string {
+	return strings.ToLower(strings.TrimRight(strings.ReplaceAll(path, `\`, "/"), "/"))
 }
