@@ -120,3 +120,53 @@ describe("coverageFor", () => {
     expect(result.state).toBe("unprotected");
   });
 });
+
+describe("coverageFor matching by address", () => {
+  const now = new Date("2026-09-18T10:00:00Z");
+
+  // The first real scan of a workgroup came back with two machines, no names
+  // at all, and the server that does have an agent reported as unprotected.
+  // A workgroup has no DNS records to reverse, so the address is the only
+  // thing both sides can see.
+  it("matches a machine with no name at all by the address the agent calls in from", () => {
+    const [result] = coverageFor(
+      [{ address: "20.20.5.196", hostname: null, openPorts: [445, 3389, 5985] }],
+      [{ hostname: "WIN-1208381ITM2", lastSeenAt: now, revokedAt: null, lastIp: "20.20.5.196" }],
+      now,
+    );
+    expect(result.state).toBe("protected");
+    expect(result.agentHostname).toBe("WIN-1208381ITM2");
+  });
+
+  it("still reports a machine no agent has ever called in from", () => {
+    const [result] = coverageFor(
+      [{ address: "20.20.5.14", hostname: null, openPorts: [445] }],
+      [{ hostname: "WIN-FS", lastSeenAt: now, revokedAt: null, lastIp: "20.20.5.196" }],
+      now,
+    );
+    expect(result.state).toBe("unprotected");
+  });
+
+  // An agent may call in from an address the scan never sees — a second NIC,
+  // or a machine behind NAT — so the name remains a fallback.
+  it("falls back to the hostname when the address doesn't match", () => {
+    const [result] = coverageFor(
+      [{ address: "10.1.1.5", hostname: "win-fs.corp.local", openPorts: [445] }],
+      [{ hostname: "WIN-FS", lastSeenAt: now, revokedAt: null, lastIp: "20.20.5.196" }],
+      now,
+    );
+    expect(result.state).toBe("protected");
+  });
+
+  it("prefers the agent at that address over one that merely shares a name", () => {
+    const [result] = coverageFor(
+      [{ address: "20.20.5.196", hostname: "shared-name", openPorts: [445] }],
+      [
+        { hostname: "shared-name", lastSeenAt: now, revokedAt: null, lastIp: "10.0.0.1" },
+        { hostname: "WIN-1208381ITM2", lastSeenAt: now, revokedAt: null, lastIp: "20.20.5.196" },
+      ],
+      now,
+    );
+    expect(result.agentHostname).toBe("WIN-1208381ITM2");
+  });
+});

@@ -440,3 +440,32 @@ export interface DiscoveryScan {
 export async function startDiscoveryScan(cidr: string, agentId: string): Promise<DiscoveryScan> {
   return postJson<DiscoveryScan>("/discovery/scans", { cidr, agentId });
 }
+
+export interface Deployment {
+  id: string;
+  address: string;
+  hostname: string | null;
+  username: string;
+  status: "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED";
+  message: string | null;
+  requestedBy: string;
+  createdAt: string;
+  completedAt: string | null;
+  agent: { hostname: string };
+}
+
+export interface DeployRequest {
+  address: string;
+  hostname?: string | null;
+  agentId: string;
+  username: string;
+  password: string;
+  watchPath?: string;
+  connectIp?: string;
+  allDrives: boolean;
+  removable: boolean;
+}
+
+export async function deployAgent(body: DeployRequest): Promise<Deployment> {
+  return postJson<Deployment>("/deployments", body);
+}

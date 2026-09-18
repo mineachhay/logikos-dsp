@@ -60,6 +60,8 @@ watched source → [agent] --FileEvent/StorageSnapshot--> POST /ingest/* → [ba
                                         [dashboard/React] ←── REST ──→ [backend]
 ```
 
+**Remote install (`routes/deployments.ts`, `agent/winrm/deploy.py`) never stores credentials**: `Deployment` has no password column, and `deployCredentials.ts` holds them in backend memory until the agent collects the job. A restart loses pending jobs, deliberately. The install goes over WinRM/PSRP, pushing the binary from `AGENT_INSTALLER_PATH` (`./dist`, mounted into both backend and agent).
+
 **Discovery is queued by the backend and run by an agent** (`routes/discovery.ts`, `agent/src/discovery.ts`): a TCP sweep of 445/3389/5985 over a CIDR the backend expands and caps at 1,024 addresses, joined against registered agents by `coverageFor` in `packages/shared/src/discovery.ts` to show which machines have no agent. No credentials anywhere in it.
 
 **The Agents page serves the agent binary** (`GET /agents/installer`, ADMIN-only, read from `AGENT_INSTALLER_PATH` — `./dist` mounted in compose, not baked into the image) together with a ready-to-paste install command carrying this deployment's URL and enroll token. Dropping a new `dist/agent.exe` on the host is the whole of shipping an agent update.

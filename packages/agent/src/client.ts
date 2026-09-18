@@ -134,3 +134,10 @@ export async function completeDiscoveryScan(
     console.error(`failed to report discovery scan ${id}: ${res.status} ${await res.text()}`);
   }
 }
+
+export async function completeDeployment(id: string, success: boolean, message: string): Promise<void> {
+  const res = await postJson(`/agent-sync/deployments/${id}/result`, { agentKey: config.agentKey, success, message });
+  if (!res.ok) {
+    console.error(`failed to report deployment ${id}: ${res.status} ${await res.text()}`);
+  }
+}

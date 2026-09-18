@@ -2,6 +2,9 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { ActivityCollectorConfig, AgentSyncResponse } from "@logikos-dsp/shared";
 import { DISCOVERY_PORTS, parseCidr } from "@logikos-dsp/shared";
+import type { PendingDeployment } from "@logikos-dsp/shared";
+import { takeCredentials } from "../deployCredentials.js";
+import { pendingInstallOptions } from "./deployments.js";
 import { prisma } from "../db.js";
 import { authenticateAgent } from "../auth/agentAuth.js";
 import { decryptSecret } from "@logikos-dsp/shared/credentials";
@@ -48,7 +51,7 @@ export async function agentSyncRoutes(app: FastifyInstance) {
     const agent = await authenticateAgent(req, reply, agentKey);
     if (!agent) return reply;
 
-    const [sources, tests, activityServers, pendingScans] = await Promise.all([
+    const [sources, tests, activityServers, pendingScans, pendingDeployments] = await Promise.all([
       prisma.source.findMany({
         where: { agentId: agent.id, enabled: true, fileServer: { enabled: true } },
         include: { fileServer: true },
@@ -70,6 +73,11 @@ export async function agentSyncRoutes(app: FastifyInstance) {
         orderBy: { createdAt: "asc" },
         take: 3,
       }),
+      prisma.deployment.findMany({
+        where: { agentId: agent.id, status: "PENDING" },
+        orderBy: { createdAt: "asc" },
+        take: 5,
+      }),
     ]);
 
     // The addresses are expanded here, not in the agent: the cap on how much
@@ -79,6 +87,25 @@ export async function agentSyncRoutes(app: FastifyInstance) {
       const parsed = parseCidr(scan.cidr);
       return parsed.ok ? [{ id: scan.id, addresses: parsed.value.addresses, ports: [...DISCOVERY_PORTS] }] : [];
     });
+
+    // Handing a deployment over takes its credentials out of memory: the
+    // backend stops knowing the password the moment an agent has it, and a
+    // job collected twice would have nothing to run with the second time.
+    const deployments: PendingDeployment[] = [];
+    for (const job of pendingDeployments) {
+      const credentials = takeCredentials(job.id);
+      const install = pendingInstallOptions.get(job.id);
+      if (!credentials || !install) continue; // expired; the dashboard reports it
+      pendingInstallOptions.delete(job.id);
+      deployments.push({
+        id: job.id,
+        address: job.address,
+        username: credentials.username,
+        password: credentials.password,
+        install,
+      });
+      await prisma.deployment.update({ where: { id: job.id }, data: { status: "RUNNING", startedAt: new Date() } });
+    }
 
     const response: AgentSyncResponse = {
       sources: sources.map((s) => ({
@@ -119,6 +146,7 @@ export async function agentSyncRoutes(app: FastifyInstance) {
         subPath: t.subPath,
       })),
       discoveryScans,
+      deployments,
     };
     return reply.send(response);
   });
@@ -152,6 +180,34 @@ export async function agentSyncRoutes(app: FastifyInstance) {
       }),
     ]);
     return reply.send({ ok: true, hosts: body.hosts.length });
+  });
+
+  // Reported once a remote install finishes, succeeded or not.
+  app.post<{ Params: { id: string } }>("/agent-sync/deployments/:id/result", async (req, reply) => {
+    const body = z
+      .object({
+        agentKey: z.string().min(8),
+        success: z.boolean(),
+        message: z.string().max(2000).optional(),
+      })
+      .parse(req.body);
+    const agent = await authenticateAgent(req, reply, body.agentKey);
+    if (!agent) return reply;
+
+    const deployment = await prisma.deployment.findUnique({ where: { id: req.params.id } });
+    if (!deployment || deployment.agentId !== agent.id) {
+      return reply.code(404).send({ error: "deployment not found" });
+    }
+
+    await prisma.deployment.update({
+      where: { id: deployment.id },
+      data: {
+        status: body.success ? "SUCCEEDED" : "FAILED",
+        message: body.message?.slice(0, 2000),
+        completedAt: new Date(),
+      },
+    });
+    return reply.send({ ok: true });
   });
 
   // Marks a scan as started, so a long sweep doesn't look stuck at "pending".

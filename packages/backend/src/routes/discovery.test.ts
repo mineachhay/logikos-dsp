@@ -14,9 +14,10 @@ async function loginAs(app: FastifyInstance, role: "ADMIN" | "VIEWER"): Promise<
   return `${cookie.name}=${cookie.value}`;
 }
 
-async function seedAgent(hostname = "WIN-TEST") {
+/** Defaults to an agent that collects queued work, since that's what a scan needs. */
+async function seedAgent(hostname = "WIN-TEST", capabilities = ["managed-sources"]) {
   return prisma.agent.create({
-    data: { key: `agent-${randomUUID()}`, hostname, watchedRoot: hostname },
+    data: { key: `agent-${randomUUID()}`, hostname, watchedRoot: hostname, capabilities },
   });
 }
 
@@ -133,6 +134,68 @@ describe("GET /discovery/coverage", () => {
 
     const res = await app.inject({ method: "GET", url: "/discovery/coverage", headers: { cookie } });
     expect(res.json()).toEqual({ scan: null, machines: [] });
+    await app.close();
+  });
+});
+
+describe("discovery only goes to agents that can run it", () => {
+  // The Go agent watches files and nothing else — it never polls for queued
+  // work. Accepting a scan for one leaves it PENDING forever with nothing to
+  // explain why, which is exactly what happened the first time this shipped.
+  it("refuses an agent that doesn't collect queued work", async () => {
+    const app = await buildApp();
+    const cookie = await loginAs(app, "ADMIN");
+    const agent = await seedAgent("WIN-WATCHER", []);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/discovery/scans",
+      headers: { cookie },
+      payload: { cidr: "20.20.5.0/24", agentId: agent.id },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("can't run network scans");
+    await app.close();
+  });
+
+  it("accepts an agent that manages shares", async () => {
+    const app = await buildApp();
+    const cookie = await loginAs(app, "ADMIN");
+    const agent = await prisma.agent.create({
+      data: { key: `agent-${randomUUID()}`, hostname: "dsp-agent", watchedRoot: "/data", capabilities: ["managed-sources"] },
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/discovery/scans",
+      headers: { cookie },
+      payload: { cidr: "20.20.5.0/24", agentId: agent.id },
+    });
+
+    expect(res.statusCode).toBe(201);
+    await app.close();
+  });
+
+  // Otherwise the dashboard shows "Scanning…" for ever, with no way to tell
+  // that nothing is actually happening.
+  it("writes off a scan nothing ever picked up", async () => {
+    const app = await buildApp();
+    const cookie = await loginAs(app, "ADMIN");
+    const agent = await seedAgent("STOPPED");
+    await prisma.discoveryScan.create({
+      data: {
+        cidr: "20.20.5.0/24",
+        agentId: agent.id,
+        requestedBy: "admin@example.com",
+        createdAt: new Date(Date.now() - 10 * 60 * 1000),
+      },
+    });
+
+    const res = await app.inject({ method: "GET", url: "/discovery/scans", headers: { cookie } });
+    const [scan] = res.json();
+    expect(scan.status).toBe("FAILED");
+    expect(scan.message).toContain("No agent picked this up");
     await app.close();
   });
 });

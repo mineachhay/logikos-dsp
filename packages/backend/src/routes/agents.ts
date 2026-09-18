@@ -103,10 +103,11 @@ export async function agentRoutes(app: FastifyInstance) {
         hostname: body.hostname,
         watchedRoot: body.watchedRoot,
         lastSeenAt: new Date(),
+        lastIp: req.ip,
         secretHash,
         capabilities: body.capabilities,
       },
-      create: { ...body, secretHash },
+      create: { ...body, secretHash, lastIp: req.ip },
     });
     await upsertDefaultSource(agent);
 

@@ -80,6 +80,8 @@ export interface KnownAgent {
   hostname: string;
   lastSeenAt: Date;
   revokedAt: Date | null;
+  /** The address the agent last called in from, when the backend recorded one. */
+  lastIp?: string | null;
 }
 
 export type CoverageState = "protected" | "stale" | "unprotected";
@@ -100,11 +102,19 @@ export interface Coverage extends DiscoveredMachine {
 export const AGENT_STALE_AFTER_MS = 60 * 60 * 1000;
 
 /**
- * Joins what the scan found to the agents that have registered. Matching is by
- * hostname, case-insensitively, and only on the first label: a scan gets
- * "win-fs.corp.local" from reverse DNS while the agent registered the machine
- * as "WIN-FS", and treating those as different machines would report a covered
- * machine as unprotected — the one mistake this whole feature must not make.
+ * Joins what the scan found to the agents that have registered.
+ *
+ * By address first, then hostname. The address is the reliable half: a scan
+ * always learns it, while a name depends on reverse DNS, which a workgroup has
+ * no records for at all — the first real scan came back with two machines, no
+ * names, and an agent-bearing server reported as unprotected.
+ *
+ * Hostname matching remains for the case where an agent has never called in
+ * from the address that answered (a second NIC, a machine behind NAT), and
+ * compares only the first label, case-insensitively: a scan gets
+ * "win-fs.corp.local" while the agent registered "WIN-FS". Treating those as
+ * different machines would report a covered machine as unprotected, which is
+ * the one mistake this whole feature must not make.
  */
 export function coverageFor(
   machines: readonly DiscoveredMachine[],
@@ -112,15 +122,20 @@ export function coverageFor(
   now = new Date(),
 ): Coverage[] {
   const byHost = new Map<string, KnownAgent>();
-  for (const agent of agents) {
-    const key = shortHostname(agent.hostname);
-    const existing = byHost.get(key);
+  const byAddress = new Map<string, KnownAgent>();
+  const remember = (map: Map<string, KnownAgent>, key: string, agent: KnownAgent) => {
+    const existing = map.get(key);
     // Several agents can share a machine; the most recently seen decides.
-    if (!existing || agent.lastSeenAt > existing.lastSeenAt) byHost.set(key, agent);
+    if (!existing || agent.lastSeenAt > existing.lastSeenAt) map.set(key, agent);
+  };
+  for (const agent of agents) {
+    remember(byHost, shortHostname(agent.hostname), agent);
+    if (agent.lastIp) remember(byAddress, agent.lastIp, agent);
   }
 
   return machines.map((machine) => {
-    const agent = machine.hostname ? byHost.get(shortHostname(machine.hostname)) : undefined;
+    const agent =
+      byAddress.get(machine.address) ?? (machine.hostname ? byHost.get(shortHostname(machine.hostname)) : undefined);
     if (!agent || agent.revokedAt) {
       return { ...machine, state: "unprotected", agentHostname: agent?.hostname ?? null, lastSeenAt: agent?.lastSeenAt ?? null };
     }

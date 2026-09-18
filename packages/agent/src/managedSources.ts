@@ -2,6 +2,7 @@ import type { ManagedSmbSource, PendingConnectionTest, PendingDiscoveryScan } fr
 import { config } from "./config.js";
 import { completeConnectionTest, completeDiscoveryScan, fetchAgentSync, reportSourceStatus, startDiscoveryScan } from "./client.js";
 import { runDiscoveryScan } from "./discovery.js";
+import { runDeployments } from "./deployer.js";
 import { collectActivity } from "./activityCollector.js";
 import { forgetKnownFiles, setKnownFiles } from "./knownFiles.js";
 import { SmbSource } from "./sources/smb.js";
@@ -110,6 +111,10 @@ async function syncOnce(): Promise<void> {
   for (const scan of sync.discoveryScans ?? []) {
     void runScan(scan);
   }
+
+  // Remote installs. The credentials came with the job and exist only for as
+  // long as it runs.
+  runDeployments(sync.deployments ?? []);
 }
 
 /**

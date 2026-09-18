@@ -73,5 +73,8 @@ export async function authenticateAgent(
     return null;
   }
 
-  return prisma.agent.update({ where: { id: agent.id }, data: { lastSeenAt: new Date() } });
+  // lastIp so coverage can recognise this machine when a scan finds it: a
+  // workgroup has no DNS records to reverse, leaving the address as the only
+  // thing both sides can see.
+  return prisma.agent.update({ where: { id: agent.id }, data: { lastSeenAt: new Date(), lastIp: req.ip } });
 }

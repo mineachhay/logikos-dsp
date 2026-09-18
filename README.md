@@ -110,6 +110,12 @@ stand out is volume, which is what the `BULK_FILE_READ` alert is for. Folder
 listings are logged the same way as file reads and are filtered out, or they
 would bury everything else.
 
+**Installing remotely:** on any machine the scan lists as having no agent,
+*Install agent* asks for an administrator account on that machine and installs
+over WinRM. The credentials are used once and never stored — repeating it means
+typing them again. WinRM is off by default on Windows 10/11, so workstations
+usually need it enabled first (or use a GPO to deploy the agent directly).
+
 **Finding machines without an agent:** Administration → Agents → *Machines on
 the network*. Give it a range like `20.20.5.0/24` and an agent to scan from;
 it reports which machines answered and which of them have no agent, or one

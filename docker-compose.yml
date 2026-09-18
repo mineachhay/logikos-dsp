@@ -52,6 +52,10 @@ services:
       # can't drift. Empty makes the backend refuse to start, with a message.
       AGENT_ENROLL_TOKEN: ${AGENT_ENROLL_TOKEN:-}
       AGENT_INSTALLER_PATH: /app/installers/agent.exe
+      # What a remotely installed agent should be pointed at. The same URL the
+      # dashboard is built against, because that is by definition the one
+      # reachable from outside this host.
+      PUBLIC_BACKEND_URL: ${DASHBOARD_BACKEND_URL:-}
     volumes:
       # The built Windows agent, offered for download on the Agents page. Read
       # only, and outside the image so a new agent build is a file copy rather
@@ -81,6 +85,8 @@ services:
     # identity stable across redeploys.
     hostname: dsp-agent
     environment:
+      # The built Windows agent, pushed to machines during a remote install.
+      AGENT_INSTALLER_PATH: /app/installers/agent.exe
       BACKEND_URL: http://backend:4000
       WATCH_PATH: /data
       AGENT_ENROLL_TOKEN: ${AGENT_ENROLL_TOKEN:-}
@@ -91,6 +97,10 @@ services:
       # share instead of the local bind mount below; see README.
     volumes:
       - ${WATCH_PATH_HOST:-./data/watched}:/data
+      # The built Windows agent, pushed to a machine during a remote install.
+      # Same directory the backend offers for download, so both ship whatever
+      # build is on the host without either image being rebuilt.
+      - ./dist:/app/installers:ro
     # Wait for the backend's healthcheck, not just its container: the agent
     # registers once at startup and exits if that fails, so otherwise every
     # deploy logged "agent failed to start" and cost a restart-policy bounce.

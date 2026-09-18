@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { coverageFor, parseCidr } from "@logikos-dsp/shared";
+import { coverageFor, MANAGED_SOURCES_CAPABILITY, parseCidr } from "@logikos-dsp/shared";
 import { prisma } from "../db.js";
 import { recordAudit } from "../audit.js";
 
@@ -39,6 +39,15 @@ export async function discoveryRoutes(app: FastifyInstance) {
     const agent = await prisma.agent.findUnique({ where: { id: body.agentId } });
     if (!agent) return reply.code(404).send({ error: "unknown agent" });
     if (agent.revokedAt) return reply.code(400).send({ error: "that agent is revoked" });
+    // Only agents that poll /agent-sync ever see queued work. The Go agent
+    // doesn't: it watches files and reports them, nothing else. Accepting a
+    // scan for one leaves it PENDING forever with nothing to explain why —
+    // which is exactly what happened the first time this shipped.
+    if (!agent.capabilities.includes(MANAGED_SOURCES_CAPABILITY)) {
+      return reply.code(400).send({
+        error: `${agent.hostname} can't run network scans — it only watches files. Choose an agent that manages shares.`,
+      });
+    }
 
     const scan = await prisma.discoveryScan.create({
       data: { cidr: parsed.value.cidr, agentId: agent.id, requestedBy: req.user.email },
@@ -48,6 +57,7 @@ export async function discoveryRoutes(app: FastifyInstance) {
   });
 
   app.get("/discovery/scans", async () => {
+    await expireStuckScans();
     return prisma.discoveryScan.findMany({
       orderBy: { createdAt: "desc" },
       take: 20,
@@ -71,7 +81,7 @@ export async function discoveryRoutes(app: FastifyInstance) {
     });
     if (!scan) return { scan: null, machines: [] };
 
-    const agents = await prisma.agent.findMany({ select: { hostname: true, lastSeenAt: true, revokedAt: true } });
+    const agents = await prisma.agent.findMany({ select: { hostname: true, lastSeenAt: true, revokedAt: true, lastIp: true } });
     const machines = coverageFor(
       scan.hosts.map((h) => ({ address: h.address, hostname: h.hostname, openPorts: h.openPorts })),
       agents,
@@ -80,5 +90,30 @@ export async function discoveryRoutes(app: FastifyInstance) {
       scan: { id: scan.id, cidr: scan.cidr, completedAt: scan.completedAt, scannedBy: scan.agent.hostname },
       machines,
     };
+  });
+}
+
+/**
+ * How long a scan may sit unclaimed before it is written off. A capable agent
+ * polls every ten seconds and a /24 sweep takes a few more, so minutes of
+ * silence means nobody is coming — the agent is stopped, unreachable, or was
+ * revoked between queueing and running.
+ */
+const SCAN_GIVE_UP_MS = 5 * 60 * 1000;
+
+/**
+ * Without this a scan nothing picked up stays PENDING forever, and the
+ * dashboard shows "Scanning…" indefinitely with no way to tell that nothing is
+ * actually happening. Swept lazily on read rather than by a timer: there is no
+ * work to do when nobody is looking.
+ */
+async function expireStuckScans(now = new Date()): Promise<void> {
+  await prisma.discoveryScan.updateMany({
+    where: { status: { in: ["PENDING", "RUNNING"] }, createdAt: { lt: new Date(now.getTime() - SCAN_GIVE_UP_MS) } },
+    data: {
+      status: "FAILED",
+      message: "No agent picked this up. Check that the agent chosen is running and connected.",
+      completedAt: now,
+    },
   });
 }

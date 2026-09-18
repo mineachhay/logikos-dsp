@@ -107,10 +107,17 @@ model Agent {
   /// Reported at registration. "managed-sources" = it polls /agent-sync and
   /// can scan dashboard-configured shares; the Go agent doesn't send it.
   capabilities String[]  @default([])
+  /// The address this agent last called in from. Recorded because a network
+  /// scan often can't name a machine — a workgroup has no DNS records to
+  /// reverse — but can always see an address. Without it, a machine that has
+  /// an agent is reported as unprotected, the one mistake coverage must not
+  /// make.
+  lastIp       String?
 
   sources          Source[]
   connectionTests  ConnectionTest[]
   discoveryScans   DiscoveryScan[]
+  deployments      Deployment[]
   fileEvents       FileEvent[]
   storageSnapshots StorageSnapshot[]
   alerts           Alert[]
@@ -198,6 +205,43 @@ model Source {
 
   @@unique([fileServerId, shareName, subPath])
   @@index([agentId])
+}
+
+enum DeploymentStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+/// One attempt to install the agent on a machine remotely.
+///
+/// Note what is absent: there is no password column, and there never should
+/// be. The credentials that install an agent are administrator on the target,
+/// and storing them would turn this server into a domain-wide remote execution
+/// tool — the thing that makes a monitoring system worth attacking. They are
+/// held in the backend's memory for the minutes between "deploy" and the agent
+/// collecting the job, and nowhere else. A restart loses them and the
+/// deployment fails, which is the correct trade.
+model Deployment {
+  id          String           @id @default(uuid())
+  address     String
+  /// What the scan called the machine, when it knew — for the history, since
+  /// the address may later belong to something else.
+  hostname    String?
+  /// Kept so the history says who was used, never how.
+  username    String
+  status      DeploymentStatus @default(PENDING)
+  message     String?
+  requestedBy String
+  agentId     String
+  agent       Agent            @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  createdAt   DateTime         @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  @@index([agentId, status])
+  @@index([createdAt])
 }
 
 enum DiscoveryScanStatus {

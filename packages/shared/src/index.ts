@@ -139,6 +139,25 @@ export interface AgentSyncResponse {
   activityCollectors: import("./activity.js").ActivityCollectorConfig[];
   /** Networks to sweep for machines, so coverage gaps can be seen (see discovery.ts). */
   discoveryScans: PendingDiscoveryScan[];
+  /** Remote installs to perform. Carries credentials; never logged, never stored. */
+  deployments: PendingDeployment[];
+}
+
+export interface PendingDeployment {
+  id: string;
+  address: string;
+  /** Held only in the backend's memory until collected — see deployCredentials.ts. */
+  username: string;
+  password: string;
+  /** What the agent should run on the target once the binary is there. */
+  install: {
+    serverUrl: string;
+    enrollToken: string;
+    watchPath?: string;
+    connectIp?: string;
+    allDrives: boolean;
+    removable: boolean;
+  };
 }
 
 export interface PendingDiscoveryScan {

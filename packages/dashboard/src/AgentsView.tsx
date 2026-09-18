@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { usePolling } from "./usePolling.js";
 import * as api from "./api.js";
 import type { ManagedAgent } from "./api.js";
@@ -110,15 +110,115 @@ function InstallPanel() {
  * The backend can't scan a network any more than it can talk SMB, so a scan is
  * queued for an agent, which is also on the right side of the network.
  */
+/**
+ * Installing the agent on a machine from here, rather than walking to it.
+ *
+ * The credentials are typed for each deployment and never stored: an account
+ * that can install a service is administrator on the target, and a server
+ * holding one for every workstation would be worth attacking for its own sake.
+ * They go to the backend, are held in memory until an agent collects the job,
+ * and are gone.
+ */
+function DeployForm({
+  machine,
+  agentId,
+  onDone,
+}: {
+  machine: api.CoverageMachine;
+  agentId: string;
+  onDone: () => void;
+}) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [watchPath, setWatchPath] = useState("C:\\Users");
+  const [connectIp, setConnectIp] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function deploy() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.deployAgent({
+        address: machine.address,
+        hostname: machine.hostname,
+        agentId,
+        username,
+        password,
+        watchPath,
+        connectIp: connectIp.trim() || undefined,
+        allDrives: true,
+        removable: true,
+      });
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not start the deployment");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <tr className="deploy-row">
+      <td colSpan={5}>
+        <div className="deploy-form">
+          <p className="muted">
+            Installs the agent on <strong>{machine.address}</strong> over WinRM. The account must be an administrator
+            there. It is used once and never stored — repeating this means typing it again.
+          </p>
+          <div className="install-fields">
+            <label>
+              Administrator account
+              <input
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="Administrator or DOMAIN\\user"
+                autoComplete="off"
+              />
+            </label>
+            <label>
+              Password
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
+            </label>
+            <label>
+              Folder to watch
+              <input value={watchPath} onChange={(e) => setWatchPath(e.target.value)} />
+            </label>
+            <label>
+              Server IP for the agent <span className="muted">(optional)</span>
+              <input value={connectIp} onChange={(e) => setConnectIp(e.target.value)} placeholder="e.g. 20.20.0.92" />
+            </label>
+          </div>
+          {error && <p className="error">{error}</p>}
+          <div className="install-row">
+            <button className="btn" onClick={deploy} disabled={busy || !username || !password}>
+              {busy ? "Starting…" : "Install agent"}
+            </button>
+            <button className="btn-link" onClick={onDone}>
+              Cancel
+            </button>
+            <span className="muted">Also watches every fixed drive and USB storage.</span>
+          </div>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 function CoveragePanel({ agents }: { agents: ManagedAgent[] }) {
   const { data } = usePolling<api.CoverageReport>("/discovery/coverage", 10000);
   const scans = usePolling<api.DiscoveryScan[]>("/discovery/scans", 5000);
   const [cidr, setCidr] = useState("");
   const [agentId, setAgentId] = useState("");
+  const [deployingTo, setDeployingTo] = useState<string | null>(null);
+  const deployments = usePolling<api.Deployment[]>("/deployments", 4000);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const scanners = agents.filter((a) => !a.revokedAt);
+  // Only agents that poll for work can run a scan — the Windows agent watches
+  // files and nothing else, so offering it here would queue work nothing ever
+  // collects.
+  const scanners = agents.filter((a) => !a.revokedAt && a.capabilities.includes("managed-sources"));
   const running = scans.data?.find((s) => s.status === "PENDING" || s.status === "RUNNING");
 
   async function scan() {
@@ -154,7 +254,7 @@ function CoveragePanel({ agents }: { agents: ManagedAgent[] }) {
         <label>
           Scan from
           <select value={agentId} onChange={(e) => setAgentId(e.target.value)}>
-            {scanners.length === 0 && <option value="">No agent available</option>}
+            {scanners.length === 0 && <option value="">No agent can scan</option>}
             {scanners.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.hostname}
@@ -169,6 +269,11 @@ function CoveragePanel({ agents }: { agents: ManagedAgent[] }) {
           {running ? `Scanning ${running.cidr}…` : "Scan"}
         </button>
         {error && <span className="error">{error}</span>}
+        {scanners.length === 0 && (
+          <span className="muted">
+            Scanning needs an agent that manages shares; the Windows file-watching agent can't run one.
+          </span>
+        )}
         {data?.scan && (
           <span className="muted">
             Last scan {data.scan.cidr} from {data.scan.scannedBy}
@@ -197,24 +302,58 @@ function CoveragePanel({ agents }: { agents: ManagedAgent[] }) {
                   <th>Name</th>
                   <th>Agent</th>
                   <th>Ports</th>
+                  <th />
                 </tr>
               </thead>
               <tbody>
-                {data.machines.map((m) => (
-                  <tr key={m.address}>
-                    <td data-label="Address" className="path">{m.address}</td>
-                    <td data-label="Name">{m.hostname ?? <span className="muted">—</span>}</td>
-                    <td data-label="Agent">
-                      <span className={`badge badge-cov-${m.state}`}>
-                        {m.state === "protected" ? "Protected" : m.state === "stale" ? "Gone quiet" : "No agent"}
-                      </span>
-                      {m.lastSeenAt && m.state !== "protected" && (
-                        <span className="muted"> last seen {new Date(m.lastSeenAt).toLocaleString()}</span>
+                {data.machines.map((m) => {
+                  const deployment = deployments.data?.find((d) => d.address === m.address);
+                  const running = deployment?.status === "PENDING" || deployment?.status === "RUNNING";
+                  return (
+                    <Fragment key={m.address}>
+                      <tr>
+                        <td data-label="Address" className="path">{m.address}</td>
+                        <td data-label="Name">{m.hostname ?? <span className="muted">—</span>}</td>
+                        <td data-label="Agent">
+                          <span className={`badge badge-cov-${m.state}`}>
+                            {m.state === "protected" ? "Protected" : m.state === "stale" ? "Gone quiet" : "No agent"}
+                          </span>
+                          {m.lastSeenAt && m.state !== "protected" && (
+                            <span className="muted"> last seen {new Date(m.lastSeenAt).toLocaleString()}</span>
+                          )}
+                        </td>
+                        <td data-label="Ports" className="muted">{m.openPorts.join(", ")}</td>
+                        <td data-label="" className="cell-actions">
+                          {m.state !== "protected" && !running && (
+                            <button
+                              className="btn-link"
+                              onClick={() => setDeployingTo(deployingTo === m.address ? null : m.address)}
+                              disabled={scanners.length === 0}
+                            >
+                              {deployingTo === m.address ? "Cancel" : "Install agent"}
+                            </button>
+                          )}
+                          {running && <span className="muted">Installing…</span>}
+                          {deployment?.status === "FAILED" && !running && (
+                            <span className="error" title={deployment.message ?? undefined}>
+                              Install failed
+                            </span>
+                          )}
+                          {deployment?.status === "SUCCEEDED" && m.state !== "protected" && (
+                            <span className="muted">Installed — rescan to confirm</span>
+                          )}
+                        </td>
+                      </tr>
+                      {deployingTo === m.address && (
+                        <DeployForm
+                          machine={m}
+                          agentId={agentId || scanners[0]?.id}
+                          onDone={() => setDeployingTo(null)}
+                        />
                       )}
-                    </td>
-                    <td data-label="Ports" className="muted">{m.openPorts.join(", ")}</td>
-                  </tr>
-                ))}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>

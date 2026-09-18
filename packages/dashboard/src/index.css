@@ -339,3 +339,9 @@ th.sortable:hover { color: #ccc; }
   background: #0f1115; color: #e6e6e6; border: 1px solid #2a2e37; border-radius: 6px;
   padding: 7px 9px; font: inherit; font-size: 13px; min-width: 240px;
 }
+
+/* The deploy form opens inside the coverage table, under the machine it
+   applies to — so there's no doubt which machine is about to be changed. */
+.deploy-row td { background: #12151b; }
+.deploy-form { padding: 6px 2px 12px; }
+.deploy-form p { font-size: 13px; margin: 0 0 4px; }
