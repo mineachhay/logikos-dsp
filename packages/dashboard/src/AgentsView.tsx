@@ -101,6 +101,134 @@ function InstallPanel() {
   );
 }
 
+/**
+ * Coverage: which machines are on the network, and which of them have no
+ * agent. That last question is the one worth answering — a deploy button is
+ * only useful once you know where to point it, and a machine whose agent
+ * stopped reporting three weeks ago is the case nobody notices.
+ *
+ * The backend can't scan a network any more than it can talk SMB, so a scan is
+ * queued for an agent, which is also on the right side of the network.
+ */
+function CoveragePanel({ agents }: { agents: ManagedAgent[] }) {
+  const { data } = usePolling<api.CoverageReport>("/discovery/coverage", 10000);
+  const scans = usePolling<api.DiscoveryScan[]>("/discovery/scans", 5000);
+  const [cidr, setCidr] = useState("");
+  const [agentId, setAgentId] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const scanners = agents.filter((a) => !a.revokedAt);
+  const running = scans.data?.find((s) => s.status === "PENDING" || s.status === "RUNNING");
+
+  async function scan() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.startDiscoveryScan(cidr, agentId || scanners[0]?.id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not start the scan");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const counts = (data?.machines ?? []).reduce(
+    (acc, m) => ({ ...acc, [m.state]: (acc[m.state] ?? 0) + 1 }),
+    {} as Record<string, number>,
+  );
+
+  return (
+    <section className="install-panel">
+      <h3>Machines on the network</h3>
+      <p className="muted">
+        Sweep a network range to see which machines are there and which have no agent. Nothing is installed and no
+        credentials are used — this only looks.
+      </p>
+
+      <div className="install-fields">
+        <label>
+          Network range
+          <input value={cidr} onChange={(e) => setCidr(e.target.value)} placeholder="e.g. 20.20.5.0/24" />
+        </label>
+        <label>
+          Scan from
+          <select value={agentId} onChange={(e) => setAgentId(e.target.value)}>
+            {scanners.length === 0 && <option value="">No agent available</option>}
+            {scanners.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.hostname}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div className="install-row">
+        <button className="btn" onClick={scan} disabled={busy || !cidr.trim() || scanners.length === 0 || Boolean(running)}>
+          {running ? `Scanning ${running.cidr}…` : "Scan"}
+        </button>
+        {error && <span className="error">{error}</span>}
+        {data?.scan && (
+          <span className="muted">
+            Last scan {data.scan.cidr} from {data.scan.scannedBy}
+            {data.scan.completedAt && `, ${new Date(data.scan.completedAt).toLocaleString()}`}
+          </span>
+        )}
+      </div>
+
+      {scans.data?.[0]?.status === "FAILED" && (
+        <p className="error">Last scan failed: {scans.data[0].message ?? "no detail reported"}</p>
+      )}
+
+      {data && data.machines.length > 0 && (
+        <>
+          <p className="coverage-summary">
+            <strong>{data.machines.length}</strong> machines answered ·{" "}
+            <span className="cov-protected">{counts.protected ?? 0} protected</span> ·{" "}
+            <span className="cov-stale">{counts.stale ?? 0} gone quiet</span> ·{" "}
+            <span className="cov-unprotected">{counts.unprotected ?? 0} with no agent</span>
+          </p>
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Address</th>
+                  <th>Name</th>
+                  <th>Agent</th>
+                  <th>Ports</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.machines.map((m) => (
+                  <tr key={m.address}>
+                    <td data-label="Address" className="path">{m.address}</td>
+                    <td data-label="Name">{m.hostname ?? <span className="muted">—</span>}</td>
+                    <td data-label="Agent">
+                      <span className={`badge badge-cov-${m.state}`}>
+                        {m.state === "protected" ? "Protected" : m.state === "stale" ? "Gone quiet" : "No agent"}
+                      </span>
+                      {m.lastSeenAt && m.state !== "protected" && (
+                        <span className="muted"> last seen {new Date(m.lastSeenAt).toLocaleString()}</span>
+                      )}
+                    </td>
+                    <td data-label="Ports" className="muted">{m.openPorts.join(", ")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="muted install-hint">
+            A machine with no agent needs one installed — use the command above, or a GPO startup script for a whole
+            domain at once. Machines that answer nothing on ports 445, 3389 or 5985 aren't listed: they're either off,
+            or not Windows.
+          </p>
+        </>
+      )}
+    </section>
+  );
+}
+
 export default function AgentsView() {
   const { data, error } = usePolling<ManagedAgent[]>("/agents", 5000);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -124,6 +252,7 @@ export default function AgentsView() {
   return (
     <div className="agents-view">
       <InstallPanel />
+      {data && <CoveragePanel agents={data} />}
       {actionError && <p className="error">{actionError}</p>}
       {error && <p className="error">Failed to load agents: {error}</p>}
       {!data && !error && <p>Loading…</p>}

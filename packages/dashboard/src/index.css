@@ -325,3 +325,17 @@ th.sortable:hover { color: #ccc; }
   .install-fields input { min-width: 0; width: 100%; }
   .install-fields label { width: 100%; }
 }
+
+/* Coverage: the states are a judgement about risk, not severity levels, so
+   they get their own colours rather than reusing the alert palette. */
+.badge-cov-protected { background: #1e3a2a; color: #7fd6a3; }
+.badge-cov-stale { background: #4a3a1f; color: #e2b566; }
+.badge-cov-unprotected { background: #4a2323; color: #e58a8a; }
+.coverage-summary { font-size: 13px; margin: 16px 0 8px; }
+.cov-protected { color: #7fd6a3; }
+.cov-stale { color: #e2b566; }
+.cov-unprotected { color: #e58a8a; }
+.install-fields select {
+  background: #0f1115; color: #e6e6e6; border: 1px solid #2a2e37; border-radius: 6px;
+  padding: 7px 9px; font: inherit; font-size: 13px; min-width: 240px;
+}

@@ -5,6 +5,7 @@ import { ZodError } from "zod";
 import { requireEnrollToken } from "./auth/agentAuth.js";
 import { requireCredentialsKey } from "@logikos-dsp/shared/credentials";
 import { agentSyncRoutes } from "./routes/agentSync.js";
+import { discoveryRoutes } from "./routes/discovery.js";
 import { fileServerRoutes } from "./routes/fileServers.js";
 import { backupRoutes } from "./routes/backups.js";
 import { retentionRoutes } from "./routes/retention.js";
@@ -78,6 +79,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(fileServerRoutes);
   await app.register(backupRoutes);
   await app.register(retentionRoutes);
+  await app.register(discoveryRoutes);
 
   return app;
 }

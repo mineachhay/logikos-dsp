@@ -137,6 +137,22 @@ export interface AgentSyncResponse {
   connectionTests: PendingConnectionTest[];
   /** Windows servers this agent should collect "who changed files" from (see activity.ts). */
   activityCollectors: import("./activity.js").ActivityCollectorConfig[];
+  /** Networks to sweep for machines, so coverage gaps can be seen (see discovery.ts). */
+  discoveryScans: PendingDiscoveryScan[];
+}
+
+export interface PendingDiscoveryScan {
+  id: string;
+  /** Already parsed and bounded by the backend; the agent sweeps these addresses. */
+  addresses: string[];
+  ports: number[];
+}
+
+export interface DiscoveryResultInput {
+  agentKey: string;
+  status: "SUCCEEDED" | "FAILED";
+  message?: string;
+  hosts: { address: string; hostname?: string | null; openPorts: number[] }[];
 }
 
 /** Capability an agent reports at registration when it implements /agent-sync. */
@@ -171,3 +187,4 @@ export function sourceKindFromRoot(watchedRoot: string): SourceKindName {
 export * from "./backups.js";
 
 export * from "./activity.js";
+export * from "./discovery.js";

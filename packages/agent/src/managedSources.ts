@@ -1,6 +1,7 @@
-import type { ManagedSmbSource, PendingConnectionTest } from "@logikos-dsp/shared";
+import type { ManagedSmbSource, PendingConnectionTest, PendingDiscoveryScan } from "@logikos-dsp/shared";
 import { config } from "./config.js";
-import { completeConnectionTest, fetchAgentSync, reportSourceStatus } from "./client.js";
+import { completeConnectionTest, completeDiscoveryScan, fetchAgentSync, reportSourceStatus, startDiscoveryScan } from "./client.js";
+import { runDiscoveryScan } from "./discovery.js";
 import { collectActivity } from "./activityCollector.js";
 import { forgetKnownFiles, setKnownFiles } from "./knownFiles.js";
 import { SmbSource } from "./sources/smb.js";
@@ -22,6 +23,7 @@ interface Running extends RunningSource {
 const running = new Map<string, Running>();
 const limiter = createLimiter(config.maxConcurrentScans);
 const testsInFlight = new Set<string>();
+const scansInFlight = new Set<string>();
 
 function toSmbConfig(s: Pick<ManagedSmbSource, "host" | "port" | "domain" | "username" | "password" | "share" | "subPath">) {
   return {
@@ -104,6 +106,32 @@ async function syncOnce(): Promise<void> {
   // Windows servers with "who changed files" turned on. Each poll runs
   // independently; pollServer skips a server whose previous poll is still running.
   collectActivity(sync.activityCollectors ?? []);
+
+  for (const scan of sync.discoveryScans ?? []) {
+    void runScan(scan);
+  }
+}
+
+/**
+ * Network sweeps requested from the dashboard. Deliberately fire-and-forget,
+ * like a connection test: a /24 takes seconds, and the sync loop mustn't wait
+ * for it — the agent's real work is watching files.
+ */
+async function runScan(scan: PendingDiscoveryScan): Promise<void> {
+  if (scansInFlight.has(scan.id)) return;
+  scansInFlight.add(scan.id);
+  try {
+    await startDiscoveryScan(scan.id);
+    const hosts = await runDiscoveryScan(scan);
+    console.log(`discovery scan ${scan.id}: ${hosts.length} machine(s) answered out of ${scan.addresses.length} addresses`);
+    await completeDiscoveryScan(scan.id, { status: "SUCCEEDED", hosts });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`discovery scan ${scan.id} failed`, err);
+    await completeDiscoveryScan(scan.id, { status: "FAILED", message, hosts: [] });
+  } finally {
+    scansInFlight.delete(scan.id);
+  }
 }
 
 export function startManagedSources(): void {

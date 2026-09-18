@@ -110,6 +110,7 @@ model Agent {
 
   sources          Source[]
   connectionTests  ConnectionTest[]
+  discoveryScans   DiscoveryScan[]
   fileEvents       FileEvent[]
   storageSnapshots StorageSnapshot[]
   alerts           Alert[]
@@ -197,6 +198,55 @@ model Source {
 
   @@unique([fileServerId, shareName, subPath])
   @@index([agentId])
+}
+
+enum DiscoveryScanStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+/// "Which machines are there, and which of them have no agent?" — the question
+/// a coverage report answers. The backend can't scan a network any more than
+/// it can talk SMB, so a scan is queued here and the assigned agent picks it
+/// up on its next sync, exactly like a connection test.
+model DiscoveryScan {
+  id          String              @id @default(uuid())
+  /// CIDR to sweep, e.g. "20.20.0.0/24". Validated before it is stored.
+  cidr        String
+  agentId     String
+  agent       Agent               @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  status      DiscoveryScanStatus @default(PENDING)
+  message     String?
+  /// Copied, so the record survives the user being deleted — same reasoning as AuditLog.
+  requestedBy String
+  createdAt   DateTime            @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  hosts DiscoveredHost[]
+
+  @@index([agentId, status])
+}
+
+/// One machine a scan found. Kept per scan rather than merged into a single
+/// live list: "what did we see, and when" is the honest shape, and a machine
+/// that stopped answering should disappear from the next scan rather than
+/// linger as a stale row nobody trusts.
+model DiscoveredHost {
+  id        String        @id @default(uuid())
+  scanId    String
+  scan      DiscoveryScan @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  address   String
+  /// Reverse DNS or NetBIOS, when it answered. Null is common and not an error.
+  hostname  String?
+  /// TCP ports that answered, e.g. [445, 3389]. What makes a host look like Windows.
+  openPorts Int[]         @default([])
+  createdAt DateTime      @default(now())
+
+  @@unique([scanId, address])
+  @@index([scanId])
 }
 
 enum ConnectionTestStatus {

@@ -1,9 +1,25 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { ActivityCollectorConfig, AgentSyncResponse } from "@logikos-dsp/shared";
+import { DISCOVERY_PORTS, parseCidr } from "@logikos-dsp/shared";
 import { prisma } from "../db.js";
 import { authenticateAgent } from "../auth/agentAuth.js";
 import { decryptSecret } from "@logikos-dsp/shared/credentials";
+
+const discoveryResultSchema = z.object({
+  agentKey: z.string().min(8),
+  status: z.enum(["SUCCEEDED", "FAILED"]),
+  message: z.string().max(500).optional(),
+  hosts: z
+    .array(
+      z.object({
+        address: z.string().max(45),
+        hostname: z.string().max(255).nullish(),
+        openPorts: z.array(z.number().int().min(1).max(65535)).max(16),
+      }),
+    )
+    .max(1024),
+});
 
 const statusSchema = z.object({
   agentKey: z.string().min(8),
@@ -32,7 +48,7 @@ export async function agentSyncRoutes(app: FastifyInstance) {
     const agent = await authenticateAgent(req, reply, agentKey);
     if (!agent) return reply;
 
-    const [sources, tests, activityServers] = await Promise.all([
+    const [sources, tests, activityServers, pendingScans] = await Promise.all([
       prisma.source.findMany({
         where: { agentId: agent.id, enabled: true, fileServer: { enabled: true } },
         include: { fileServer: true },
@@ -49,7 +65,20 @@ export async function agentSyncRoutes(app: FastifyInstance) {
         where: { enabled: true, activityEnabled: true, shares: { some: { agentId: agent.id, enabled: true } } },
         include: { shares: { where: { agentId: agent.id, enabled: true } } },
       }),
+      prisma.discoveryScan.findMany({
+        where: { agentId: agent.id, status: "PENDING" },
+        orderBy: { createdAt: "asc" },
+        take: 3,
+      }),
     ]);
+
+    // The addresses are expanded here, not in the agent: the cap on how much
+    // may be swept is the server's to enforce, and an agent should never be
+    // handed a range it has to interpret.
+    const discoveryScans = pendingScans.flatMap((scan) => {
+      const parsed = parseCidr(scan.cidr);
+      return parsed.ok ? [{ id: scan.id, addresses: parsed.value.addresses, ports: [...DISCOVERY_PORTS] }] : [];
+    });
 
     const response: AgentSyncResponse = {
       sources: sources.map((s) => ({
@@ -89,8 +118,53 @@ export async function agentSyncRoutes(app: FastifyInstance) {
         share: t.shareName,
         subPath: t.subPath,
       })),
+      discoveryScans,
     };
     return reply.send(response);
+  });
+
+  // Reported once a network sweep finishes. Results replace whatever that scan
+  // had, so a retry can't leave half of one run mixed with half of another.
+  app.post<{ Params: { id: string } }>("/agent-sync/discovery/:id/results", async (req, reply) => {
+    const body = discoveryResultSchema.parse(req.body);
+    const agent = await authenticateAgent(req, reply, body.agentKey);
+    if (!agent) return reply;
+
+    const scan = await prisma.discoveryScan.findUnique({ where: { id: req.params.id } });
+    if (!scan || scan.agentId !== agent.id) {
+      return reply.code(404).send({ error: "scan not found" });
+    }
+
+    await prisma.$transaction([
+      prisma.discoveredHost.deleteMany({ where: { scanId: scan.id } }),
+      prisma.discoveredHost.createMany({
+        data: body.hosts.map((host) => ({
+          scanId: scan.id,
+          address: host.address,
+          hostname: host.hostname ?? null,
+          openPorts: host.openPorts,
+        })),
+        skipDuplicates: true,
+      }),
+      prisma.discoveryScan.update({
+        where: { id: scan.id },
+        data: { status: body.status, message: body.message, completedAt: new Date() },
+      }),
+    ]);
+    return reply.send({ ok: true, hosts: body.hosts.length });
+  });
+
+  // Marks a scan as started, so a long sweep doesn't look stuck at "pending".
+  app.post<{ Params: { id: string } }>("/agent-sync/discovery/:id/started", async (req, reply) => {
+    const { agentKey } = z.object({ agentKey: z.string().min(8) }).parse(req.body);
+    const agent = await authenticateAgent(req, reply, agentKey);
+    if (!agent) return reply;
+
+    const scan = await prisma.discoveryScan.findUnique({ where: { id: req.params.id } });
+    if (!scan || scan.agentId !== agent.id) return reply.code(404).send({ error: "scan not found" });
+
+    await prisma.discoveryScan.update({ where: { id: scan.id }, data: { status: "RUNNING", startedAt: new Date() } });
+    return reply.send({ ok: true });
   });
 
   // Reported after every scan of a managed share — this is what the dashboard

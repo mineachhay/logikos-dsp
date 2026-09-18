@@ -117,3 +117,20 @@ export async function postActivity(payload: Omit<ActivityIngestRequest, "agentKe
     console.error(`failed to post activity for file server ${payload.fileServerId}: ${res.status} ${await res.text()}`);
   }
 }
+
+export async function startDiscoveryScan(id: string): Promise<void> {
+  const res = await postJson(`/agent-sync/discovery/${id}/started`, { agentKey: config.agentKey });
+  if (!res.ok) {
+    console.error(`failed to mark discovery scan ${id} started: ${res.status} ${await res.text()}`);
+  }
+}
+
+export async function completeDiscoveryScan(
+  id: string,
+  result: { status: "SUCCEEDED" | "FAILED"; message?: string; hosts: { address: string; hostname: string | null; openPorts: number[] }[] },
+): Promise<void> {
+  const res = await postJson(`/agent-sync/discovery/${id}/results`, { agentKey: config.agentKey, ...result });
+  if (!res.ok) {
+    console.error(`failed to report discovery scan ${id}: ${res.status} ${await res.text()}`);
+  }
+}

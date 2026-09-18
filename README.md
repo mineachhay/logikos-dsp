@@ -110,6 +110,11 @@ stand out is volume, which is what the `BULK_FILE_READ` alert is for. Folder
 listings are logged the same way as file reads and are filtered out, or they
 would bury everything else.
 
+**Finding machines without an agent:** Administration → Agents → *Machines on
+the network*. Give it a range like `20.20.5.0/24` and an agent to scan from;
+it reports which machines answered and which of them have no agent, or one
+that has gone quiet. It only looks — no credentials, nothing installed.
+
 **Deploying the agent:** sign in as an ADMIN and open Administration →
 Agents. The page offers `agent.exe` for download and shows the exact install
 command for this deployment, with the server URL and enroll token filled in.

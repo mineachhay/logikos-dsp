@@ -408,3 +408,35 @@ export const retentionApi = {
   save: (input: RetentionInput) => requestJson<RetentionSettings>("PUT", "/retention", input),
   run: () => requestJson<Record<string, number>>("POST", "/retention/run", {}),
 };
+
+export type CoverageState = "protected" | "stale" | "unprotected";
+
+export interface CoverageMachine {
+  address: string;
+  hostname: string | null;
+  openPorts: number[];
+  state: CoverageState;
+  agentHostname: string | null;
+  lastSeenAt: string | null;
+}
+
+export interface CoverageReport {
+  scan: { id: string; cidr: string; completedAt: string | null; scannedBy: string } | null;
+  machines: CoverageMachine[];
+}
+
+export interface DiscoveryScan {
+  id: string;
+  cidr: string;
+  status: "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED";
+  message: string | null;
+  requestedBy: string;
+  createdAt: string;
+  completedAt: string | null;
+  agent: { hostname: string };
+  _count: { hosts: number };
+}
+
+export async function startDiscoveryScan(cidr: string, agentId: string): Promise<DiscoveryScan> {
+  return postJson<DiscoveryScan>("/discovery/scans", { cidr, agentId });
+}
