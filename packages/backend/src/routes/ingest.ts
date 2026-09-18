@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../db.js";
 import { checkRansomwareRate } from "../rules/ransomwareRate.js";
+import { checkCopyToRemovable } from "../rules/copyToRemovable.js";
 import { authenticateAgent } from "../auth/agentAuth.js";
 import { resolveIngestSource } from "../sources.js";
 import { backfillActorsForActivity, findActorForEvent, linkBetweenScanRenames, linkCopySources, linkCrossSourceCopies } from "../activity.js";
@@ -25,6 +26,9 @@ const fileEventSchema = z.object({
   sizeBytes: z.number().int().nonnegative().optional(),
   occurredAt: z.string(),
   contentSample: z.string().optional(),
+  removable: z.boolean().optional(),
+  volumeLabel: z.string().max(200).optional(),
+  volumeSerial: z.string().max(64).optional(),
 });
 
 const eventsBatchSchema = z.array(fileEventSchema).min(1).max(500);
@@ -96,6 +100,9 @@ export async function ingestRoutes(app: FastifyInstance) {
           previousPath: evt.previousPath,
           sizeBytes: evt.sizeBytes,
           contentSample: evt.contentSample,
+          removable: evt.removable ?? false,
+          volumeLabel: evt.volumeLabel,
+          volumeSerial: evt.volumeSerial,
           occurredAt: new Date(evt.occurredAt),
           // Windows audit record for this change, if the collector already has it
           // (activity.ts matches the other direction too, for records that arrive later).
@@ -129,6 +136,9 @@ export async function ingestRoutes(app: FastifyInstance) {
     // A file arriving here that was just read somewhere else — a share copied
     // to a laptop, or between shares — is one copy, not two unrelated events.
     await linkCrossSourceCopies(source.id);
+    // After the copy links are drawn, so the alert can say how much of what
+    // went onto the stick came from a monitored share.
+    await checkCopyToRemovable(source.id);
     await checkRansomwareRate(source.id);
 
     return reply.send({ created });

@@ -224,7 +224,13 @@ export interface ResponseAction {
 
 export interface Alert {
   id: string;
-  type: "RANSOMWARE_RATE" | "SENSITIVE_DATA_EXPOSED" | "BACKUP_FAILED" | "LOGIN_ATTACK" | "BULK_FILE_READ";
+  type:
+    | "RANSOMWARE_RATE"
+    | "SENSITIVE_DATA_EXPOSED"
+    | "BACKUP_FAILED"
+    | "LOGIN_ATTACK"
+    | "BULK_FILE_READ"
+    | "COPY_TO_REMOVABLE";
   severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
   status: "OPEN" | "ACKNOWLEDGED" | "RESOLVED";
   message: string;
@@ -250,6 +256,10 @@ export interface FileEvent {
   previousPath: string | null;
   /** Set when the copy came from a different watched place — another share, or a PC running an agent. */
   previousSource: SourceRef | null;
+  /** Set when the file landed on removable media. The drive letter alone means nothing: it's reused. */
+  removable: boolean;
+  volumeLabel: string | null;
+  volumeSerial: string | null;
   sizeBytes: number | null;
   occurredAt: string;
   agent: { hostname: string; watchedRoot: string };

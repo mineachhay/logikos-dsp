@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"sync"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/logikos-dsp/native-agent/internal/client"
 	"github.com/logikos-dsp/native-agent/internal/config"
+	"github.com/logikos-dsp/native-agent/internal/drives"
 	"github.com/logikos-dsp/native-agent/internal/watch"
 	"github.com/logikos-dsp/native-agent/internal/wire"
 )
@@ -49,22 +51,30 @@ func runAgent(cfg config.Config, stop <-chan struct{}) error {
 	if err := c.Register(cfg.AgentKey, cfg.Hostname, cfg.WatchedRootLabel); err != nil {
 		return err
 	}
-	log.Printf("registered agent %s watching %s", cfg.AgentKey, cfg.WatchPath)
+	log.Printf("registered agent %s watching %d root(s)", cfg.AgentKey, len(cfg.WatchPaths))
 
 	var mu sync.Mutex
 	var queue []wire.FileEvent
 
-	w, err := watch.New(cfg.WatchPath, func(evt wire.FileEvent) {
+	watchers := newWatchSet(watch.NewExcluder(exclusionsFor(cfg)), func(evt wire.FileEvent) {
 		evt.AgentKey = cfg.AgentKey
 		mu.Lock()
 		queue = append(queue, evt)
 		mu.Unlock()
 	})
-	if err != nil {
-		return err
+	defer watchers.closeAll()
+
+	configured := map[string]bool{}
+	for _, root := range cfg.WatchPaths {
+		watchers.add(root)
+		configured[root] = true
 	}
-	defer w.Close()
-	log.Printf("watching %s for file events", cfg.WatchPath)
+	if watchers.len() == 0 && !cfg.WatchRemovableDrives {
+		return fmt.Errorf("none of the configured folders could be watched: %v", cfg.WatchPaths)
+	}
+	if cfg.WatchRemovableDrives {
+		go pollRemovableDrives(watchers, configured, stop)
+	}
 
 	// Flush loop — same eventFlushIntervalMs default (500ms) and
 	// eventBatchSize (50) as watcher.ts, so ingest load looks identical to
@@ -110,4 +120,44 @@ func runAgent(cfg config.Config, stop <-chan struct{}) error {
 	flush()
 	log.Printf("agent stopped")
 	return nil
+}
+
+// exclusionsFor falls back to the built-in list. An explicitly configured
+// list replaces it rather than adding to it: someone who writes an exclusion
+// list means those exclusions, and silently keeping twenty of ours underneath
+// makes it impossible to watch a folder we happen to think is noise.
+func exclusionsFor(cfg config.Config) []string {
+	if len(cfg.Exclude) > 0 {
+		return cfg.Exclude
+	}
+	return watch.DefaultExclusions
+}
+
+// removablePollInterval is a compromise: a USB stick is usually plugged in
+// seconds before anything is copied to it, and polling drive letters is two
+// cheap syscalls, but waking every second on every workstation to learn
+// nothing is its own cost.
+const removablePollInterval = 3 * time.Second
+
+// pollRemovableDrives watches USB storage for as long as it's plugged in.
+// There is a Windows device-notification API, but it needs a window and a
+// message loop, which a service doesn't have; polling the drive-letter bitmask
+// is what the same information costs without one.
+//
+// A race is unavoidable and accepted: a file copied within the poll interval
+// of the drive appearing can be missed, because the watch isn't there yet.
+// The walk done when a volume is added covers files already on it only as a
+// silent baseline — reporting everything already on a stick as newly created
+// would bury the copy that actually just happened.
+func pollRemovableDrives(watchers *watchSet, configured map[string]bool, stop <-chan struct{}) {
+	ticker := time.NewTicker(removablePollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			watchers.syncRemovable(drives.List(drives.Removable), configured)
+		case <-stop:
+			return
+		}
+	}
 }

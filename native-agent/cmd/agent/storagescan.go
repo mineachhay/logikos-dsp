@@ -37,20 +37,25 @@ func walkForSize(dir string) (totalBytes int64, fileCount int) {
 }
 
 func runStorageScan(c *client.Client, cfg config.Config) {
+	// One snapshot per root, not one for the machine: "D: is filling up" is
+	// the question storage analysis exists to answer, and a single total
+	// across every drive can't answer it.
 	scanOnce := func() {
-		totalBytes, fileCount := walkForSize(cfg.WatchPath)
-		err := c.PostStorageSnapshot(wire.StorageSnapshot{
-			AgentKey:   cfg.AgentKey,
-			RootPath:   cfg.WatchPath,
-			TotalBytes: totalBytes,
-			FileCount:  fileCount,
-			TakenAt:    time.Now().UTC().Format(time.RFC3339),
-		})
-		if err != nil {
-			log.Printf("storage scan failed: %v", err)
-			return
+		for _, root := range cfg.WatchPaths {
+			totalBytes, fileCount := walkForSize(root)
+			err := c.PostStorageSnapshot(wire.StorageSnapshot{
+				AgentKey:   cfg.AgentKey,
+				RootPath:   root,
+				TotalBytes: totalBytes,
+				FileCount:  fileCount,
+				TakenAt:    time.Now().UTC().Format(time.RFC3339),
+			})
+			if err != nil {
+				log.Printf("storage scan of %s failed: %v", root, err)
+				continue
+			}
+			log.Printf("storage snapshot: %s — %d files, %d bytes", root, fileCount, totalBytes)
 		}
-		log.Printf("storage snapshot: %d files, %d bytes", fileCount, totalBytes)
 	}
 
 	scanOnce()

@@ -58,6 +58,8 @@ type Watcher struct {
 	handler EventHandler
 	fsw     *fsnotify.Watcher
 
+	exclude *Excluder
+
 	mu      sync.Mutex
 	pending map[string]*time.Timer // debounce: one pending flush timer per path
 	known   map[string]bool        // paths this watcher has already reported as existing — see debounce's doc comment
@@ -74,24 +76,49 @@ type Watcher struct {
 // (every pre-existing file is recorded into `known` silently, so a later
 // write to it correctly reports "modified" rather than "created").
 func New(root string, handler EventHandler) (*Watcher, error) {
+	return NewExcluding(root, nil, handler)
+}
+
+// NewExcluding is New with an exclusion list, which is what makes watching a
+// whole drive practical rather than a flood. See Excluder.
+//
+// A directory that is excluded is skipped entirely rather than watched and
+// filtered afterwards: on a system drive that is the difference between a few
+// hundred watches and tens of thousands, and every watch costs a handle.
+func NewExcluding(root string, exclude *Excluder, handler EventHandler) (*Watcher, error) {
 	fsw, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
 	}
-	w := &Watcher{root: root, handler: handler, fsw: fsw, pending: map[string]*time.Timer{}, known: map[string]bool{}, dirs: map[string]bool{}}
+	w := &Watcher{root: root, handler: handler, fsw: fsw, exclude: exclude, pending: map[string]*time.Timer{}, known: map[string]bool{}, dirs: map[string]bool{}}
 
 	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			return err
+			// A drive full of other people's profiles will refuse a few
+			// folders outright. One unreadable directory must not stop the
+			// walk and leave the rest of the volume unwatched.
+			if d != nil && d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		if d.IsDir() {
 			if d.Name() == quarantineDirName {
 				return filepath.SkipDir // never watch our own quarantine folder — moving a file into it must not look like a "created" event
 			}
+			if w.exclude.Excludes(path) {
+				return filepath.SkipDir
+			}
 			w.dirs[path] = true
-			return fsw.Add(path)
+			if err := fsw.Add(path); err != nil {
+				// Same reasoning: skip what we can't watch, keep the rest.
+				return filepath.SkipDir
+			}
+			return nil
 		}
-		w.known[path] = true
+		if !w.exclude.Excludes(path) {
+			w.known[path] = true
+		}
 		return nil
 	})
 	if err != nil {
@@ -127,6 +154,12 @@ func (w *Watcher) handleRaw(event fsnotify.Event) {
 		strings.HasSuffix(event.Name, string(filepath.Separator)+quarantineDirName) {
 		return
 	}
+	// Checked here as well as during the walk: a watched directory can gain
+	// an excluded child at any time, and an event can arrive for a path the
+	// walk never saw.
+	if w.exclude.Excludes(event.Name) {
+		return
+	}
 
 	// A newly created directory needs its own watch added — fsnotify
 	// doesn't recurse — and its own initial walk in case files were
@@ -141,15 +174,29 @@ func (w *Watcher) handleRaw(event fsnotify.Event) {
 			w.mu.Lock()
 			w.dirs[event.Name] = true
 			w.mu.Unlock()
+			// The walk has to honour exclusions too: MkdirAll creates a whole
+			// chain at once, so this single Create event can be the only
+			// notice we get of everything beneath it — including a temp
+			// folder that must never be reported.
 			_ = filepath.WalkDir(event.Name, func(path string, d os.DirEntry, err error) error {
-				if err != nil || d.IsDir() {
+				if err != nil {
 					return nil
 				}
-				w.mu.Lock()
-				if d.IsDir() {
-					w.dirs[path] = true
+				if w.exclude.Excludes(path) {
+					if d.IsDir() {
+						return filepath.SkipDir
+					}
+					return nil
 				}
-				w.mu.Unlock()
+				if d.IsDir() {
+					if path != event.Name {
+						w.mu.Lock()
+						w.dirs[path] = true
+						w.mu.Unlock()
+						_ = w.fsw.Add(path)
+					}
+					return nil
+				}
 				w.debounce(path)
 				return nil
 			})

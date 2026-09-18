@@ -11,15 +11,26 @@ import (
 	"fmt"
 	"log"
 	"os"
+
+	"github.com/logikos-dsp/native-agent/internal/drives"
 )
 
 type Config struct {
-	BackendURL       string
-	EnrollToken      string
-	WatchPath        string
-	WatchedRootLabel string
-	AgentKey         string
-	Hostname         string
+	BackendURL  string
+	EnrollToken string
+	WatchPath   string   // the first watched root, kept for quarantine's path logic
+	WatchPaths  []string // every watched root
+	// WatchAllFixedDrives is expanded by Load into WatchPaths; kept so the
+	// caller can tell "watch these two folders" from "watch this machine".
+	WatchAllFixedDrives bool
+	// WatchRemovableDrives watches USB storage while it is plugged in; the
+	// roots are discovered on a timer rather than at startup, so they never
+	// appear in WatchPaths.
+	WatchRemovableDrives bool
+	Exclude              []string
+	WatchedRootLabel     string
+	AgentKey             string
+	Hostname             string
 	// ConnectIP dials a specific address while still verifying BackendURL's
 	// hostname; CACertFile trusts a private CA alongside the system roots.
 	// Both are for agents on workstations reaching a backend behind a CDN or
@@ -71,5 +82,23 @@ func Load() Config {
 	if err != nil {
 		log.Fatal(err)
 	}
+	cfg.WatchPaths = ExpandFixedDrives(cfg, drives.Roots(drives.List(drives.Fixed)))
+	if len(cfg.WatchPaths) == 0 {
+		log.Fatal("no folder to watch: watchAllFixedDrives found no drives, and no path was configured")
+	}
+	if cfg.WatchPath == "" {
+		cfg.WatchPath = cfg.WatchPaths[0]
+	}
 	return cfg
+}
+
+// ExpandFixedDrives adds the machine's fixed drives to the configured roots.
+// Separate from Load, and taking the drive list as an argument, so the rule —
+// discovered drives come after explicit ones, and a drive already named
+// explicitly isn't watched twice — is testable without a Windows machine.
+func ExpandFixedDrives(cfg Config, fixed []string) []string {
+	if !cfg.WatchAllFixedDrives {
+		return cfg.WatchPaths
+	}
+	return dedupe(append(append([]string{}, cfg.WatchPaths...), fixed...))
 }

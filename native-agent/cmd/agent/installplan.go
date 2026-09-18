@@ -5,6 +5,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // The CA is always written to one known filename inside the install folder,
@@ -16,19 +17,26 @@ const (
 )
 
 type installOptions struct {
-	serverURL string
-	watchPath string
-	token     string
-	connectIP string
-	caPath    string
-	targetDir string
+	serverURL  string
+	watchPaths []string
+	allDrives  bool
+	removable  bool
+	exclude    []string
+	token      string
+	connectIP  string
+	caPath     string
+	targetDir  string
 }
 
 func parseInstallOptions(args []string) (installOptions, error) {
 	var o installOptions
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
 	fs.StringVar(&o.serverURL, "server", "", "backend base URL")
-	fs.StringVar(&o.watchPath, "watch", "", "folder to watch")
+	var watch, exclude string
+	fs.StringVar(&watch, "watch", "", "folder to watch; several separated by ;")
+	fs.BoolVar(&o.allDrives, "all-drives", false, "also watch every fixed drive on this machine")
+	fs.BoolVar(&o.removable, "removable", false, "also watch USB drives while they are plugged in")
+	fs.StringVar(&exclude, "exclude", "", "replace the built-in exclusion list; several separated by ;")
 	fs.StringVar(&o.token, "token", "", "agent enroll token")
 	fs.StringVar(&o.connectIP, "ip", "", "address to dial instead of resolving the URL's hostname")
 	fs.StringVar(&o.caPath, "ca", "", `CA file to trust, or "`+embeddedCAName+`"`)
@@ -36,7 +44,25 @@ func parseInstallOptions(args []string) (installOptions, error) {
 	if err := fs.Parse(args); err != nil {
 		return o, err
 	}
+	o.watchPaths = splitSetting(watch)
+	o.exclude = splitSetting(exclude)
 	return o, nil
+}
+
+// Semicolons, because Windows paths contain colons and commas are legal in
+// folder names.
+func splitSetting(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	parts := strings.Split(value, ";")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
 
 // installSettings shapes what goes into agent.json. Kept out of the
@@ -44,10 +70,26 @@ func parseInstallOptions(args []string) (installOptions, error) {
 // an empty setting must be absent from the file rather than written as "",
 // because an empty string is a value and would override the default the
 // agent would otherwise pick.
-func installSettings(o installOptions) map[string]string {
-	settings := map[string]string{
+func installSettings(o installOptions) map[string]any {
+	settings := map[string]any{
 		"enrollToken": o.token,
-		"watchPath":   o.watchPath,
+	}
+	if len(o.watchPaths) == 1 {
+		// Keep the single-folder form when that's what was asked for: it is
+		// what decides the agent's identity, and writing the list form would
+		// silently change the key of an existing machine.
+		settings["watchPath"] = o.watchPaths[0]
+	} else if len(o.watchPaths) > 1 {
+		settings["watchPaths"] = o.watchPaths
+	}
+	if o.allDrives {
+		settings["watchAllFixedDrives"] = true
+	}
+	if o.removable {
+		settings["watchRemovableDrives"] = true
+	}
+	if len(o.exclude) > 0 {
+		settings["exclude"] = o.exclude
 	}
 	if o.serverURL != "" {
 		settings["serverUrl"] = o.serverURL
@@ -61,7 +103,7 @@ func installSettings(o installOptions) map[string]string {
 	return settings
 }
 
-func marshalSettings(settings map[string]string) ([]byte, error) {
+func marshalSettings(settings map[string]any) ([]byte, error) {
 	return json.MarshalIndent(settings, "", "  ")
 }
 

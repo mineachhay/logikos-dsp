@@ -231,6 +231,17 @@ function AlertsView() {
  * identically, so the row says READ and the bulk-read alert is what calls a
  * burst of them a copy.
  */
+/**
+ * A drive letter is meaningless on its own — E: is whatever was plugged in
+ * most recently — so a file that landed on removable media is marked, and
+ * named by the device rather than the letter.
+ */
+function removableNote(event: FileEvent) {
+  if (!event.removable) return null;
+  const device = [event.volumeLabel, event.volumeSerial].filter(Boolean).join(" ");
+  return <span className="badge badge-removable">USB{device ? ` · ${device}` : ""}</span>;
+}
+
 function readsAsEvents(reads: FileActivityRow[]): FileEvent[] {
   return reads.map((r) => ({
     id: `read-${r.id}`,
@@ -238,6 +249,9 @@ function readsAsEvents(reads: FileActivityRow[]): FileEvent[] {
     path: r.path,
     previousPath: null,
     previousSource: null,
+    removable: false,
+    volumeLabel: null,
+    volumeSerial: null,
     sizeBytes: null,
     occurredAt: r.occurredAt,
     agent: { hostname: "", watchedRoot: "" },
@@ -340,9 +354,13 @@ function FileEventsView() {
                       {/* A copy from somewhere else names that place, or the two paths look unrelated. */}
                       {e.previousSource && <span className="muted">{sourceName({ source: e.previousSource })}: </span>}
                       {e.previousPath} <span className="muted">{e.eventType === "COPIED" ? "⧉" : "→"}</span> {e.path}
+                      {removableNote(e)}
                     </>
                   ) : (
-                    e.path
+                    <>
+                      {e.path}
+                      {removableNote(e)}
+                    </>
                   )}
                 </td>
                 <td data-label="Size">{e.sizeBytes ?? "—"}</td>

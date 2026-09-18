@@ -55,6 +55,9 @@ button { font: inherit; }
 .badge-medium { background: #4a3a1f; color: #e2b566; }
 .badge-high { background: #4a2323; color: #e58a8a; }
 .badge-critical { background: #5c1a1a; color: #ff8080; }
+/* Removable media: distinct from severity colours, since it describes where a
+   file went rather than how bad it is. */
+.badge-removable { background: #3a2a4a; color: #c9a6e6; margin-left: 8px; }
 
 .session { display: flex; align-items: center; gap: 12px; font-size: 13px; color: #aab4c8; min-width: 0; }
 .session-email { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

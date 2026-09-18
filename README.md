@@ -110,6 +110,13 @@ stand out is volume, which is what the `BULK_FILE_READ` alert is for. Folder
 listings are logged the same way as file reads and are filtered out, or they
 would bury everything else.
 
+**Copying to a USB drive:** install the agent with `-removable` (see
+`native-agent/README.md`). While a drive is plugged in it is watched like any
+other folder, and every file landing on it is recorded with the device's label
+and serial number — not just its drive letter, which the next device reuses. A
+copy from a monitored share onto removable media raises a HIGH alert naming the
+person, the device and the files.
+
 **Copying to a laptop or another machine:** install the Go agent on that
 machine (see `native-agent/README.md`) pointed at the folders people copy into.
 Each machine becomes its own source, and a file arriving there seconds after

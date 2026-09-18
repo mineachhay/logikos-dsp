@@ -41,14 +41,19 @@ func prepareInstall(o installOptions) (string, error) {
 
 	// No settings given: keep whatever agent.json is beside the executable,
 	// so `agent install` after hand-editing a config still works.
-	if o.serverURL == "" && o.token == "" && o.watchPath == "" {
+	if o.serverURL == "" && o.token == "" && len(o.watchPaths) == 0 && !o.allDrives {
 		return current, nil
 	}
-	if o.token == "" || o.watchPath == "" {
-		return "", fmt.Errorf("-token and -watch are required (see `agent help`)")
+	if o.token == "" {
+		return "", fmt.Errorf("-token is required (see `agent help`)")
 	}
-	if _, err := os.Stat(o.watchPath); err != nil {
-		return "", fmt.Errorf("the folder to watch is not readable: %w", err)
+	if len(o.watchPaths) == 0 && !o.allDrives {
+		return "", fmt.Errorf("nothing to watch: pass -watch, or -all-drives (see `agent help`)")
+	}
+	for _, path := range o.watchPaths {
+		if _, err := os.Stat(path); err != nil {
+			return "", fmt.Errorf("the folder to watch is not readable: %w", err)
+		}
 	}
 
 	if err := os.MkdirAll(o.targetDir, 0o755); err != nil {

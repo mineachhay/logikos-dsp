@@ -175,3 +175,114 @@ func absoluteTestPath() string {
 	}
 	return "/certs/origin-ca.crt"
 }
+
+func TestWatchPathsFromTheFile(t *testing.T) {
+	cfg, err := Resolve(FileConfig{
+		EnrollToken: "tok",
+		WatchPaths:  []string{`C:\Users`, `D:\`},
+	}, noEnv, "WIN-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.WatchPaths) != 2 || cfg.WatchPaths[0] != `C:\Users` {
+		t.Fatalf("got %v", cfg.WatchPaths)
+	}
+}
+
+// The single-folder form is what every existing install uses, and its agent
+// key must not change — a different key means a new agent row and the old
+// machine's history orphaned.
+func TestASingleFolderKeepsItsOriginalIdentity(t *testing.T) {
+	cfg, err := Resolve(FileConfig{EnrollToken: "tok", WatchPath: `C:\Users\jdoe\Downloads`}, noEnv, "WIN-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AgentKey != deriveKey("WIN-7", `C:\Users\jdoe\Downloads`) {
+		t.Fatalf("the key changed: %q", cfg.AgentKey)
+	}
+	if cfg.WatchedRootLabel != `C:\Users\jdoe\Downloads` {
+		t.Fatalf("got %q", cfg.WatchedRootLabel)
+	}
+}
+
+// Several roots means the machine itself is the identity. Otherwise adding a
+// disk — or plugging in a USB stick, once removable drives are watched —
+// would silently mint a new agent.
+func TestSeveralRootsIdentifyTheMachine(t *testing.T) {
+	cfg, err := Resolve(FileConfig{EnrollToken: "tok", WatchPaths: []string{`C:\Users`, `D:\`}}, noEnv, "WIN-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AgentKey != deriveKey("WIN-7", "multi") {
+		t.Fatalf("got %q", cfg.AgentKey)
+	}
+	if cfg.WatchedRootLabel != "WIN-7" {
+		t.Fatalf("got %q", cfg.WatchedRootLabel)
+	}
+}
+
+func TestWatchAllFixedDrivesNeedsNoExplicitPath(t *testing.T) {
+	cfg, err := Resolve(FileConfig{EnrollToken: "tok", WatchAllFixedDrives: true}, noEnv, "WIN-7")
+	if err != nil {
+		t.Fatalf("watchAllFixedDrives alone should be enough: %v", err)
+	}
+	if cfg.AgentKey != deriveKey("WIN-7", "multi") {
+		t.Fatalf("got %q", cfg.AgentKey)
+	}
+}
+
+func TestExpandFixedDrivesAppendsWithoutDuplicating(t *testing.T) {
+	cfg := Config{WatchAllFixedDrives: true, WatchPaths: []string{`D:\`}}
+	got := ExpandFixedDrives(cfg, []string{`C:\`, `D:\`})
+	if len(got) != 2 || got[0] != `D:\` || got[1] != `C:\` {
+		t.Fatalf("explicit roots should come first and D: must not repeat: %v", got)
+	}
+}
+
+func TestExpandFixedDrivesDoesNothingUnlessAsked(t *testing.T) {
+	cfg := Config{WatchPaths: []string{`C:\Users`}}
+	if got := ExpandFixedDrives(cfg, []string{`C:\`, `D:\`}); len(got) != 1 {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestWatchPathsEnvironmentOverrideReplacesTheFile(t *testing.T) {
+	cfg, err := Resolve(
+		FileConfig{EnrollToken: "tok", WatchPaths: []string{`C:\Users`, `D:\`}},
+		env(map[string]string{"WATCH_PATHS": `E:\only; F:\also`}),
+		"WIN-7",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.WatchPaths) != 2 || cfg.WatchPaths[0] != `E:\only` || cfg.WatchPaths[1] != `F:\also` {
+		t.Fatalf("got %v", cfg.WatchPaths)
+	}
+}
+
+func TestDuplicateRootsAreWatchedOnce(t *testing.T) {
+	cfg, err := Resolve(FileConfig{
+		EnrollToken: "tok",
+		WatchPath:   `C:\Users`,
+		WatchPaths:  []string{`C:\users\`, `D:\`},
+	}, noEnv, "WIN-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.WatchPaths) != 2 {
+		t.Fatalf("the same folder in two forms should be watched once: %v", cfg.WatchPaths)
+	}
+}
+
+// Watching only removable drives is a legitimate configuration — a machine
+// where USB is the only thing worth recording — so it must not be rejected
+// for having no fixed path.
+func TestRemovableAloneIsEnoughToConfigure(t *testing.T) {
+	cfg, err := Resolve(FileConfig{EnrollToken: "tok", WatchRemovableDrives: true, WatchAllFixedDrives: true}, noEnv, "WIN-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.WatchRemovableDrives {
+		t.Fatalf("got %+v", cfg)
+	}
+}

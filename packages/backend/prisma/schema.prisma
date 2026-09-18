@@ -40,6 +40,7 @@ enum AlertType {
   BACKUP_FAILED
   LOGIN_ATTACK
   BULK_FILE_READ
+  COPY_TO_REMOVABLE
 }
 
 enum AlertSeverity {
@@ -61,16 +62,16 @@ enum Role {
 }
 
 model User {
-  id           String    @id @default(uuid())
-  email        String    @unique
-  passwordHash String
-  role         Role      @default(VIEWER)
-  isActive     Boolean   @default(true)
-  createdAt    DateTime  @default(now())
-  lastLoginAt  DateTime?
+  id               String    @id @default(uuid())
+  email            String    @unique
+  passwordHash     String
+  role             Role      @default(VIEWER)
+  isActive         Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  lastLoginAt      DateTime?
   /// Consecutive failed logins; reset on success. Drives the lockout backoff
   /// in auth/loginThrottle.ts.
-  failedLoginCount Int      @default(0)
+  failedLoginCount Int       @default(0)
   lockedUntil      DateTime?
 
   approvedResponseActions ResponseAction[]
@@ -80,23 +81,23 @@ model User {
 /// per-account lockout alone doesn't stop someone spraying one password over
 /// many usernames. Pruned by the retention pass.
 model LoginAttempt {
-  id        String   @id @default(uuid())
-  ip        String
-  email     String
-  success   Boolean
-  at        DateTime @default(now())
+  id      String   @id @default(uuid())
+  ip      String
+  email   String
+  success Boolean
+  at      DateTime @default(now())
 
   @@index([ip, at])
   @@index([at])
 }
 
 model Agent {
-  id           String   @id @default(uuid())
-  key          String   @unique
+  id           String    @id @default(uuid())
+  key          String    @unique
   hostname     String
   watchedRoot  String
-  createdAt    DateTime @default(now())
-  lastSeenAt   DateTime @default(now())
+  createdAt    DateTime  @default(now())
+  lastSeenAt   DateTime  @default(now())
   /// sha256 of the per-agent secret issued by POST /agents/register. Rotated
   /// on every registration; null for rows that predate agent auth (they must
   /// re-register) and for revoked agents.
@@ -105,7 +106,7 @@ model Agent {
   revokedAt    DateTime?
   /// Reported at registration. "managed-sources" = it polls /agent-sync and
   /// can scan dashboard-configured shares; the Go agent doesn't send it.
-  capabilities String[] @default([])
+  capabilities String[]  @default([])
 
   sources          Source[]
   connectionTests  ConnectionTest[]
@@ -123,36 +124,36 @@ enum SourceKind {
 
 /// An SMB server configured from the dashboard. Its shares are Source rows.
 model FileServer {
-  id          String   @id @default(uuid())
-  name        String   @unique
-  host        String
-  port        Int?
-  domain      String?
-  username    String
+  id                String    @id @default(uuid())
+  name              String    @unique
+  host              String
+  port              Int?
+  domain            String?
+  username          String
   /// AES-256-GCM, see src/crypto/credentials.ts. Never selected into a
   /// dashboard response; decrypted only for the agent a share is assigned to.
-  passwordEnc String
-  enabled     Boolean  @default(true)
+  passwordEnc       String
+  enabled           Boolean   @default(true)
   /// Collect *who* changed files by reading the server's Security log over
   /// WinRM (Windows only) — see ARCHITECTURE.md "Who changed a file".
-  activityEnabled  Boolean  @default(false)
-  winrmPort        Int?
+  activityEnabled   Boolean   @default(false)
+  winrmPort         Int?
   /// Null = reuse the share account above. A separate account can be
   /// read-only on the share but a member of Event Log Readers.
-  winrmUsername    String?
-  winrmPasswordEnc String?
+  winrmUsername     String?
+  winrmPasswordEnc  String?
   /// Also record file *reads* — the only trace a copy off the share leaves.
   /// Off by default: on a busy share reads are most of the audit volume.
-  recordReads      Boolean  @default(false)
+  recordReads       Boolean   @default(false)
   /// How many distinct files one account may read in five minutes before it
   /// looks like copying a folder away. Null = the default (50).
   bulkReadThreshold Int?
   /// EventRecordID of the last Security event read, so each poll asks only for newer ones.
-  activityBookmark BigInt?
-  lastActivityAt   DateTime?
+  activityBookmark  BigInt?
+  lastActivityAt    DateTime?
   lastActivityError String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   shares          Source[]
   connectionTests ConnectionTest[]
@@ -271,27 +272,33 @@ model FileActivity {
 }
 
 model FileEvent {
-  id             String        @id @default(uuid())
-  agentId        String
-  agent          Agent         @relation(fields: [agentId], references: [id])
-  sourceId       String
-  source         Source        @relation(fields: [sourceId], references: [id])
-  eventType      FileEventType
-  path           String
-  previousPath   String?
-  sizeBytes      Int?
-  contentSample  String?
+  id               String        @id @default(uuid())
+  agentId          String
+  agent            Agent         @relation(fields: [agentId], references: [id])
+  sourceId         String
+  source           Source        @relation(fields: [sourceId], references: [id])
+  eventType        FileEventType
+  path             String
+  previousPath     String?
+  sizeBytes        Int?
+  contentSample    String?
   /// Where a copy came from, when it came from a *different* watched place —
   /// another share, or a laptop running an agent. previousPath alone is enough
   /// within one source.
   previousSourceId String?
-  previousSource   Source?  @relation("CopiedFrom", fields: [previousSourceId], references: [id])
+  previousSource   Source?       @relation("CopiedFrom", fields: [previousSourceId], references: [id])
+  /// Where the file landed, reported per watched root by the agent. A drive
+  /// letter is reused by whatever is plugged in next, so the label and serial
+  /// are what identify a particular USB stick after the fact.
+  removable        Boolean       @default(false)
+  volumeLabel      String?
+  volumeSerial     String?
   /// Filled in from FileActivity when a Windows audit record matches this
   /// event's path and time; null when activity collection is off or nothing matched.
-  actorUser      String?
-  actorIp        String?
-  occurredAt     DateTime
-  receivedAt     DateTime      @default(now())
+  actorUser        String?
+  actorIp          String?
+  occurredAt       DateTime
+  receivedAt       DateTime      @default(now())
 
   classificationJob ClassificationJob?
 
@@ -315,11 +322,11 @@ model StorageSnapshot {
 }
 
 model ClassificationJob {
-  id          String                   @id @default(uuid())
-  fileEventId String                   @unique
-  fileEvent   FileEvent                @relation(fields: [fileEventId], references: [id])
-  status      ClassificationJobStatus  @default(PENDING)
-  createdAt   DateTime                 @default(now())
+  id          String                  @id @default(uuid())
+  fileEventId String                  @unique
+  fileEvent   FileEvent               @relation(fields: [fileEventId], references: [id])
+  status      ClassificationJobStatus @default(PENDING)
+  createdAt   DateTime                @default(now())
   processedAt DateTime?
 
   matches ClassificationMatch[]
@@ -471,15 +478,15 @@ model BackupRun {
 /// A single row ("default"). Off by default: an install shouldn't start
 /// deleting an audit trail because nobody looked at this page.
 model RetentionSettings {
-  id                  String   @id @default("default")
-  enabled             Boolean  @default(false)
-  fileEventDays       Int      @default(180)
-  fileActivityDays    Int      @default(90)
-  storageSnapshotDays Int      @default(365)
+  id                  String    @id @default("default")
+  enabled             Boolean   @default(false)
+  fileEventDays       Int       @default(180)
+  fileActivityDays    Int       @default(90)
+  storageSnapshotDays Int       @default(365)
   /// Only alerts that have been resolved; open and acknowledged ones stay.
-  resolvedAlertDays   Int      @default(365)
-  loginAttemptDays    Int      @default(30)
+  resolvedAlertDays   Int       @default(365)
+  loginAttemptDays    Int       @default(30)
   lastRunAt           DateTime?
   lastRunSummary      String?
-  updatedAt           DateTime @updatedAt
+  updatedAt           DateTime  @updatedAt
 }

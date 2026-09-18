@@ -137,6 +137,21 @@ a deployment tool, a GPO startup script or Intune can run it unattended.
 - `-ca cloudflare-origin` uses the Cloudflare Origin CA built into the binary.
   Any other private CA: give `-ca` a path to a PEM file, which is copied in.
   Omit it entirely when the server's certificate is publicly trusted.
+- `-watch` takes several folders separated by `;`, and `-all-drives` watches
+  every fixed drive the machine has without naming them — data lives on `D:` as
+  often as `C:`, and a machine that gains a disk shouldn't need revisiting.
+- `-exclude` replaces the built-in exclusion list. **Watching a whole drive is
+  only useful with one**: Windows generates far more activity in its own
+  directories than users ever do, and unfiltered it buries the handful of
+  events that matter. The defaults drop `C:\Windows`, `Program Files`,
+  `ProgramData`, `$Recycle.Bin`, `System Volume Information`, `AppData\Local\Temp`,
+  browser caches and `node_modules`; a user's own files are untouched.
+- `-removable` watches USB drives for as long as they are plugged in, and
+  records which device a file went to — by volume label and serial, since a
+  drive letter is reused by whatever is plugged in next. Copies onto removable
+  media raise their own alert: HIGH when the file came from a monitored share,
+  MEDIUM when nothing ties it to one. A file copied in the first three seconds
+  after a drive appears can be missed, before the watch exists.
 - `-dir` installs somewhere other than Program Files.
 - With no options at all, `install` uses whatever `agent.json` sits beside the
   executable — useful when a config was prepared by hand.
@@ -167,8 +182,11 @@ executable has none of those failure modes.
 
 Notes:
 
-- **One watch path per agent process.** Watching several folders means several
-  services, or one agent per user profile root.
+- **Watching several folders is one service**, and each root is scanned for
+  storage separately so "D: is filling up" stays answerable. One folder keeps
+  the agent key it has always had; two or more derive it from the machine
+  instead, so adding a disk never mints a new agent and orphans that machine's
+  history.
 - **Each machine becomes its own source** in the dashboard, named by its watch
   path, so its events are separate from the share's.
 - **The enroll token is a deployment-wide secret**, and `agent.json` holds it in

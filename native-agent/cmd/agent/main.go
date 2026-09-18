@@ -55,7 +55,14 @@ Install options (everything the service needs, so one command deploys a
 machine with no other files and nothing to edit):
 
   -server URL      backend base URL, e.g. https://dsp.example.com/api
-  -watch PATH      folder to watch, e.g. C:\Users\jdoe\Downloads
+  -watch PATH      folder to watch; several separated by ; — for example
+                   "C:\Users; D:\Shared"
+  -all-drives      also watch every fixed drive on this machine, whatever
+                   its letters are
+  -exclude PATH    replace the built-in exclusion list; several separated
+                   by ; — "C:\Windows" excludes a tree, "$Recycle.Bin" any
+                   folder of that name, "**/AppData/Local/Temp" that
+                   sequence wherever it appears
   -token TOKEN     the deployment's agent enroll token
   -ip ADDR         dial this address instead of resolving the URL's hostname,
                    while still verifying the certificate against that hostname

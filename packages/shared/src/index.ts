@@ -22,6 +22,15 @@ export interface FileEventInput {
   occurredAt: string; // ISO 8601, set by the agent
   /** First N bytes of file content, base64, only for created/modified text-ish files under a size cap. */
   contentSample?: string;
+  /**
+   * Where the file landed, when the agent knows. A file arriving on removable
+   * media is a different event from one arriving on D:, and "which USB stick"
+   * is the question actually asked afterwards — a drive letter alone is
+   * reused by the next device plugged in.
+   */
+  removable?: boolean;
+  volumeLabel?: string;
+  volumeSerial?: string;
 }
 
 /**

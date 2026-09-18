@@ -36,6 +36,12 @@ type FileEvent struct {
 	SizeBytes     *int64        `json:"sizeBytes,omitempty"`
 	OccurredAt    string        `json:"occurredAt"`              // RFC3339 / ISO 8601, set by the caller
 	ContentSample *string       `json:"contentSample,omitempty"` // base64
+	// Where the file landed. Set per watched root: a drive letter is reused
+	// by whatever is plugged in next, so the label and serial are what
+	// identify a particular USB stick afterwards.
+	Removable    bool   `json:"removable,omitempty"`
+	VolumeLabel  string `json:"volumeLabel,omitempty"`
+	VolumeSerial string `json:"volumeSerial,omitempty"`
 }
 
 // StorageSnapshot matches StorageSnapshotInput (packages/shared/src/index.ts).

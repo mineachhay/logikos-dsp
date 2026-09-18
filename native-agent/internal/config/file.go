@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 // A workstation agent can't be configured the way the bundled one is.
@@ -39,7 +40,27 @@ type FileConfig struct {
 	CACertFile string `json:"caCertFile"`
 
 	EnrollToken string `json:"enrollToken"`
-	WatchPath   string `json:"watchPath"`
+
+	// WatchPath is the original single-folder form and still works. A
+	// workstation usually wants WatchPaths instead — data lives on D: as
+	// often as C:, and Desktop matters as much as Downloads.
+	WatchPath  string   `json:"watchPath"`
+	WatchPaths []string `json:"watchPaths"`
+
+	// WatchAllFixedDrives discovers the machine's fixed drives at startup
+	// instead of naming them, so one install command suits a machine whose
+	// disks you've never seen.
+	WatchAllFixedDrives bool `json:"watchAllFixedDrives"`
+
+	// WatchRemovableDrives watches USB storage for as long as it is plugged
+	// in. Where removable media is allowed for some people, a copy onto it is
+	// the event worth knowing about, and nothing on the file server can see
+	// where its bytes went.
+	WatchRemovableDrives bool `json:"watchRemovableDrives"`
+
+	// Exclude replaces the built-in exclusion list. Watching a whole drive
+	// without one buries real activity under Windows' own churn.
+	Exclude []string `json:"exclude"`
 
 	StorageScanIntervalMs    int `json:"storageScanIntervalMs"`
 	QuarantinePollIntervalMs int `json:"quarantinePollIntervalMs"`
@@ -131,9 +152,9 @@ func Resolve(file FileConfig, getenv func(string) string, hostname string) (Conf
 		return Config{}, fmt.Errorf("no enroll token: set enrollToken in %s, or AGENT_ENROLL_TOKEN", ConfigFileName)
 	}
 
-	watchPath := pick("WATCH_PATH", file.WatchPath)
-	if watchPath == "" {
-		return Config{}, fmt.Errorf("no folder to watch: set watchPath in %s, or WATCH_PATH", ConfigFileName)
+	watchPaths := resolveWatchPaths(file, getenv)
+	if len(watchPaths) == 0 && !file.WatchAllFixedDrives {
+		return Config{}, fmt.Errorf("no folder to watch: set watchPath or watchPaths in %s, or WATCH_PATH", ConfigFileName)
 	}
 
 	storageScanIntervalMs, err := pickInt("STORAGE_SCAN_INTERVAL_MS", file.StorageScanIntervalMs, 60_000)
@@ -145,16 +166,40 @@ func Resolve(file FileConfig, getenv func(string) string, hostname string) (Conf
 		return Config{}, err
 	}
 
+	// Identity has to survive drives coming and going. A machine watching one
+	// folder keeps the key it has always had — so an existing agent's history
+	// carries over untouched — but as soon as it watches several, the key is
+	// derived from the machine alone. Otherwise plugging in a USB stick, or
+	// adding a disk, would silently mint a new agent and orphan everything
+	// that machine had reported.
+	multiRoot := file.WatchAllFixedDrives || len(watchPaths) > 1
+	primary := ""
+	if len(watchPaths) > 0 {
+		primary = watchPaths[0]
+	}
+	label := primary
+	keySeed := primary
+	if multiRoot {
+		label = hostname
+		keySeed = "multi"
+	}
+
 	agentKey := getenv("AGENT_KEY")
 	if agentKey == "" {
-		agentKey = deriveKey(hostname, watchPath)
+		agentKey = deriveKey(hostname, keySeed)
 	}
+
+	exclude := file.Exclude
 
 	return Config{
 		BackendURL:               backendURL,
 		EnrollToken:              enrollToken,
-		WatchPath:                watchPath,
-		WatchedRootLabel:         watchPath,
+		WatchPath:                primary,
+		WatchPaths:               watchPaths,
+		WatchAllFixedDrives:      file.WatchAllFixedDrives,
+		WatchRemovableDrives:     file.WatchRemovableDrives,
+		Exclude:                  exclude,
+		WatchedRootLabel:         label,
 		AgentKey:                 agentKey,
 		Hostname:                 hostname,
 		ConnectIP:                pick("BACKEND_CONNECT_IP", file.ConnectIP),
@@ -162,4 +207,54 @@ func Resolve(file FileConfig, getenv func(string) string, hostname string) (Conf
 		StorageScanIntervalMs:    storageScanIntervalMs,
 		QuarantinePollIntervalMs: quarantinePollIntervalMs,
 	}, nil
+}
+
+// resolveWatchPaths gathers the folders to watch from every form that can
+// name one, keeping the order given and dropping duplicates — the same drive
+// named twice would otherwise be watched twice, doubling every event from it.
+//
+// WATCH_PATH from the environment overrides the file entirely rather than
+// adding to it, matching how every other setting behaves: an override is a
+// replacement, not a merge, or "override one setting for a single debugging
+// run" stops being possible.
+func resolveWatchPaths(file FileConfig, getenv func(string) string) []string {
+	if fromEnv := getenv("WATCH_PATHS"); fromEnv != "" {
+		return dedupe(splitList(fromEnv))
+	}
+	if fromEnv := getenv("WATCH_PATH"); fromEnv != "" {
+		return []string{fromEnv}
+	}
+	paths := make([]string, 0, len(file.WatchPaths)+1)
+	if file.WatchPath != "" {
+		paths = append(paths, file.WatchPath)
+	}
+	paths = append(paths, file.WatchPaths...)
+	return dedupe(paths)
+}
+
+func splitList(value string) []string {
+	// Semicolons, because Windows paths contain colons and commas are legal
+	// in folder names.
+	parts := strings.Split(value, ";")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
+func dedupe(paths []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(paths))
+	for _, path := range paths {
+		key := strings.ToLower(strings.TrimRight(strings.ReplaceAll(path, `\`, "/"), "/"))
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, path)
+	}
+	return out
 }
