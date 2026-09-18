@@ -146,3 +146,41 @@ func TestAnExcludedFileCreatedLaterIsNotReported(t *testing.T) {
 		}
 	}
 }
+
+// Registry transaction logs are named NTUSER.DAT{guid}.TM.blf, so they can
+// only be excluded by extension.
+func TestAnExtensionPatternMatchesWhateverTheNameIs(t *testing.T) {
+	e := NewExcluder([]string{"*.regtrans-ms", "*.blf"})
+	for _, path := range []string{
+		`C:\Users\dsp\NTUSER.DAT{53b39e88-18c4-11ea-a811-000d3aa4692b}.TM.blf`,
+		`C:\Users\dsp\NTUSER.DAT{53b39e88}.TMContainer00000000000000000001.regtrans-ms`,
+	} {
+		if !e.Excludes(path) {
+			t.Errorf("%q should be excluded", path)
+		}
+	}
+	if e.Excludes(`C:\Users\dsp\Desktop\notes.txt`) {
+		t.Error("an ordinary file must survive")
+	}
+}
+
+// The exact noise a live machine produced: two hives rewritten every ten
+// seconds for as long as anyone is signed in.
+func TestDefaultsDropTheRegistryHiveChurn(t *testing.T) {
+	e := NewExcluder(DefaultExclusions)
+	for _, path := range []string{
+		`C:\Users\dsp\NTUSER.DAT`,
+		`C:\Users\dsp\AppData\Local\Microsoft\Windows\UsrClass.dat`,
+		`C:\Users\dsp\ntuser.dat.LOG1`,
+		`C:\Users\dsp\AppData\Local\Microsoft\Windows\UsrClass.dat.LOG2`,
+	} {
+		if !e.Excludes(path) {
+			t.Errorf("%q should be excluded by the defaults", path)
+		}
+	}
+	// A file a person actually put somewhere must still come through, even
+	// when it sits next to the hives.
+	if e.Excludes(`C:\Users\dsp\Desktop\payroll.csv`) {
+		t.Error("a user's own file must be watched")
+	}
+}

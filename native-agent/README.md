@@ -145,7 +145,10 @@ a deployment tool, a GPO startup script or Intune can run it unattended.
   directories than users ever do, and unfiltered it buries the handful of
   events that matter. The defaults drop `C:\Windows`, `Program Files`,
   `ProgramData`, `$Recycle.Bin`, `System Volume Information`, `AppData\Local\Temp`,
-  browser caches and `node_modules`; a user's own files are untouched.
+  browser caches, `node_modules`, and the logged-in user's registry hives
+  (`NTUSER.DAT`, `UsrClass.dat` and their `.blf`/`.regtrans-ms` transaction
+  logs, which Windows rewrites every few seconds); a user's own files are
+  untouched.
 - `-removable` watches USB drives for as long as they are plugged in, and
   records which device a file went to — by volume label and serial, since a
   drive letter is reused by whatever is plugged in next. Copies onto removable

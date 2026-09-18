@@ -18,14 +18,17 @@ import "strings"
 //     segment of that name, on any drive.
 //   - "**/AppData/Local/Temp" excludes that sequence of segments wherever it
 //     appears, which is how per-user paths are written without naming users.
+//   - "*.regtrans-ms" excludes by extension, for the files whose names carry a
+//     GUID and so can't be named directly.
 //
 // Comparison is case-insensitive and separator-agnostic: Windows paths arrive
 // with backslashes, configuration is often written with forward slashes, and
 // the two must not be a source of silent misses.
 type Excluder struct {
-	prefixes  []string   // absolute roots: everything at or below
-	names     []string   // any single segment with this name
-	sequences [][]string // a run of consecutive segments, anywhere
+	prefixes   []string   // absolute roots: everything at or below
+	names      []string   // any single segment with this name
+	sequences  [][]string // a run of consecutive segments, anywhere
+	extensions []string   // any file with this extension, including the dot
 }
 
 // DefaultExclusions is what makes watchAllFixedDrives practical. Anything
@@ -43,6 +46,23 @@ var DefaultExclusions = []string{
 	"hiberfil.sys",
 	"swapfile.sys",
 	"DumpStack.log.tmp",
+	// The logged-in user's registry hives, rewritten every few seconds for as
+	// long as anyone is signed in. Observed live: two files, eight events a
+	// minute, per account — enough on its own to bury a copy nobody would
+	// then notice. Nobody copies a registry hive.
+	"NTUSER.DAT",
+	"NTUSER.DAT.LOG1",
+	"NTUSER.DAT.LOG2",
+	"ntuser.ini",
+	"UsrClass.dat",
+	"UsrClass.dat.LOG1",
+	"UsrClass.dat.LOG2",
+	// Their transaction logs carry a GUID in the name, so they can only be
+	// matched by extension.
+	"*.blf",
+	"*.regtrans-ms",
+	"*.etl",
+	"*.evtx",
 	`**/AppData/Local/Temp`,
 	`**/AppData/Local/Packages`,
 	`**/AppData/Local/Microsoft/Windows/INetCache`,
@@ -50,6 +70,9 @@ var DefaultExclusions = []string{
 	`**/AppData/Local/Microsoft/Windows/WebCache`,
 	`**/AppData/Local/Google/Chrome/User Data/Default/Cache`,
 	`**/AppData/Roaming/Microsoft/Windows/Recent`,
+	`**/AppData/Local/Microsoft/Windows/WER`,
+	`**/AppData/Local/CrashDumps`,
+	`**/AppData/LocalLow`,
 	`**/node_modules`,
 }
 
@@ -61,6 +84,8 @@ func NewExcluder(patterns []string) *Excluder {
 			continue
 		}
 		switch {
+		case strings.HasPrefix(normalized, "*."):
+			e.extensions = append(e.extensions, strings.TrimPrefix(normalized, "*"))
 		case strings.HasPrefix(normalized, "**/"):
 			segments := splitSegments(strings.TrimPrefix(normalized, "**/"))
 			if len(segments) > 0 {
@@ -84,6 +109,11 @@ func (e *Excluder) Excludes(path string) bool {
 	normalized := normalizePath(path)
 	for _, prefix := range e.prefixes {
 		if normalized == prefix || strings.HasPrefix(normalized, prefix+"/") {
+			return true
+		}
+	}
+	for _, extension := range e.extensions {
+		if strings.HasSuffix(normalized, extension) {
 			return true
 		}
 	}
