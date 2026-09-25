@@ -126,8 +126,13 @@ export async function agentSyncRoutes(app: FastifyInstance) {
           fileServerId: fs.id,
           host: fs.host,
           winrmPort: fs.winrmPort ?? 5985,
-          // Falls back to the share account when no separate WinRM account is set.
-          username: fs.winrmUsername || fs.username,
+          // Falls back to the share account when no separate WinRM account is
+          // set — qualified with the server's domain, because WinRM's NTLM has
+          // no separate domain field: a bare "administrator" is checked against
+          // the file server's *local* accounts, so a domain share account that
+          // logs on fine over SMB failed here with "Failed to authenticate".
+          // A separate WinRM account is used exactly as typed (it may be local).
+          username: fs.winrmUsername || qualifiedAccount(fs.domain, fs.username),
           password: decryptSecret(fs.winrmPasswordEnc ?? fs.passwordEnc),
           scanAccount: fs.username,
           recordReads: fs.recordReads,
@@ -263,4 +268,10 @@ export async function agentSyncRoutes(app: FastifyInstance) {
     });
     return reply.send({ ok: true });
   });
+}
+
+/** `DOMAIN\user` for NTLM clients with no domain field, unless already qualified. */
+export function qualifiedAccount(domain: string | null, username: string): string {
+  if (!domain || username.includes("\\") || username.includes("@")) return username;
+  return `${domain}\\${username}`;
 }

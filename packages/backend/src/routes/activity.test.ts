@@ -18,7 +18,7 @@ async function adminCookie(app: FastifyInstance): Promise<string> {
 }
 
 /** A Windows file server with activity collection on, one share, assigned to a managed agent. */
-async function setup(options: { activityEnabled?: boolean; winrm?: { username: string; password: string } } = {}) {
+async function setup(options: { activityEnabled?: boolean; winrm?: { username: string; password: string }; domain?: string } = {}) {
   const app = await buildApp({ logger: false });
   const seeded = await seedAuthedAgent();
   await prisma.agent.update({ where: { id: seeded.agent.id }, data: { capabilities: [MANAGED_SOURCES_CAPABILITY] } });
@@ -27,6 +27,7 @@ async function setup(options: { activityEnabled?: boolean; winrm?: { username: s
       name: `win-${randomUUID().slice(0, 6)}`,
       host: "20.20.5.196",
       username: "svc-dsp",
+      domain: options.domain ?? null,
       passwordEnc: encryptSecret("share-password"),
       activityEnabled: options.activityEnabled ?? true,
       winrmUsername: options.winrm?.username ?? null,
@@ -635,6 +636,22 @@ describe("collector config over /agent-sync", () => {
     const collector = (await app.inject({ method: "GET", url: `/agent-sync?agentKey=${seeded.agent.key}`, headers: seeded.headers })).json()
       .activityCollectors[0];
     expect(collector).toMatchObject({ username: "CORP\\svc-eventlog", password: "winrm-password" });
+  });
+
+  it("qualifies the fallback share account with the server's domain", async () => {
+    // WinRM's NTLM has no domain field; a bare name is checked against the
+    // server's local accounts, which is how a domain account failed there.
+    const { app, seeded } = await setup({ domain: "corp.example" });
+    const collector = (await app.inject({ method: "GET", url: `/agent-sync?agentKey=${seeded.agent.key}`, headers: seeded.headers })).json()
+      .activityCollectors[0];
+    expect(collector).toMatchObject({ username: "corp.example\\svc-dsp", scanAccount: "svc-dsp" });
+  });
+
+  it("leaves an already-qualified or separate WinRM account as typed", async () => {
+    const separate = await setup({ domain: "CORP", winrm: { username: "eventreader", password: "p" } });
+    const collector = (await separate.app.inject({ method: "GET", url: `/agent-sync?agentKey=${separate.seeded.agent.key}`, headers: separate.seeded.headers })).json()
+      .activityCollectors[0];
+    expect(collector.username).toBe("eventreader");
   });
 
   it("sends nothing while collection is off", async () => {
