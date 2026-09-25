@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { diffSnapshots } from "./diff.js";
+import { carryForwardUnreadable, diffSnapshots } from "./diff.js";
 import type { Baseline } from "./diff.js";
 
 function baseline(sizeBytes: number, mtimeMs: number): Baseline {
@@ -229,5 +229,36 @@ describe("diffSnapshots rename detection", () => {
     const current = new Map([["report.csv", baseline(4, 1_000)], ["notes.txt", baseline(88, 9_000)]]);
     expect(diffSnapshots(previous, current).copied).toEqual([]);
     expect(diffSnapshots(previous, current).created).toEqual(["notes.txt"]);
+  });
+});
+
+describe("carryForwardUnreadable", () => {
+  const previous = new Map([
+    ["HR/Payroll/june.xlsx", baseline(10, 1000)],
+    ["HR/Payroll/2025/may.xlsx", baseline(20, 1000)],
+    ["HR/handbook.pdf", baseline(30, 1000)],
+    ["HR/PayrollArchive/old.xlsx", baseline(40, 1000)],
+  ]);
+
+  it("keeps what an unreadable folder held last time, so it doesn't diff as deleted", () => {
+    const current = carryForwardUnreadable(previous, new Map([["HR/handbook.pdf", baseline(30, 1000)]]), ["HR/Payroll"]);
+    expect(diffSnapshots(previous, current).deleted).toEqual(["HR/PayrollArchive/old.xlsx"]);
+    expect(current.has("HR/Payroll/2025/may.xlsx")).toBe(true);
+  });
+
+  it("matches whole folder names, not prefixes of them", () => {
+    const current = carryForwardUnreadable(previous, new Map(), ["HR/Payroll"]);
+    expect(current.has("HR/PayrollArchive/old.xlsx")).toBe(false);
+  });
+
+  it("still reports deletions outside the unreadable folders", () => {
+    const current = carryForwardUnreadable(previous, new Map(), ["HR/Payroll"]);
+    expect(diffSnapshots(previous, current).deleted.sort()).toEqual(["HR/PayrollArchive/old.xlsx", "HR/handbook.pdf"]);
+  });
+
+  it("changes nothing when every folder was readable", () => {
+    const current = new Map([["a.txt", baseline(1, 1)]]);
+    expect(carryForwardUnreadable(previous, current, [])).toBe(current);
+    expect(current.size).toBe(1);
   });
 });

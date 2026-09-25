@@ -3,7 +3,7 @@ import type { Source } from "./sources/types.js";
 import { config } from "./config.js";
 import { postEvents, postStorageSnapshot } from "./client.js";
 import { isSampleable } from "./contentSampling.js";
-import { diffSnapshots } from "./diff.js";
+import { carryForwardUnreadable, diffSnapshots } from "./diff.js";
 import type { Baseline } from "./diff.js";
 
 export interface DiffLoopOptions {
@@ -61,11 +61,20 @@ async function scanOnce(
   isStopped: () => boolean,
   previousScanAt: number | undefined,
 ): Promise<{ baseline: Map<string, Baseline>; fileCount: number; totalBytes: number } | null> {
-  const nodes = await source.listTree();
+  const unreadable: string[] = [];
+  const nodes = await source.listTree(unreadable);
   if (isStopped()) return null;
   const current = new Map<string, Baseline>();
   for (const node of nodes) {
     current.set(node.path, { sizeBytes: node.sizeBytes, mtimeMs: node.mtimeMs });
+  }
+  if (unreadable.length > 0) {
+    // Not "deleted": keep what was last seen there (see carryForwardUnreadable).
+    if (baseline !== null) carryForwardUnreadable(baseline, current, unreadable);
+    const shown = unreadable.slice(0, 10).join(", ");
+    console.warn(
+      `${source.describe()}: skipped ${unreadable.length} folder(s) the account can't read: ${shown}${unreadable.length > 10 ? ", …" : ""}`,
+    );
   }
 
   if (baseline !== null) {

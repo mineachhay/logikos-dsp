@@ -192,3 +192,23 @@ export function diffSnapshots(
   const afterCopies = pairCopies(afterRenames.created, previous, current, previousScanAt);
   return { modified, deleted: afterRenames.deleted, renamed: afterRenames.renamed, ...afterCopies };
 }
+
+/**
+ * Folders the walk couldn't read keep what the previous walk saw in them.
+ * Leaving them out would diff as every file inside being DELETED — a
+ * permission change on one folder would read as a mass deletion and trip the
+ * ransomware-rate rule. Mutates and returns `current`. Paths are "/"-separated
+ * and relative to the source root; `unreadable` are folder paths like "HR/Payroll".
+ */
+export function carryForwardUnreadable(
+  previous: Map<string, Baseline>,
+  current: Map<string, Baseline>,
+  unreadable: readonly string[],
+): Map<string, Baseline> {
+  if (unreadable.length === 0) return current;
+  const prefixes = unreadable.map((dir) => `${dir.replace(/\/+$/, "")}/`);
+  for (const [path, stats] of previous) {
+    if (!current.has(path) && prefixes.some((prefix) => path.startsWith(prefix))) current.set(path, stats);
+  }
+  return current;
+}

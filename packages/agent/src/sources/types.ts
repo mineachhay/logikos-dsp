@@ -13,8 +13,12 @@ export interface FileNode {
 export interface Source {
   /** Human-readable root label sent to the backend as Agent.watchedRoot, e.g. "smb://host/share/sub". */
   describe(): string;
-  /** Full recursive walk of the source, files only (no directory entries). */
-  listTree(): Promise<FileNode[]>;
+  /**
+   * Full recursive walk of the source, files only (no directory entries).
+   * Subfolders the account may not read are skipped rather than failing the
+   * walk, and their paths pushed onto `unreadable` when given (SMB only).
+   */
+  listTree(unreadable?: string[]): Promise<FileNode[]>;
   /** First `maxBytes` of a file's content, or undefined if unavailable/unreadable. */
   readSample(relPath: string, maxBytes: number): Promise<Buffer | undefined>;
 }

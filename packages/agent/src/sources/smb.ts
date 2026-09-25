@@ -103,19 +103,30 @@ export class SmbSource implements Source {
     return `smb://${this.config.host}/${this.config.share}${sub}`;
   }
 
-  async listTree(): Promise<FileNode[]> {
+  async listTree(unreadable: string[] = []): Promise<FileNode[]> {
     const nodes: FileNode[] = [];
-    await this.walk(this.rootSmbPath, "", nodes);
+    await this.walk(this.rootSmbPath, "", nodes, unreadable);
     return nodes;
   }
 
-  private async walk(smbDir: string, relDir: string, out: FileNode[]): Promise<void> {
+  private async walk(smbDir: string, relDir: string, out: FileNode[], unreadable: string[]): Promise<void> {
     const entries = await withTimeout(this.client.readdir(smbDir, { stats: true }), `readdir ${smbDir || "\\"}`);
     for (const entry of entries) {
       const relPath = relDir ? `${relDir}/${entry.name}` : entry.name;
       const smbPath = smbDir ? `${smbDir}\\${entry.name}` : entry.name;
       if (entry.isDirectory()) {
-        await this.walk(smbPath, relPath, out);
+        try {
+          await this.walk(smbPath, relPath, out, unreadable);
+        } catch (err) {
+          // One folder the account may not read (common on real shares — a
+          // department's private folder) used to fail the whole scan, so a
+          // share with a single locked folder was never monitored at all.
+          // Only access-denied is skipped; anything else (timeout, disconnect)
+          // still fails the walk. The share root is outside this catch, so no
+          // access to the share at all is still an error.
+          if ((err as { code?: string }).code !== "STATUS_ACCESS_DENIED") throw err;
+          unreadable.push(relPath);
+        }
       } else {
         out.push({ path: relPath, sizeBytes: entry.size, mtimeMs: entry.mtime.getTime() });
       }
