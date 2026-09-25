@@ -192,6 +192,46 @@ services:
       - ./deploy/webhook-logger.mjs:/app/webhook-logger.mjs:ro
     restart: unless-stopped
 
+  # Bundled reverse proxy for installs without one of their own — HTTPS on
+  # :443 (http redirects), dashboard at /, backend at /api/, agent-only paths
+  # closed; see deploy/proxy/. Opt-in, because a host that already has a proxy
+  # on :80/:443 — like the one behind dsp.logikos.dev — must not get a second
+  # one from a plain `docker compose up`:
+  #   DASHBOARD_BACKEND_URL=/api docker compose --profile proxy up -d --build
+  # It reaches backend/dashboard over the compose network, so with it in front
+  # set PUBLISH_ADDR=127.0.0.1 and nothing but the proxy faces the network.
+  proxy:
+    profiles: [proxy]
+    build:
+      context: .
+      dockerfile: deploy/proxy/Dockerfile
+    environment:
+      # Only for the redirect and the self-signed certificate's name.
+      PROXY_HTTPS_PORT: ${PROXY_HTTPS_PORT:-443}
+      PROXY_SERVER_NAME: ${PROXY_SERVER_NAME:-localhost}
+      # File names inside PROXY_CERT_DIR, e.g. fullchain.pem / privkey.pem.
+      PROXY_CERT_FILE: ${PROXY_CERT_FILE:-tls.crt}
+      PROXY_KEY_FILE: ${PROXY_KEY_FILE:-tls.key}
+      # "no" for a directory meant to hold a real certificate: a missing file
+      # then stops the proxy instead of a self-signed stand-in being written there.
+      PROXY_SELF_SIGNED: ${PROXY_SELF_SIGNED:-yes}
+    ports:
+      - "${PROXY_PUBLISH_ADDR:-0.0.0.0}:${PROXY_HTTP_PORT:-80}:80"
+      - "${PROXY_PUBLISH_ADDR:-0.0.0.0}:${PROXY_HTTPS_PORT:-443}:443"
+    volumes:
+      # The certificate + key (names above). A named volume by default, filled
+      # with a self-signed pair on first start; set PROXY_CERT_DIR to a host
+      # directory holding a real certificate. Not :ro, so the self-signed path
+      # can write — nginx only ever reads a real one.
+      - ${PROXY_CERT_DIR:-proxy_certs}:/etc/nginx/certs
+    depends_on:
+      backend:
+        condition: service_healthy
+      dashboard:
+        condition: service_started
+    restart: unless-stopped
+
 volumes:
   logikos_dsp_pgdata:
   classification_cache:
+  proxy_certs:

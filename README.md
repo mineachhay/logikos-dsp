@@ -237,6 +237,45 @@ The classification worker's NER model (~100MB) downloads on first start into a n
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md#production-packaging) for the packaging design and the bugs it surfaced (Prisma Client silently not generating from a workspace-root install, an OpenSSL version-detection issue that only breaks at runtime).
 
+### With the bundled proxy
+
+For a host with no reverse proxy of its own, the opt-in `proxy` service puts
+nginx in front: HTTPS on :443 (:80 redirects), the dashboard at `/`, the API at
+`/api/`, and the agent-only endpoints closed. The root `.env` must exist —
+the `backup` service mounts it, and without it compose stops with `bind source
+path does not exist: .../.env`:
+
+```bash
+AGENT_ENROLL_TOKEN=<openssl rand -hex 32>   # given to both backend and agent
+DASHBOARD_BACKEND_URL=/api        # same-origin through the proxy
+PUBLISH_ADDR=127.0.0.1            # backend/dashboard reachable only via the proxy
+PROXY_SERVER_NAME=dsp.example.com # name (or IP) for the self-signed certificate
+```
+
+```bash
+docker compose --profile proxy up -d --build
+```
+
+On first start it generates a self-signed certificate (browsers will warn). For
+a real one, point it at the directory and name the two files:
+
+```bash
+PROXY_CERT_DIR=/opt/nginx/certs
+PROXY_CERT_FILE=fullchain.pem     # default tls.crt
+PROXY_KEY_FILE=privkey.pem        # default tls.key
+PROXY_SELF_SIGNED=no              # a missing file stops the proxy instead of a
+                                  # self-signed stand-in being written there
+```
+
+then `docker compose --profile proxy up -d proxy`. nginx reads the certificate
+only at start, so restart the proxy after each renewal. Copy Let's Encrypt
+files rather than pointing at `/etc/letsencrypt/live/`: those are symlinks into
+`../../archive/` and don't resolve inside the container. `PROXY_HTTP_PORT`,
+`PROXY_HTTPS_PORT` and `PROXY_PUBLISH_ADDR` change where it listens. It has to
+be HTTPS: the backend's session cookie is `Secure`, so over plain http login
+only works on `localhost`. Don't use this profile on a host that already runs a
+proxy on :80/:443 — use the section below instead.
+
 ### Behind a shared reverse proxy (this install)
 
 If the backend and dashboard sit behind an existing nginx that terminates TLS —

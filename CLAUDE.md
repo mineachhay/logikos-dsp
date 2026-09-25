@@ -23,18 +23,20 @@ pnpm build                # all packages; shared must build before the others
 pnpm test                 # pnpm -r test
 ```
 
-Env files are per-package and gitignored: `packages/backend/.env` (from `.env.example`), `packages/backend/.env.test` (from `.env.test.example`), and `packages/classification/.env` — the last has **no** example file; it needs `DATABASE_URL` (and optionally `POLL_INTERVAL_MS`). Backend and classification both start via `--env-file=.env`, so a missing file is a hard startup failure.
+Env files are per-package and gitignored: `packages/backend/.env` (from `.env.example`), `packages/backend/.env.test` (from `.env.test.example`), and `packages/classification/.env` — which has **no** example file; it needs `DATABASE_URL` (and optionally `POLL_INTERVAL_MS`) — and optionally `packages/dashboard/.env.local` (from `.env.example`, just `VITE_BACKEND_URL`). Backend and classification both start via `--env-file=.env`, so a missing file is a hard startup failure.
 
-There is no linter configured anywhere — `tsc` (via each package's `build`) is the only static check, plus `gofmt`/`go vet` for `native-agent/`. CI (`.github/workflows/ci.yml`) runs build, tests (with a Postgres service) and the Go checks on every push to `main`.
+There is no linter configured anywhere — `tsc` (via each package's `build`) is the only static check, plus `gofmt`/`go vet` for `native-agent/`. CI (`.github/workflows/ci.yml`) runs build, tests (with a Postgres service) and the Go checks on every push to `main` and on pull requests. CI runs `prisma generate` explicitly before `pnpm build` — the backend's `tsc` fails without a generated client, so do the same after a fresh install.
 
 ### Tests
 
-Agent, classification, and shared run pure-logic Vitest suites with no external services. **Backend tests need a real Postgres test database**, one-time:
+Agent, classification, shared and backup run pure-logic Vitest suites (the dashboard has none) with no external services. **Backend tests need a real Postgres test database**, one-time:
 
 ```bash
 docker exec logikos-dsp-postgres-1 psql -U logikos -d postgres -c "CREATE DATABASE logikos_dsp_test;"
 cp packages/backend/.env.test.example packages/backend/.env.test
 ```
+
+On a machine without Docker, the `run-logikos-dsp` skill sets up Postgres 16 in `$HOME` from Ubuntu's own `.deb`s (no root) and creates both databases with plain `psql`.
 
 `packages/backend/vitest.config.ts`'s `globalSetup` runs `prisma migrate deploy` on every invocation; `test/setup.ts` truncates tables per test. `fileParallelism: false` is deliberate — all files share that one database. Only `pnpm test` loads `.env.test`; bare `npx vitest` lets Prisma fall back to `packages/backend/.env`, so `test/assertTestDatabase.ts` aborts unless the database name ends in `_test` (that path has already wiped the dev database once).
 
@@ -44,9 +46,9 @@ pnpm --filter @logikos-dsp/backend test src/routes/auth.test.ts  # one file — 
 cd native-agent && go test ./...                                 # Go agent
 ```
 
-Vitest is pinned to `3.2.4` across every package (4.x would force a Vite major bump the dashboard isn't ready for); `@fastify/jwt`@8.0.1 and `@fastify/cookie`@9.4.0 are pinned to their last Fastify-4-compatible majors. Don't bump any of these piecemeal.
+Vitest is pinned to `3.2.4` in every package that has tests (4.x would force a Vite major bump the dashboard isn't ready for); `@fastify/jwt`@8.0.1 and `@fastify/cookie`@9.4.0 are pinned to their last Fastify-4-compatible majors. Don't bump any of these piecemeal.
 
-There is a `run-logikos-dsp` skill (`.claude/skills/`) for starting the stack and driving the dashboard with Playwright — prefer it over ad-hoc startup. Note it assumes a clean machine where 5432/4000/5173 are free, which is not true on this host (see below).
+There is a `run-logikos-dsp` skill (`.claude/skills/`) for starting the stack and driving the dashboard with Playwright — prefer it over ad-hoc startup. Its `stack.sh up|down|restart|status` brings up Postgres, backend :4000, agent, classification and dashboard :5173 in one step. Note it assumes a clean machine where 5432/4000/5173 are free, which is not true on the production host (see below).
 
 ## Architecture
 
@@ -84,7 +86,7 @@ watched source → [agent] --FileEvent/StorageSnapshot--> POST /ingest/* → [ba
 
 **Removable media is its own case.** The Go agent watches USB drives while plugged in (`cmd/agent/watchset.go`, polled — `WM_DEVICECHANGE` needs a message loop a service hasn't got) and tags every event with the volume's label and serial, because drive letters are reused. `rules/copyToRemovable.ts` raises one alert per device per burst, HIGH when `previousSourceId` ties the files to a monitored share.
 
-**Copy detection splits in two.** Copies *into/within* a share are found by the scan (`pairCopies` in `agent/src/diff.ts`: a new path whose size+mtime match a file still present → `COPIED` with `previousPath`); copies *out* are invisible to scanning and only appear as audit reads, hence per-server `recordReads` (off by default — reads dominate audit volume), the **File Access** view, and the `BULK_FILE_READ` rule (>50 distinct files by one account in 5 min).
+**Copy detection splits in two.** Copies *into/within* a share are found by the scan (`pairCopies` in `agent/src/diff.ts`: a new path whose size+mtime match a file still present → `COPIED` with `previousPath`); copies *out* are invisible to scanning and only appear as audit reads, hence per-server `recordReads` (off by default — reads dominate audit volume), the **File Access** view, and the `BULK_FILE_READ` rule (distinct files read by one account in 5 min over a threshold — per file server via `FileServer.bulkReadThreshold`, defaulting to `BULK_READ_THRESHOLD` = 50 in `shared/activity.ts`).
 
 **"Who changed a file" comes from the Windows Security log, not SMB.** Optional per file server (`activityEnabled` + WinRM account): the agent polls event 5145 over WinRM via `packages/agent/winrm/collect.py` (Debian `python3-winrm`; no maintained Node WinRM client), parses in TS (`shared/activity.ts`), and posts to `/ingest/activity`. Records land in `FileActivity` and are matched onto `FileEvent.actorUser`/`actorIp` by path and time — in both directions, since scans and audit records arrive in either order (`backend/src/activity.ts`). Polls ask for a bounded `EventRecordID` range so a busy server's backlog can't be silently skipped. Reads and machine accounts are dropped in the agent.
 
@@ -100,15 +102,15 @@ watched source → [agent] --FileEvent/StorageSnapshot--> POST /ingest/* → [ba
 
 ## Deployment gotchas
 
-`docker-compose.yml` is both the dev-Postgres file and the full-stack deployment file — `pnpm db:up` names one service, `docker compose up` brings up the six services — backend, agent, classification, dashboard, backup, postgres (`webhook-logger` is opt-in via `--profile webhook-logger`). `docker-compose.smb-test.yml` (`pnpm smb:up`/`smb:down`) is a separate Samba server for exercising the SMB connector. Each package has its own Dockerfile (`node:24-bookworm-slim`, not Alpine: Prisma and `onnxruntime-node` prebuilds are glibc).
+`docker-compose.yml` is both the dev-Postgres file and the full-stack deployment file — `pnpm db:up` names one service, `docker compose up` brings up the six services — backend, agent, classification, dashboard, backup, postgres (`webhook-logger` is opt-in via `--profile webhook-logger`, and so is `proxy`, a bundled HTTPS nginx in `deploy/proxy/` for hosts without their own reverse proxy — never enable it on the production host, whose gateway already holds :80/:443). `docker-compose.smb-test.yml` (`pnpm smb:up`/`smb:down`) is a separate Samba server for exercising the SMB connector. Each package has its own Dockerfile (`node:24-bookworm-slim`, not Alpine: Prisma and `onnxruntime-node` prebuilds are glibc).
 
 Three Prisma packaging traps, all documented in ARCHITECTURE.md and all fixed in `packages/backend/Dockerfile` — don't undo them: a workspace-root `pnpm install` silently leaves the client ungenerated (needs an explicit `prisma generate`), Prisma misdetects OpenSSL on bookworm-slim and fails at *runtime* (needs `apt-get install openssl` in both stages), and `pnpm --prod deploy` builds a fresh `node_modules` that loses the earlier generate (needs generating again inside the deployed tree). A successful `docker build` proves none of this works — start the container and read its logs.
 
 **The dashboard's backend URL is baked in at image build time** (`VITE_BACKEND_URL` → `DASHBOARD_BACKEND_URL` build arg), and must be reachable *from the browser*, not from inside the compose network. Changing it requires a rebuild. The deployed value lives in the gitignored root `.env` (`DASHBOARD_BACKEND_URL=https://dsp.logikos.dev/api`) so `docker compose up --build` doesn't silently revert it to `localhost:4000`.
 
-### This host runs the live deployment
+### The production host
 
-**The full compose stack is up here and serves `https://dsp.logikos.dev`** through the shared `logikos-gateway` nginx (see `/home/ubnt/CLAUDE.md`). Consequences for dev work:
+**Not every checkout is on it — check first.** The production host (user `ubnt`, repo alongside `../logikos-gateway`, gitignored root `.env` and `.env.backend` present) runs the full compose stack serving `https://dsp.logikos.dev` through the shared `logikos-gateway` nginx (see `/home/ubnt/CLAUDE.md`). On any other machine (no `/home/ubnt`, no root `.env`), none of this section applies: there is no live stack, ports 5432/4000/5173 are normally free, and the standard `.env.example` defaults (backend on :4000) apply. On the production host, the consequences for dev work are:
 
 - **Dev and prod are split by config on this host, not by container.** One Postgres container holds three databases: `logikos_dsp` (**production**), `logikos_dsp_dev` and `logikos_dsp_test`. `packages/backend/.env`, `packages/classification/.env` and `packages/dashboard/.env.local` are **dev-only** — dev database, backend on **:4001** (the container holds :4000), its own `JWT_SECRET`, no `NODE_ENV=production`. Run the dev agent with `BACKEND_URL=http://localhost:4001` and `AGENT_ENROLL_TOKEN` from `packages/backend/.env`. `pnpm db:up` does not create a separate dev Postgres; it's the same container.
 - **Production's backend secrets live in the gitignored root `.env.backend`**, selected by `BACKEND_ENV_FILE` in the root `.env` — except `AGENT_ENROLL_TOKEN`, which compose passes from the root `.env` to both backend and agent; `PUBLISH_ADDR=172.17.0.1` there binds backend/dashboard to the docker0 bridge (what the gateway's `host.docker.internal` resolves to) so the LAN can't reach :4000 and skip the gateway. Both default to the old behavior in `docker-compose.yml`, so a compose command run without that root `.env` silently reverts to shared secrets and `0.0.0.0`.
@@ -124,4 +126,4 @@ Backups are configured under Administration → Backups and run by the `backup` 
 
 ## Repo conventions
 
-Commits go straight to `main`, one feature per commit, subject in the imperative ("Add ..."). Every feature commit also updates `ARCHITECTURE.md` and, where user-facing, `README.md` — including recording what was tried and rejected. Git has no user identity configured on this host; pass `GIT_AUTHOR_*`/`GIT_COMMITTER_*` or set it globally.
+Commits go straight to `main`, one feature per commit, subject in the imperative ("Add ..."). Every feature commit also updates `ARCHITECTURE.md` and, where user-facing, `README.md` — including recording what was tried and rejected. Check `git config user.name` before committing — hosts used for this repo have tended to have no git identity; pass `GIT_AUTHOR_*`/`GIT_COMMITTER_*` or set it globally.

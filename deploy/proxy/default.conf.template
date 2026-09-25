@@ -1,0 +1,77 @@
+# logikos-dsp — the bundled reverse proxy (`proxy` service, opt-in). A template:
+# the nginx image substitutes ${PROXY_*} from the container's environment at
+# start (only variables that are set, so nginx's own $vars are left alone).
+#
+# Same routing as deploy/dsp.conf (the vhost for the shared logikos-gateway),
+# reaching the services by compose name instead of host.docker.internal. See
+# ARCHITECTURE.md "Bundled reverse proxy".
+#
+# HTTPS, not optional: the backend image sets NODE_ENV=production, so the
+# session cookie is Secure, and a browser drops it over plain http anywhere
+# but localhost — login "succeeds" and every request after it is a 401.
+
+server {
+    listen 80;
+    server_name _;
+    # The published port can differ from 443, so it has to be in the redirect.
+    return 301 https://$host:${PROXY_HTTPS_PORT}$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name _;
+
+    # PROXY_CERT_FILE/PROXY_KEY_FILE (default tls.crt/tls.key) from the mounted
+    # cert dir; 40-self-signed-cert.sh makes a self-signed pair there on first
+    # start if none was provided and PROXY_SELF_SIGNED isn't "no".
+    ssl_certificate     /etc/nginx/certs/${PROXY_CERT_FILE};
+    ssl_certificate_key /etc/nginx/certs/${PROXY_KEY_FILE};
+
+    client_max_body_size 100M;
+
+    # Docker's embedded DNS, re-resolved every 10s. A literal
+    # `proxy_pass http://backend:4000` is resolved once at nginx startup, so a
+    # recreated backend (new container IP) would 502 until the proxy restarted
+    # too. A variable in proxy_pass forces the lookup through `resolver`.
+    resolver 127.0.0.11 valid=10s ipv6=off;
+    set $backend   http://backend:4000;
+    set $dashboard http://dashboard:80;
+
+    # --- Agent-facing endpoints: not exposed through the proxy ---
+    # The bundled agent reaches the backend over the compose network and never
+    # comes through here; see deploy/dsp.conf and ARCHITECTURE.md "Agent
+    # authentication" before opening these for remote agents.
+    location ~ ^/api/(ingest|agent-commands) {
+        return 403;
+    }
+    location = /api/agents/register {
+        return 403;
+    }
+
+    # --- Backend API, /api prefix stripped ---
+    # With a variable in proxy_pass nginx no longer strips the matched prefix
+    # (dsp.conf's trailing-slash trick needs a literal URL), hence the rewrite.
+    location /api/ {
+        rewrite ^/api/(.*)$ /$1 break;
+        proxy_pass $backend;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        # Overwrite, don't append ($proxy_add_x_forwarded_for): this proxy is
+        # the edge and the backend's trustProxy takes the leftmost address, so
+        # appending let any client put an arbitrary IP in the request log — the
+        # audit trail of who approved what. Verified: a client-sent
+        # `X-Forwarded-For: 1.2.3.4` was logged as the remote address.
+        proxy_set_header X-Forwarded-For   $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # --- Dashboard (static SPA) ---
+    location / {
+        proxy_pass $dashboard;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
