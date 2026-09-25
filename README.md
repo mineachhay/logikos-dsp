@@ -241,13 +241,14 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md#production-packaging) for the packaging 
 
 For a host with no reverse proxy of its own, the opt-in `proxy` service puts
 nginx in front: HTTPS on :443 (:80 redirects), the dashboard at `/`, the API at
-`/api/`, and the agent-only endpoints closed. The root `.env` must exist —
+`/api/`, and agent enrollment rate limited (6/min per IP). The root `.env` must exist —
 the `backup` service mounts it, and without it compose stops with `bind source
 path does not exist: .../.env`:
 
 ```bash
 AGENT_ENROLL_TOKEN=<openssl rand -hex 32>   # given to both backend and agent
-DASHBOARD_BACKEND_URL=/api        # same-origin through the proxy
+DASHBOARD_BACKEND_URL=https://dsp.example.com/api  # same-origin through the proxy; also
+                                  # where remotely installed agents report, so absolute
 PUBLISH_ADDR=127.0.0.1            # backend/dashboard reachable only via the proxy
 PROXY_SERVER_NAME=dsp.example.com # name (or IP) for the self-signed certificate
 ```

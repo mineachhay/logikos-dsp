@@ -10,6 +10,11 @@
 # session cookie is Secure, and a browser drops it over plain http anywhere
 # but localhost — login "succeeds" and every request after it is a 401.
 
+# Rate-limit zone for agent enrollment (the register location below). This
+# file is included inside nginx's http block, which is where limit_req_zone
+# has to live. Same zone as deploy/dsp.conf.
+limit_req_zone $binary_remote_addr zone=dsp_register:1m rate=6r/m;
+
 server {
     listen 80;
     server_name _;
@@ -38,15 +43,23 @@ server {
     set $backend   http://backend:4000;
     set $dashboard http://dashboard:80;
 
-    # --- Agent-facing endpoints: not exposed through the proxy ---
-    # The bundled agent reaches the backend over the compose network and never
-    # comes through here; see deploy/dsp.conf and ARCHITECTURE.md "Agent
-    # authentication" before opening these for remote agents.
-    location ~ ^/api/(ingest|agent-commands) {
-        return 403;
-    }
+    # --- Agent enrollment: open, but rate limited ---
+    # Same policy as deploy/dsp.conf: /api/ingest/* and /api/agent-commands*
+    # need a per-agent secret, so they're ordinary authenticated endpoints and
+    # fall through to /api/ below — remotely installed agents report through
+    # here. Registration takes the deployment-wide AGENT_ENROLL_TOKEN, so it's
+    # the one route worth throttling: 6/min per IP makes guessing a 32-byte
+    # token hopeless and is far above what real agents need. 429, not 403, so
+    # a throttled agent's log says what happened.
     location = /api/agents/register {
-        return 403;
+        limit_req zone=dsp_register burst=3 nodelay;
+        limit_req_status 429;
+        rewrite ^/api/(.*)$ /$1 break;
+        proxy_pass $backend;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 
     # --- Backend API, /api prefix stripped ---

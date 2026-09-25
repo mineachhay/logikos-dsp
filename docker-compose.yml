@@ -193,8 +193,8 @@ services:
     restart: unless-stopped
 
   # Bundled reverse proxy for installs without one of their own — HTTPS on
-  # :443 (http redirects), dashboard at /, backend at /api/, agent-only paths
-  # closed; see deploy/proxy/. Opt-in, because a host that already has a proxy
+  # :443 (http redirects), dashboard at /, backend at /api/, agent enrollment
+  # rate limited; see deploy/proxy/. Opt-in, because a host that already has a proxy
   # on :80/:443 — like the one behind dsp.logikos.dev — must not get a second
   # one from a plain `docker compose up`:
   #   DASHBOARD_BACKEND_URL=/api docker compose --profile proxy up -d --build
