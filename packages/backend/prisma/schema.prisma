@@ -387,6 +387,11 @@ model FileEvent {
   removable        Boolean       @default(false)
   volumeLabel      String?
   volumeSerial     String?
+  /// Who owns the file, reported by the agent. On Windows that is normally
+  /// whoever created it, and for purely local activity it is the only signal
+  /// of a person there is — the OS change notification carries no user. Kept
+  /// apart from actorUser deliberately: an owner is not an audited actor.
+  ownerUser        String?
   /// Filled in from FileActivity when a Windows audit record matches this
   /// event's path and time; null when activity collection is off or nothing matched.
   actorUser        String?
@@ -490,6 +495,10 @@ enum BackupDestinationType {
   S3
   SFTP
   GDRIVE
+  /// A Windows or NAS file share. Convenient, and the one most sites already
+  /// have — but a backup on the server being monitored is not a backup; see
+  /// the warning the dashboard shows.
+  SMB
 }
 
 enum BackupRunKind {

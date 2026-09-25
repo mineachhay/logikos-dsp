@@ -275,6 +275,12 @@ export interface FileEvent {
   previousPath: string | null;
   /** Set when the copy came from a different watched place — another share, or a PC running an agent. */
   previousSource: SourceRef | null;
+  /**
+   * Who owns the file, when the agent could tell. Shown as the owner and never
+   * as the actor: ownership survives a move and can be changed, so it answers
+   * "whose file is this", not "who did this".
+   */
+  ownerUser: string | null;
   /** Set when the file landed on removable media. The drive letter alone means nothing: it's reused. */
   removable: boolean;
   volumeLabel: string | null;
@@ -333,7 +339,7 @@ export interface Overview {
 
 // ---- Backups (Administration -> Backups) ----
 
-export type BackupDestinationType = "S3" | "SFTP" | "GDRIVE";
+export type BackupDestinationType = "S3" | "SFTP" | "GDRIVE" | "SMB";
 
 export interface BackupDestinationView {
   type: BackupDestinationType;

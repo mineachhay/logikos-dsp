@@ -353,7 +353,7 @@ holding its secrets). Backups are configured in the dashboard under
 2. Pick a destination:
    - **S3-compatible bucket** — Cloudflare R2, Backblaze B2, AWS S3, Wasabi or
      MinIO. Create the bucket and a key that can read, write and delete in it.
-   - **Another server over SFTP** — preferably a dedicated user with a private
+   - **Another server over SFTP, or a Windows/NAS file share over SMB** — preferably a dedicated user with a private
      key; paste `ssh-keyscan <host>` output into *Server host key* so the
      server's identity is checked.
    - **Google Drive** — either a Google account (run `rclone authorize "drive"`

@@ -213,13 +213,15 @@ export async function linkCrossSourceCopies(sourceId: string, now = new Date()):
   for (const arrival of arrivals) {
     const match = inferCrossSourceCopy({ ...arrival, sourceId }, candidates, window);
     if (!match) continue;
+    // Where it came from is recorded either way; who did it only when one
+    // account read it. See CrossSourceCopyMatch.actorCertain.
     await prisma.fileEvent.update({
       where: { id: arrival.id },
       data: {
         eventType: "COPIED",
-        previousPath: match.path,
-        previousSourceId: match.sourceId,
-        ...(arrival.actorUser ? {} : actorFields(match)),
+        previousPath: match.read.path,
+        previousSourceId: match.read.sourceId,
+        ...(arrival.actorUser || !match.actorCertain ? {} : actorFields(match.read)),
       },
     });
     linked++;

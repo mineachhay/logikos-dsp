@@ -3,7 +3,7 @@
  * (packages/backup) and their tests must agree on. Pure and browser-safe.
  */
 
-export type BackupDestinationType = "S3" | "SFTP" | "GDRIVE";
+export type BackupDestinationType = "S3" | "SFTP" | "GDRIVE" | "SMB";
 
 export const S3_PROVIDERS = ["AWS", "Cloudflare", "Backblaze", "Wasabi", "Minio", "Other"] as const;
 export type S3Provider = (typeof S3_PROVIDERS)[number];
@@ -42,6 +42,31 @@ export interface SftpCredentials {
   /** OpenSSH/PEM private key, unencrypted. */
   privateKey?: string;
 }
+/**
+ * A Windows or NAS file share. Convenient, because most sites already have
+ * one — but see the warning the dashboard shows: a backup on the same server
+ * being monitored is not a backup. Ransomware that reaches the share reaches
+ * the bundles too, and so does anyone who takes the file server.
+ *
+ * The bundle is age-encrypted before it leaves this host, so a share with
+ * loose permissions leaks nothing readable. It can still be deleted, which is
+ * the risk that matters here.
+ */
+export interface SmbDestinationConfig {
+  host: string;
+  port?: number;
+  /** The share name alone, no leading slashes: "backups", not "\\\\nas\\backups". */
+  share: string;
+  /** Folder within the share. Optional; the share root is used when empty. */
+  path?: string;
+  domain?: string;
+  username: string;
+}
+
+export interface SmbCredentials {
+  password?: string;
+}
+
 export interface GdriveCredentials {
   serviceAccountJson?: string;
   /** The JSON `rclone authorize "drive"` prints. */
@@ -51,7 +76,8 @@ export interface GdriveCredentials {
 export type BackupDestination =
   | { type: "S3"; config: S3DestinationConfig; credentials: S3Credentials }
   | { type: "SFTP"; config: SftpDestinationConfig; credentials: SftpCredentials }
-  | { type: "GDRIVE"; config: GdriveDestinationConfig; credentials: GdriveCredentials };
+  | { type: "GDRIVE"; config: GdriveDestinationConfig; credentials: GdriveCredentials }
+  | { type: "SMB"; config: SmbDestinationConfig; credentials: SmbCredentials };
 
 /** age X25519 recipient: "age1" + 58 bech32 characters. */
 export function isAgeRecipient(value: string): boolean {

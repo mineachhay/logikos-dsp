@@ -52,6 +52,21 @@ const sftpDestination = z.object({
   credentials: z.object({ password: optionalTrimmed(1024), privateKey: optionalTrimmed(16_000) }).optional(),
 });
 
+const smbDestination = z.object({
+  type: z.literal("SMB"),
+  config: z.object({
+    host: trimmed(253).regex(/^[A-Za-z0-9.\-:\[\]]+$/, "hostname or IP only"),
+    port: z.number().int().min(1).max(65535).optional(),
+    // The share name alone. People paste "\\\\nas\\backups" out of Explorer, so
+    // say what's wanted rather than failing on something that looks right.
+    share: trimmed(255).regex(/^[^\\/]+$/, "the share name only, without \\\\server\\ in front"),
+    path: optionalTrimmed(512),
+    domain: optionalTrimmed(128),
+    username: trimmed(128),
+  }),
+  credentials: z.object({ password: optionalTrimmed(1024) }).optional(),
+});
+
 const gdriveDestination = z.object({
   type: z.literal("GDRIVE"),
   config: z
@@ -102,7 +117,7 @@ const settingsSchema = z.object({
     .nullable()
     .refine((v) => v === null || v === "" || isAgeRecipient(v), "not an age public key — it starts with age1 (paste the public key, never the AGE-SECRET-KEY line)")
     .transform((v) => (v ? v : null)),
-  destination: z.discriminatedUnion("type", [s3Destination, sftpDestination, gdriveDestination]).nullable(),
+  destination: z.discriminatedUnion("type", [s3Destination, sftpDestination, gdriveDestination, smbDestination]).nullable(),
 });
 
 const runRequestSchema = z.object({ kind: z.enum(["BACKUP", "VERIFY", "TEST_DESTINATION"]) });
@@ -123,6 +138,8 @@ function missingCredentials(destination: NonNullable<z.infer<typeof settingsSche
       return creds.secretAccessKey ? null : "secret access key is required";
     case "SFTP":
       return creds.password || creds.privateKey ? null : "a password or a private key is required";
+    case "SMB":
+      return creds.password ? null : "a password is required";
     case "GDRIVE":
       if (destination.config.authMode === "SERVICE_ACCOUNT") return creds.serviceAccountJson ? null : "service account key JSON is required";
       return creds.oauthTokenJson ? null : "OAuth token JSON is required";

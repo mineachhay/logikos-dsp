@@ -247,8 +247,9 @@ describe("inferCrossSourceCopy", () => {
       [read("finance-share", "HR/payroll.csv", 20)],
       window,
     );
-    expect(match?.path).toBe("HR/payroll.csv");
-    expect(match?.sourceId).toBe("finance-share");
+    expect(match?.read.path).toBe("HR/payroll.csv");
+    expect(match?.read.sourceId).toBe("finance-share");
+    expect(match?.actorCertain).toBe(true);
   });
 
   it("ignores reads on the same source — that's a copy within one share, handled by the scan", () => {
@@ -305,7 +306,7 @@ describe("inferCrossSourceCopy with repeated filenames", () => {
       reads,
       window,
     );
-    expect(match?.path).toBe("IT/New Compressed (zipped) Folder.zip");
+    expect(match?.read.path).toBe("IT/New Compressed (zipped) Folder.zip");
   });
 
   it("matches a file copied from the share root, not one of its folders", () => {
@@ -319,7 +320,7 @@ describe("inferCrossSourceCopy with repeated filenames", () => {
       reads,
       window,
     );
-    expect(match?.path).toBe("New Compressed (zipped) Folder.zip");
+    expect(match?.read.path).toBe("New Compressed (zipped) Folder.zip");
   });
 
   // Copying one file out of a folder into the root of the watched path: the
@@ -331,7 +332,7 @@ describe("inferCrossSourceCopy with repeated filenames", () => {
       [read("HR/payroll.csv")],
       window,
     );
-    expect(match?.path).toBe("HR/payroll.csv");
+    expect(match?.read.path).toBe("HR/payroll.csv");
   });
 
   it("still refuses when two identical names sit at the same depth", () => {
@@ -349,7 +350,7 @@ describe("inferCrossSourceCopy with repeated filenames", () => {
       [read("IT/report.zip")],
       window,
     );
-    expect(match?.path).toBe("IT/report.zip");
+    expect(match?.read.path).toBe("IT/report.zip");
   });
 });
 
@@ -413,7 +414,7 @@ describe("inferCrossSourceCopy with an unknown destination root", () => {
       reads,
       window,
     );
-    expect(match?.path).toBe("create file.zip");
+    expect(match?.read.path).toBe("create file.zip");
   });
 
   it("still prefers the deeper match for a file from a subfolder", () => {
@@ -422,7 +423,7 @@ describe("inferCrossSourceCopy with an unknown destination root", () => {
       reads,
       window,
     );
-    expect(match?.path).toBe("IT/create file.zip");
+    expect(match?.read.path).toBe("IT/create file.zip");
   });
 
   it("works just as well deep inside a profile", () => {
@@ -431,7 +432,7 @@ describe("inferCrossSourceCopy with an unknown destination root", () => {
       reads,
       window,
     );
-    expect(match?.path).toBe("create file.zip");
+    expect(match?.read.path).toBe("create file.zip");
   });
 
   it("keeps working when a copy is flattened out of its folder", () => {
@@ -440,6 +441,54 @@ describe("inferCrossSourceCopy with an unknown destination root", () => {
       [read("HR/payroll.csv")],
       window,
     );
-    expect(match?.path).toBe("HR/payroll.csv");
+    expect(match?.read.path).toBe("HR/payroll.csv");
+  });
+});
+
+describe("inferCrossSourceCopy on a machine people share", () => {
+  const window = { beforeMs: 300_000, afterMs: 30_000 };
+  const at = new Date("2026-09-19T03:00:00Z");
+  const read = (userName: string, path = "HR/payroll.csv"): CrossSourceRead => ({
+    id: `r-${userName}-${path}`,
+    path,
+    action: "READ",
+    occurredAt: new Date(at.getTime() - 5_000),
+    userName,
+    userDomain: "CORP",
+    clientIp: null,
+    sourceId: "share",
+  });
+
+  // A terminal server, or simply two people signed in at once. The copy is
+  // real and its origin certain; which of them made it is not. Naming one
+  // would put a specific person against something they may not have done.
+  it("records where a copy came from but won't name one of two readers", () => {
+    const match = inferCrossSourceCopy(
+      { path: "C:\\Users\\Public\\payroll.csv", occurredAt: at, sourceId: "terminal-server" },
+      [read("alice"), read("bob")],
+      window,
+    );
+    expect(match?.read.path).toBe("HR/payroll.csv");
+    expect(match?.actorCertain).toBe(false);
+  });
+
+  it("names the person when only one account read the file", () => {
+    const match = inferCrossSourceCopy(
+      { path: "C:\\Users\\alice\\Desktop\\payroll.csv", occurredAt: at, sourceId: "terminal-server" },
+      [read("alice")],
+      window,
+    );
+    expect(match?.actorCertain).toBe(true);
+    expect(match?.read.userName).toBe("alice");
+  });
+
+  // The same person reading a file twice is still one person.
+  it("isn't confused by one account reading the file more than once", () => {
+    const match = inferCrossSourceCopy(
+      { path: "C:\\Users\\alice\\Desktop\\payroll.csv", occurredAt: at, sourceId: "terminal-server" },
+      [read("alice"), { ...read("alice"), id: "r-alice-again" }],
+      window,
+    );
+    expect(match?.actorCertain).toBe(true);
   });
 });

@@ -238,11 +238,27 @@ export interface CrossSourceRead extends ActivityCandidate {
  * the same file on the same source — with reads of the same name from two
  * places there's no telling which was copied.
  */
+export interface CrossSourceCopyMatch {
+  /** The read that explains where the file came from. */
+  read: CrossSourceRead;
+  /**
+   * Whether the person can be named as well as the file.
+   *
+   * False when several accounts read that same file within the window: on a
+   * shared machine — a terminal server, or simply two people signed in — the
+   * copy is real and its origin is certain, but which of them made it is not.
+   * Naming one anyway would put a specific person's name against something
+   * they may not have done, in a record meant to be used as evidence. The
+   * origin is still worth recording; the name is not worth guessing.
+   */
+  actorCertain: boolean;
+}
+
 export function inferCrossSourceCopy(
   event: { path: string; occurredAt: Date; sourceId: string },
   reads: readonly CrossSourceRead[],
   window: { beforeMs: number; afterMs: number },
-): CrossSourceRead | null {
+): CrossSourceCopyMatch | null {
   const eventSegments = pathSegments(event.path);
   if (eventSegments.length === 0) return null;
   const from = event.occurredAt.getTime() - window.beforeMs;
@@ -289,8 +305,13 @@ export function inferCrossSourceCopy(
 
   // Still refuse to guess between genuinely indistinguishable candidates —
   // the same file, at the same depth, in two different folders.
-  const distinct = new Set(best.map((c) => c.read.path.toLowerCase()));
-  return distinct.size === 1 ? best[0].read : null;
+  const distinctPaths = new Set(best.map((c) => c.read.path.toLowerCase()));
+  if (distinctPaths.size !== 1) return null;
+
+  // The file is settled; the person may not be. Several accounts reading it in
+  // the same window is ordinary on a machine people share.
+  const distinctUsers = new Set(best.map((c) => `${c.read.userDomain ?? ""}\\${c.read.userName}`.toLowerCase()));
+  return { read: best[0].read, actorCertain: distinctUsers.size === 1 };
 }
 
 function longestTail<T extends { tail: number }>(candidates: readonly T[]): T[] {

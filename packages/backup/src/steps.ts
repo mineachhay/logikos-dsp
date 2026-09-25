@@ -36,7 +36,12 @@ async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
 
 /** Writes this run's rclone config (and known_hosts) into `dir` and returns a runner bound to it. */
 async function rcloneIn(dir: string, destination: DestinationInput) {
-  const password = destination.type === "SFTP" && !destination.credentials.privateKey ? destination.credentials.password : undefined;
+  // rclone refuses a plain password in its config for both SFTP and SMB, so
+  // whichever of them is in use gets obscured first.
+  const password =
+    (destination.type === "SFTP" && !destination.credentials.privateKey) || destination.type === "SMB"
+      ? destination.credentials.password
+      : undefined;
   const obscured = password ? (await run("rclone", ["obscure", "-"], { stdin: password })).stdout.trim() : undefined;
   const setup = buildRcloneSetup(destination, obscured);
   const configPath = path.join(dir, "rclone.conf");

@@ -39,6 +39,10 @@ type FileEvent struct {
 	// Where the file landed. Set per watched root: a drive letter is reused
 	// by whatever is plugged in next, so the label and serial are what
 	// identify a particular USB stick afterwards.
+	// Who owns the file, which on Windows is normally whoever created it.
+	// Reported as the owner rather than the actor — see watch/owner_windows.go
+	// for why the two are not the same claim.
+	Owner        string `json:"owner,omitempty"`
 	Removable    bool   `json:"removable,omitempty"`
 	VolumeLabel  string `json:"volumeLabel,omitempty"`
 	VolumeSerial string `json:"volumeSerial,omitempty"`

@@ -205,3 +205,33 @@ func TestWindowsStateUnderAppDataIsExcludedWholesale(t *testing.T) {
 		t.Error("AppData as a whole must not be excluded")
 	}
 }
+
+// Round three of the same game: Feeds, PenWorkspace and Themes\CachedFiles
+// all turned up as "file events" on a live machine, none of them anybody's
+// doing. Everything Microsoft keeps under AppData is operating-system state.
+func TestMicrosoftsAppDataSubtreesAreExcluded(t *testing.T) {
+	e := NewExcluder(DefaultExclusions)
+	for _, path := range []string{
+		`C:\Users\Administrator\AppData\Local\Microsoft\Feeds\FeedsStore.feedsdb-ms`,
+		`C:\Users\Administrator\AppData\Local\Microsoft\Feeds\{5588ACFD}~\Internet Explorer Suggested Sites~.feed-ms`,
+		`C:\Users\Administrator\AppData\Local\Microsoft\PenWorkspace\DiscoverCacheData.dat`,
+		`C:\Users\Administrator\AppData\Roaming\Microsoft\Windows\Themes\CachedFiles\CachedImage_1666_936_POS4.jpg`,
+		`C:\Users\Administrator\AppData\Local\Microsoft\Windows\INetCache\x.dat`,
+	} {
+		if !e.Excludes(path) {
+			t.Errorf("%q should be excluded", path)
+		}
+	}
+
+	// The rest of AppData stays watched: a file deliberately tucked into an
+	// application's folder is exactly what this product should still see.
+	for _, path := range []string{
+		`C:\Users\Administrator\AppData\Roaming\payroll.csv`,
+		`C:\Users\Administrator\AppData\Roaming\SomeApp\exported-data.csv`,
+		`C:\Users\Administrator\AppData\Local\Acme\report.xlsx`,
+	} {
+		if e.Excludes(path) {
+			t.Errorf("%q must still be watched", path)
+		}
+	}
+}

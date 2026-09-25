@@ -282,6 +282,27 @@ function readsExplainedByCopies(events: FileEvent[]): Set<string> {
   return explained;
 }
 
+/**
+ * An audited actor and a file's owner are different claims, and the column
+ * says which one it is showing. A local change carries no user at all — the
+ * OS notification doesn't have one — so ownership is the only signal there is,
+ * and it answers "whose file is this" rather than "who did this": it survives
+ * a move, an administrator can change it, and it is sometimes a group.
+ * Labelling it plainly is the difference between a record that can be relied
+ * on and one that quietly overstates what is known.
+ */
+function whoDidIt(event: FileEvent) {
+  if (event.actorUser) return event.actorUser;
+  if (event.ownerUser) {
+    return (
+      <span title="The file's owner, not an audited record of who made the change">
+        {event.ownerUser} <span className="muted">(owner)</span>
+      </span>
+    );
+  }
+  return <span className="muted">—</span>;
+}
+
 function readsAsEvents(reads: FileActivityRow[]): FileEvent[] {
   return reads.map((r) => ({
     id: `read-${r.id}`,
@@ -289,6 +310,7 @@ function readsAsEvents(reads: FileActivityRow[]): FileEvent[] {
     path: r.path,
     previousPath: null,
     previousSource: null,
+    ownerUser: null,
     removable: false,
     volumeLabel: null,
     volumeSerial: null,
@@ -409,7 +431,7 @@ function FileEventsView() {
                 </td>
                 <td data-label="Size">{e.sizeBytes ?? "—"}</td>
                 <td data-label="Source" title={e.source?.rootLabel}>{sourceName(e)}</td>
-                <td data-label="Who" title={e.actorIp ? `from ${e.actorIp}` : undefined}>{e.actorUser ?? <span className="muted">—</span>}</td>
+                <td data-label="Who" title={e.actorIp ? `from ${e.actorIp}` : undefined}>{whoDidIt(e)}</td>
                 <td data-label="When" className="cell-time">{new Date(e.occurredAt).toLocaleString()}</td>
               </tr>
             ))}

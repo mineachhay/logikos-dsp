@@ -71,6 +71,7 @@ interface FormState {
   s3: { provider: string; endpoint: string; region: string; bucket: string; accessKeyId: string; secretAccessKey: string };
   sftp: { host: string; port: string; username: string; hostKey: string; auth: "password" | "key"; password: string; privateKey: string };
   gdrive: { authMode: "OAUTH_TOKEN" | "SERVICE_ACCOUNT"; rootFolderId: string; sharedDriveId: string; serviceAccountJson: string; oauthTokenJson: string };
+  smb: { host: string; port: string; share: string; domain: string; username: string; password: string };
 }
 
 function initialForm(s: BackupSettingsView): FormState {
@@ -104,6 +105,14 @@ function initialForm(s: BackupSettingsView): FormState {
       password: "",
       privateKey: "",
     },
+    smb: {
+      host: type === "SMB" ? str("host") : "",
+      port: type === "SMB" ? str("port") : "",
+      share: type === "SMB" ? str("share") : "",
+      domain: type === "SMB" ? str("domain") : "",
+      username: type === "SMB" ? str("username") : "",
+      password: "",
+    },
     gdrive: {
       authMode: type === "GDRIVE" && str("authMode") === "SERVICE_ACCOUNT" ? "SERVICE_ACCOUNT" : "OAUTH_TOKEN",
       rootFolderId: type === "GDRIVE" ? str("rootFolderId") : "",
@@ -127,6 +136,21 @@ function toInput(f: FormState): BackupSettingsInput {
       type: "SFTP",
       config: { host: f.sftp.host, port: f.sftp.port ? Number(f.sftp.port) : undefined, username: f.sftp.username, hostKey: f.sftp.hostKey },
       credentials: f.sftp.auth === "key" ? { privateKey: f.sftp.privateKey } : { password: f.sftp.password },
+    };
+  } else if (f.type === "SMB") {
+    destination = {
+      type: "SMB",
+      config: {
+        host: f.smb.host,
+        port: f.smb.port ? Number(f.smb.port) : undefined,
+        share: f.smb.share,
+        // The folder within the share is the shared "Folder" field, so the
+        // form reads the same whichever destination is chosen.
+        path: f.remotePath,
+        domain: f.smb.domain,
+        username: f.smb.username,
+      },
+      credentials: { password: f.smb.password },
     };
   } else if (f.type === "GDRIVE") {
     destination = {
@@ -251,6 +275,40 @@ function DestinationFields({ form, set, stored }: { form: FormState; set: (fn: (
       </>
     );
   }
+  if (form.type === "SMB") {
+    const smb = form.smb;
+    const upd = (patch: Partial<FormState["smb"]>) => set((f) => ({ ...f, smb: { ...f.smb, ...patch } }));
+    return (
+      <>
+        <p className="muted">
+          <strong>Don't back up to a share on a server this system monitors.</strong> Ransomware that reaches the share
+          reaches the backups with it, and so does anyone who takes that server. A different machine, or better still a
+          different building, is what makes this a backup. Bundles are encrypted before they leave this host, so a share
+          with loose permissions leaks nothing readable — but it can still be deleted.
+        </p>
+        <div className="fs-form-grid">
+          <Field label="Server">
+            <input value={smb.host} onChange={(e) => upd({ host: e.target.value })} placeholder="nas.example.com or 10.0.0.9" />
+          </Field>
+          <Field label="Port" hint="Optional — 445 by default.">
+            <input value={smb.port} onChange={(e) => upd({ port: e.target.value })} placeholder="445" />
+          </Field>
+          <Field label="Share" hint="The share name only, without \\\\server\\ in front.">
+            <input value={smb.share} onChange={(e) => upd({ share: e.target.value })} placeholder="backups" />
+          </Field>
+          <Field label="Domain" hint="Optional — leave empty for a local account or a workgroup.">
+            <input value={smb.domain} onChange={(e) => upd({ domain: e.target.value })} placeholder="CORP" />
+          </Field>
+          <Field label="Username">
+            <input value={smb.username} onChange={(e) => upd({ username: e.target.value })} placeholder="svc-backup" autoComplete="off" />
+          </Field>
+          <Field label="Password">
+            <input type="password" value={smb.password} onChange={(e) => upd({ password: e.target.value })} placeholder={secretPlaceholder(sameType("SMB") && stored.includes("password"))} autoComplete="new-password" />
+          </Field>
+        </div>
+      </>
+    );
+  }
   if (form.type === "GDRIVE") {
     const g = form.gdrive;
     const upd = (patch: Partial<FormState["gdrive"]>) => set((f) => ({ ...f, gdrive: { ...f.gdrive, ...patch } }));
@@ -330,9 +388,19 @@ function SettingsForm({ settings, onSaved }: { settings: BackupSettingsView; onS
               <option value="S3">S3-compatible bucket (Cloudflare R2, Backblaze B2, AWS, Wasabi, MinIO)</option>
               <option value="SFTP">Another server over SFTP</option>
               <option value="GDRIVE">Google Drive</option>
+              <option value="SMB">Windows or NAS file share (SMB)</option>
             </select>
           </Field>
-          <Field label="Folder" hint={form.type === "SFTP" ? "Relative to the login's home, or absolute (/srv/backups)." : "Inside the bucket or drive."}>
+          <Field
+            label="Folder"
+            hint={
+              form.type === "SFTP"
+                ? "Relative to the login's home, or absolute (/srv/backups)."
+                : form.type === "SMB"
+                  ? "Inside the share. Leave empty to use the share's root."
+                  : "Inside the bucket or drive."
+            }
+          >
             <input value={form.remotePath} onChange={(e) => set((f) => ({ ...f, remotePath: e.target.value }))} placeholder="logikos-dsp" />
           </Field>
         </div>

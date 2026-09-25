@@ -31,6 +31,15 @@ export interface FileEventInput {
   removable?: boolean;
   volumeLabel?: string;
   volumeSerial?: string;
+  /**
+   * Who owns the file. On Windows that is normally whoever created it, and it
+   * is the only signal of a person available for purely local activity — the
+   * OS change notification carries no user. Reported and displayed as the
+   * *owner*, never as the actor: ownership survives a move, can be changed by
+   * an administrator, and may be a group. A name against an action is a
+   * stronger claim than this supports.
+   */
+  owner?: string;
 }
 
 /**

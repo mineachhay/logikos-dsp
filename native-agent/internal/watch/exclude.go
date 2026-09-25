@@ -65,13 +65,16 @@ var DefaultExclusions = []string{
 	"*.evtx",
 	`**/AppData/Local/Temp`,
 	`**/AppData/Local/Packages`,
-	// The whole of AppData\Local\Microsoft\Windows is operating-system
-	// state — INetCache, WebCache, Explorer, History, UPPS, WER, and more
-	// added by every Windows release. Excluding the children one at a time
-	// was a losing game: three rounds of live testing turned up three more.
-	// Nobody copies a file into it on purpose, so the subtree goes.
-	`**/AppData/Local/Microsoft/Windows`,
-	`**/AppData/Roaming/Microsoft/Windows/Recent`,
+	// Everything Microsoft keeps under AppData is operating-system state:
+	// INetCache, WebCache, Explorer, History, UPPS, WER, Feeds, PenWorkspace,
+	// Themes\CachedFiles, and more with every Windows release. Excluding the
+	// children one at a time was a losing game — three rounds of live testing
+	// turned up three fresh ones, each looking like a user's file event and
+	// none being one. The vendor's own subtree goes; the rest of AppData
+	// stays watched, because a file deliberately tucked into an application's
+	// folder is exactly what this product should still see.
+	`**/AppData/Local/Microsoft`,
+	`**/AppData/Roaming/Microsoft`,
 	`**/AppData/Local/Google/Chrome/User Data/Default/Cache`,
 	`**/AppData/Local/CrashDumps`,
 	`**/AppData/LocalLow`,

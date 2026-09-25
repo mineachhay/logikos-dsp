@@ -6,6 +6,8 @@ import type {
   S3DestinationConfig,
   SftpCredentials,
   SftpDestinationConfig,
+  SmbCredentials,
+  SmbDestinationConfig,
 } from "@logikos-dsp/shared";
 
 /**
@@ -128,6 +130,26 @@ export function buildRcloneSetup(input: DestinationInput, obscuredPassword?: str
         files,
         // An SFTP path may be absolute (/srv/backups) or relative to the login directory.
         remoteDir: `${REMOTE_NAME}:${input.remotePath}`,
+      };
+    }
+    case "SMB": {
+      const c = input.config as SmbDestinationConfig;
+      const creds = input.credentials as unknown as SmbCredentials;
+      // rclone addresses a share as "remote:share/path", so the share name
+      // belongs in the path rather than the config — the same shape SFTP uses
+      // for its directory.
+      const within = relative(c.path ?? "");
+      return {
+        configText: section({
+          type: "smb",
+          host: c.host,
+          port: c.port,
+          user: c.username,
+          domain: c.domain,
+          pass: creds.password ? obscuredPassword : undefined,
+        }),
+        files: {},
+        remoteDir: `${REMOTE_NAME}:${relative(c.share)}${within ? `/${within}` : ""}`,
       };
     }
     case "GDRIVE": {

@@ -30,6 +30,11 @@ const (
 	maxContentSampleBytes   = 8192                   // must match packages/shared's CLASSIFICATION_JOB_MAX_SAMPLE_BYTES
 	maxSampleableFileBytes  = 5 * 1024 * 1024        // must match packages/agent/src/contentSampling.ts's MAX_SAMPLEABLE_FILE_BYTES
 	debounceStabilityWindow = 300 * time.Millisecond // must match watcher.ts's awaitWriteFinish.stabilityThreshold
+	// How long the old name waits for the new one. The two events are emitted
+	// back to back by both backends, so this only has to survive scheduling —
+	// but it is also how long a genuine deletion is held before being
+	// reported, so it stays short.
+	renamePairingWindow = 400 * time.Millisecond
 )
 
 // textishExtensions must match packages/agent/src/contentSampling.ts's
@@ -64,6 +69,12 @@ type Watcher struct {
 	pending map[string]*time.Timer // debounce: one pending flush timer per path
 	known   map[string]bool        // paths this watcher has already reported as existing — see debounce's doc comment
 	dirs    map[string]bool        // paths known to be directories, so a removal can tell a folder from a file
+	// A rename arrives as two events: the old name as Rename, the new one as
+	// Create. renamesPending holds the first until the second claims it (or
+	// the window passes and it was really a move away); renamedFrom carries
+	// the answer to the debounce that finally reports the new name.
+	renamesPending map[string]*time.Timer
+	renamedFrom    map[string]string
 }
 
 // New walks `root` recursively, adds an inotify/ReadDirectoryChangesW
@@ -90,7 +101,11 @@ func NewExcluding(root string, exclude *Excluder, handler EventHandler) (*Watche
 	if err != nil {
 		return nil, err
 	}
-	w := &Watcher{root: root, handler: handler, fsw: fsw, exclude: exclude, pending: map[string]*time.Timer{}, known: map[string]bool{}, dirs: map[string]bool{}}
+	w := &Watcher{
+		root: root, handler: handler, fsw: fsw, exclude: exclude,
+		pending: map[string]*time.Timer{}, known: map[string]bool{}, dirs: map[string]bool{},
+		renamesPending: map[string]*time.Timer{}, renamedFrom: map[string]string{},
+	}
 
 	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -204,6 +219,15 @@ func (w *Watcher) handleRaw(event fsnotify.Event) {
 		}
 	}
 
+	// The second half of a rename: the new name, moments after the old one.
+	if event.Has(fsnotify.Create) {
+		if from := w.claimRename(event.Name); from != "" {
+			w.mu.Lock()
+			w.renamedFrom[event.Name] = from
+			w.mu.Unlock()
+		}
+	}
+
 	switch {
 	case event.Has(fsnotify.Create), event.Has(fsnotify.Write):
 		// Deliberately not branching on which of Create/Write this is: a
@@ -216,20 +240,52 @@ func (w *Watcher) handleRaw(event fsnotify.Event) {
 		// "was this file here before," matching how chokidar's own `add`
 		// vs `change` distinction actually works.
 		w.debounce(event.Name)
-	case event.Has(fsnotify.Remove), event.Has(fsnotify.Rename):
-		// fsnotify (like chokidar) reports a move as a Remove/Rename of the
-		// old path plus a separate Create of the new one — no correlated
-		// "renamed" event, matching watcher.ts's documented limitation.
-		// A removed path can't be stat'd to ask whether it was a folder, so
-		// the answer has to come from what we watched. Without this, deleting
-		// a copied folder reported the folder itself as a deleted file —
-		// seen live alongside the directory-Write case handled in debounce.
+	case event.Has(fsnotify.Rename):
+		// Renaming or moving a file reports the *old* name here; the new one
+		// arrives as a Create moments later. Holding this briefly is what
+		// turns "deleted, then created" — which is what a rename used to look
+		// like, on a share and locally alike — into one renamed event that
+		// keeps the file's history intact.
 		w.mu.Lock()
+		knownFile := w.known[event.Name]
+		delete(w.known, event.Name)
+		wasDir := w.dirs[event.Name]
+		delete(w.dirs, event.Name)
+		if wasDir || !knownFile {
+			w.mu.Unlock()
+			return // same reasoning as a removal below
+		}
+		name := event.Name
+		w.renamesPending[name] = time.AfterFunc(renamePairingWindow, func() {
+			w.mu.Lock()
+			_, stillWaiting := w.renamesPending[name]
+			delete(w.renamesPending, name)
+			w.mu.Unlock()
+			// Nothing claimed it: the file was moved out of the watched tree,
+			// or renamed into a folder we don't watch. From here that is a
+			// deletion, which is all we can honestly say.
+			if stillWaiting {
+				w.emit(name, wire.Deleted, 0, false)
+			}
+		})
+		w.mu.Unlock()
+	case event.Has(fsnotify.Remove):
+		// A removed path can't be stat'd to ask what it was, so the answer has
+		// to come from what we watched. Two things follow. A folder we knew
+		// about is never reported — deleting a copied folder once reported the
+		// folder itself as a deleted file. And a path we never knew as a file
+		// is never reported either: something created and removed inside the
+		// debounce window was never announced as existing, so announcing its
+		// deletion invents half an event. That is how a transient directory
+		// Windows makes and drops in the same second — Themes\CachedFiles,
+		// seen live — arrived as a DELETED row for a folder nobody touched.
+		w.mu.Lock()
+		knownFile := w.known[event.Name]
 		delete(w.known, event.Name)
 		wasDir := w.dirs[event.Name]
 		delete(w.dirs, event.Name)
 		w.mu.Unlock()
-		if wasDir {
+		if wasDir || !knownFile {
 			return
 		}
 		w.emit(event.Name, wire.Deleted, 0, false)
@@ -266,9 +322,18 @@ func (w *Watcher) debounce(path string) {
 		if info.IsDir() {
 			return
 		}
+		w.mu.Lock()
+		from := w.renamedFrom[path]
+		delete(w.renamedFrom, path)
+		w.mu.Unlock()
+
 		eventType := wire.Modified
 		if !alreadyKnown {
 			eventType = wire.Created
+		}
+		if from != "" {
+			w.emitRenamed(path, from, info.Size())
+			return
 		}
 		w.emit(path, eventType, info.Size(), true)
 	})
@@ -283,6 +348,9 @@ func (w *Watcher) emit(path string, eventType wire.FileEventType, sizeBytes int6
 	if eventType == wire.Created || eventType == wire.Modified {
 		s := sizeBytes
 		evt.SizeBytes = &s
+		// Only while the file still exists, and only for changes: there is
+		// nothing left to ask about a deletion.
+		evt.Owner = fileOwner(path)
 		if sample && isSampleable(path, sizeBytes) {
 			if content, err := readSample(path, maxContentSampleBytes); err == nil {
 				evt.ContentSample = &content
@@ -290,4 +358,40 @@ func (w *Watcher) emit(path string, eventType wire.FileEventType, sizeBytes int6
 		}
 	}
 	w.handler(evt)
+}
+
+// claimRename takes the pending rename a newly created path completes, if
+// there is one. Matched within the same directory: renaming a file in place is
+// the overwhelmingly common case, and a rename that also moves the file
+// between watched folders is indistinguishable from a move plus a create
+// without the old file's identity, which the notification doesn't carry.
+func (w *Watcher) claimRename(newPath string) string {
+	dir := filepath.Dir(newPath)
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for old, timer := range w.renamesPending {
+		if filepath.Dir(old) != dir {
+			continue
+		}
+		timer.Stop()
+		delete(w.renamesPending, old)
+		return old
+	}
+	return ""
+}
+
+// emitRenamed reports one event carrying both names, rather than a deletion
+// and a creation that a reader has to pair up themselves — and that the
+// backend would otherwise have to guess at, as it does for share scans.
+func (w *Watcher) emitRenamed(path, previousPath string, sizeBytes int64) {
+	size := sizeBytes
+	w.handler(wire.FileEvent{
+		EventType:    wire.Renamed,
+		Path:         path,
+		PreviousPath: &previousPath,
+		SizeBytes:    &size,
+		Owner:        fileOwner(path),
+		OccurredAt:   time.Now().UTC().Format(time.RFC3339),
+	})
 }
