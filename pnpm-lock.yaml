@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  v9u-smb2@1.0.6:
+    hash: a7wey3ljhcmqwcxnxqbrcahdgm
+    path: patches/v9u-smb2@1.0.6.patch
+
 importers:
 
   .: {}
@@ -18,7 +23,7 @@ importers:
         version: 3.6.0
       v9u-smb2:
         specifier: ^1.0.6
-        version: 1.0.6
+        version: 1.0.6(patch_hash=a7wey3ljhcmqwcxnxqbrcahdgm)
     devDependencies:
       '@types/node':
         specifier: ^22.7.5
@@ -3195,7 +3200,7 @@ snapshots:
 
   util-deprecate@1.0.2: {}
 
-  v9u-smb2@1.0.6:
+  v9u-smb2@1.0.6(patch_hash=a7wey3ljhcmqwcxnxqbrcahdgm):
     dependencies:
       ntlm2: 0.3.0
       readable-stream: 3.6.2

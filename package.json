@@ -16,5 +16,10 @@
     "test": "pnpm -r test",
     "smb:up": "docker compose -f docker-compose.smb-test.yml up -d",
     "smb:down": "docker compose -f docker-compose.smb-test.yml down"
+  },
+  "pnpm": {
+    "patchedDependencies": {
+      "v9u-smb2@1.0.6": "patches/v9u-smb2@1.0.6.patch"
+    }
   }
 }

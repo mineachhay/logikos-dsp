@@ -1,0 +1,23 @@
+diff --git a/lib/messages/session_setup_step2.js b/lib/messages/session_setup_step2.js
+index eb0e3cc8e6c32e664dd52b03200622050e0f9a6a..d247db37e58c1ac63cbd7d5db545d519c2de44f2 100644
+--- a/lib/messages/session_setup_step2.js
++++ b/lib/messages/session_setup_step2.js
+@@ -11,10 +11,17 @@ module.exports = message({
+         ProcessId: connection.ProcessId,
+       },
+       request: {
++        // logikos-dsp patch: pass the domain. Upstream stores opt.domain and
++        // never sends it, so NTLM went out with an empty domain and Windows
++        // checked the name against the server's local accounts — every domain
++        // account failed with STATUS_LOGON_FAILURE. ntlm2 uses this argument
++        // both in the NTLMv2 hash (UPPER(user) + domain) and in the message.
+         Buffer: ntlm.encodeType3(
+           connection.nonce,
+           connection.username,
+-          connection.password
++          connection.password,
++          '',
++          connection.domain || ''
+         ),
+       },
+     });
