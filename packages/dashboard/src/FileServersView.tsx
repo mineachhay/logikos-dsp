@@ -308,7 +308,38 @@ function ShareStatus({ server, share }: { server: FileServer; share: Share }) {
   if (!share.enabled) return <span className="muted">disabled</span>;
   if (share.lastScanError) return <span className="test-fail" title={share.lastScanError}>error: {share.lastScanError}</span>;
   if (!share.lastScanAt) return <span className="muted">waiting for first scan</span>;
+  if (share.unreadableFolderCount > 0) return <UnreadableFolders share={share} />;
   return <span className="test-ok">ok</span>;
+}
+
+/**
+ * The scan succeeded but skipped folders the account can't read — they aren't
+ * monitored, so say which. Clears itself on the next scan once access is fixed.
+ */
+function UnreadableFolders({ share }: { share: Share }) {
+  const [open, setOpen] = useState(false);
+  const count = share.unreadableFolderCount;
+  const names = share.unreadableFolders;
+  const shown = open ? names : names.slice(0, 3);
+  const noun = count === 1 ? "folder" : "folders";
+  return (
+    <div className="test-warn">
+      <span title="The share account can't read these, so they aren't monitored. Grant it Read on them to include them.">
+        ok · {count.toLocaleString()} {noun} not readable
+      </span>
+      <ul className="unreadable-folders">
+        {shown.map((name) => (
+          <li key={name} title={name}>{name}</li>
+        ))}
+      </ul>
+      {names.length > 3 && (
+        <button type="button" className="btn-link" onClick={() => setOpen(!open)}>
+          {open ? "show fewer" : `show all ${names.length.toLocaleString()}`}
+        </button>
+      )}
+      {open && count > names.length && <div className="muted">and {(count - names.length).toLocaleString()} more</div>}
+    </div>
+  );
 }
 
 function ShareRow({ server, share, agents }: { server: FileServer; share: Share; agents: ManagedAgent[] }) {

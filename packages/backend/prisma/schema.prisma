@@ -194,6 +194,9 @@ model Source {
   lastScanError   String?
   lastFileCount   Int?
   lastTotalBytes  BigInt?
+  /// Subfolders the last successful scan skipped because the account can't read them (capped; see unreadableFolderCount).
+  unreadableFolders     String[] @default([])
+  unreadableFolderCount Int      @default(0)
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 

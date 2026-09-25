@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { ActivityCollectorConfig, AgentSyncResponse } from "@logikos-dsp/shared";
-import { DISCOVERY_PORTS, parseCidr } from "@logikos-dsp/shared";
+import { DISCOVERY_PORTS, MAX_UNREADABLE_FOLDERS, parseCidr } from "@logikos-dsp/shared";
 import type { PendingDeployment } from "@logikos-dsp/shared";
 import { takeCredentials } from "../deployCredentials.js";
 import { pendingInstallOptions } from "./deployments.js";
@@ -30,6 +30,10 @@ const statusSchema = z.object({
   error: z.string().max(2000).optional(),
   fileCount: z.number().int().nonnegative().optional(),
   totalBytes: z.number().int().nonnegative().optional(),
+  // Subfolders skipped as unreadable. The agent sends at most
+  // MAX_UNREADABLE_FOLDERS names plus the true count.
+  unreadableFolders: z.array(z.string().max(1024)).max(MAX_UNREADABLE_FOLDERS).optional(),
+  unreadableFolderCount: z.number().int().nonnegative().optional(),
 });
 
 const testCompleteSchema = z.object({
@@ -247,6 +251,11 @@ export async function agentSyncRoutes(app: FastifyInstance) {
             lastScanError: null,
             lastFileCount: body.fileCount,
             lastTotalBytes: body.totalBytes === undefined ? undefined : BigInt(body.totalBytes),
+            // Replaced on every successful scan, so the warning clears itself
+            // once permissions are fixed. A failed scan leaves the last list:
+            // it learned nothing about which folders are readable.
+            unreadableFolders: body.unreadableFolders ?? [],
+            unreadableFolderCount: body.unreadableFolderCount ?? body.unreadableFolders?.length ?? 0,
           }
         : { lastScanAt: new Date(), lastScanError: body.error ?? "scan failed" },
     });

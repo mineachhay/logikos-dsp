@@ -187,6 +187,13 @@ export interface DiscoveryResultInput {
 export const MANAGED_SOURCES_CAPABILITY = "managed-sources";
 
 /**
+ * Most unreadable-folder names a share's scan status carries (the true count is
+ * sent alongside). Enough to act on; a share with thousands of locked folders
+ * is a permissions problem to fix at the server, not a list to page through.
+ */
+export const MAX_UNREADABLE_FOLDERS = 200;
+
+/**
  * Canonical form of a share subfolder: "/" separators, no leading/trailing
  * slashes, "" for the share root. Returns null for anything that tries to
  * escape the share ("..") — the value ends up in SMB paths on the agent.

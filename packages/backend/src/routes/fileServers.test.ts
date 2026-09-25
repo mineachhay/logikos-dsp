@@ -208,6 +208,31 @@ describe("agent sync", () => {
     expect((await prisma.source.findUniqueOrThrow({ where: { id: share.id } })).lastScanError).toBe("STATUS_LOGON_FAILURE");
   });
 
+  it("shows the folders a scan couldn't read until a later scan can", async () => {
+    const { app, as } = await setup();
+    const server = await createServer(as);
+    const mine = await managedAgent();
+    const share = (await as("POST", `/file-servers/${server.id}/shares`, { shareName: "it", agentId: mine.agent.id })).json();
+    const report = (payload: object) =>
+      app.inject({ method: "POST", url: `/agent-sync/sources/${share.id}/status`, headers: mine.headers, payload: { agentKey: mine.agent.key, ...payload } });
+    const listedShare = async () => (await as("GET", "/file-servers")).json()[0].shares[0];
+
+    await report({ ok: true, fileCount: 5, totalBytes: 10, unreadableFolders: ["01_IT Management", "HR/Payroll"], unreadableFolderCount: 2 });
+    expect(await listedShare()).toMatchObject({ unreadableFolders: ["01_IT Management", "HR/Payroll"], unreadableFolderCount: 2, lastScanError: null });
+
+    // A failed scan learned nothing about folders, so the last list stays.
+    await report({ ok: false, error: "timeout" });
+    expect((await listedShare()).unreadableFolderCount).toBe(2);
+
+    // Permissions fixed: the next successful scan clears it.
+    await report({ ok: true, fileCount: 9, totalBytes: 20 });
+    expect(await listedShare()).toMatchObject({ unreadableFolders: [], unreadableFolderCount: 0 });
+
+    // More names than the cap is rejected rather than stored unbounded.
+    const tooMany = Array.from({ length: 201 }, (_, i) => `f${i}`);
+    expect((await report({ ok: true, fileCount: 1, totalBytes: 1, unreadableFolders: tooMany })).statusCode).toBe(400);
+  });
+
   it("runs a connection test through the agent, and times out one nobody picks up", async () => {
     const { app, as } = await setup();
     const server = await createServer(as);

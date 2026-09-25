@@ -192,6 +192,10 @@ th.sortable:hover { color: #ccc; }
 .test-result { margin: 0; font-size: 12px; }
 .test-ok { color: #5fcf8a; }
 .test-fail { color: #ef6f6f; }
+.test-warn { color: #e0b050; }
+.unreadable-folders { margin: 2px 0 0; padding-left: 16px; color: #c9c5bd; font-size: 12px; }
+/* The status cell is one ellipsized line; a folder list has to wrap or its paths are cut off at the column edge. */
+.fs-status .test-warn, .fs-status .unreadable-folders li { white-space: normal; overflow-wrap: anywhere; }
 .fs-audit h3 { font-size: 13px; font-weight: 500; color: #ccc; margin: 8px 0; }
 .bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 

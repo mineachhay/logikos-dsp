@@ -141,6 +141,9 @@ export interface Share {
   lastScanError: string | null;
   lastFileCount: number | null;
   lastTotalBytes: string | null;
+  /** Subfolders the last scan couldn't read (capped); the true count is unreadableFolderCount. */
+  unreadableFolders: string[];
+  unreadableFolderCount: number;
 }
 
 export interface FileServerInput {

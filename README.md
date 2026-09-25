@@ -59,9 +59,11 @@ Every change is recorded under **Recent changes**.
 What to expect from SMB monitoring: changes appear within one scan interval
 (each scan walks the whole share, so large shares want longer intervals), events
 say *what* changed but not *who*, and quarantine isn't available for shares.
-A subfolder the account can't read is skipped rather than failing the scan —
-*Test connection* only checks the top level, so the agent log
-(`skipped N folder(s) the account can't read: ...`) is where those show up.
+A subfolder the account can't read is skipped rather than failing the scan, and
+the share's status lists it (`ok · N folders not readable`) — those folders
+aren't monitored until the account is given Read on them; the warning clears on
+the next scan after that. *Test connection* only checks the top level, so this
+list is where deeper permission gaps show up.
 
 Requirements: the backend needs `SOURCE_CREDENTIALS_KEY` (32 bytes,
 `openssl rand -base64 32`) — **back it up somewhere other than the database

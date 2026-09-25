@@ -12,7 +12,9 @@ export interface DiffLoopOptions {
   /** Wraps each walk, e.g. managedSources.ts's concurrency limiter. */
   runScan?: <T>(scan: () => Promise<T>) => Promise<T>;
   onScanComplete?: (
-    result: { ok: true; fileCount: number; totalBytes: number; paths: ReadonlySet<string> } | { ok: false; error: unknown },
+    result:
+      | { ok: true; fileCount: number; totalBytes: number; paths: ReadonlySet<string>; unreadable: readonly string[] }
+      | { ok: false; error: unknown },
   ) => void;
 }
 
@@ -60,7 +62,7 @@ async function scanOnce(
   sourceId: string | undefined,
   isStopped: () => boolean,
   previousScanAt: number | undefined,
-): Promise<{ baseline: Map<string, Baseline>; fileCount: number; totalBytes: number } | null> {
+): Promise<{ baseline: Map<string, Baseline>; fileCount: number; totalBytes: number; unreadable: string[] } | null> {
   const unreadable: string[] = [];
   const nodes = await source.listTree(unreadable);
   if (isStopped()) return null;
@@ -142,7 +144,7 @@ async function scanOnce(
   });
   console.log(`${source.describe()}: storage snapshot ${nodes.length} files, ${totalBytes} bytes`);
 
-  return { baseline: current, fileCount: nodes.length, totalBytes };
+  return { baseline: current, fileCount: nodes.length, totalBytes, unreadable };
 }
 
 /**
@@ -170,6 +172,7 @@ export function startDiffLoop(source: Source, intervalMs: number, opts: DiffLoop
           fileCount: result.fileCount,
           totalBytes: result.totalBytes,
           paths: new Set(result.baseline.keys()),
+          unreadable: result.unreadable,
         });
       }
     } catch (err) {

@@ -1,4 +1,5 @@
 import type { ManagedSmbSource, PendingConnectionTest, PendingDiscoveryScan } from "@logikos-dsp/shared";
+import { MAX_UNREADABLE_FOLDERS } from "@logikos-dsp/shared";
 import { config } from "./config.js";
 import { completeConnectionTest, completeDiscoveryScan, fetchAgentSync, reportSourceStatus, startDiscoveryScan } from "./client.js";
 import { runDiscoveryScan } from "./discovery.js";
@@ -46,7 +47,13 @@ function start(spec: ManagedSmbSource): void {
     onScanComplete: (result) => {
       if (result.ok) setKnownFiles(spec.id, result.paths);
       const status = result.ok
-        ? { ok: true as const, fileCount: result.fileCount, totalBytes: result.totalBytes }
+        ? {
+            ok: true as const,
+            fileCount: result.fileCount,
+            totalBytes: result.totalBytes,
+            unreadableFolders: result.unreadable.slice(0, MAX_UNREADABLE_FOLDERS),
+            unreadableFolderCount: result.unreadable.length,
+          }
         : { ok: false as const, error: describeSmbError(result.error) };
       reportSourceStatus(spec.id, status).catch((err) => console.error("status report failed", err));
     },

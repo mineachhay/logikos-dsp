@@ -96,7 +96,9 @@ export async function fetchAgentSync(): Promise<AgentSyncResponse | null> {
 
 export async function reportSourceStatus(
   sourceId: string,
-  status: { ok: true; fileCount: number; totalBytes: number } | { ok: false; error: string },
+  status:
+    | { ok: true; fileCount: number; totalBytes: number; unreadableFolders: string[]; unreadableFolderCount: number }
+    | { ok: false; error: string },
 ): Promise<void> {
   const res = await postJson(`/agent-sync/sources/${sourceId}/status`, { agentKey: config.agentKey, ...status });
   if (!res.ok) {
