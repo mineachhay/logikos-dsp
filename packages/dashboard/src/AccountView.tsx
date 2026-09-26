@@ -40,6 +40,23 @@ export default function AccountView({ forced = false }: { forced?: boolean }) {
     }
   }
 
+  if (user?.source === "DIRECTORY") {
+    return (
+      <div className="account-view">
+        <p className="muted">
+          Signed in as <strong>{user.email}</strong> ({user.role}) with your Active Directory account.
+        </p>
+        <section className="fs-card account-card">
+          <h3>Password</h3>
+          <p className="muted">
+            This is your Windows password, so change it in Windows (Ctrl+Alt+Del → Change a password). Your role comes from your AD
+            group membership.
+          </p>
+        </section>
+      </div>
+    );
+  }
+
   const form = (
     <section className="fs-card account-card">
       <h3>{forced ? "Choose a new password" : "Change password"}</h3>

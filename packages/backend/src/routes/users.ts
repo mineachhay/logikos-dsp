@@ -30,6 +30,8 @@ const userSelect = {
   lockedUntil: true,
   mustChangePassword: true,
   passwordChangedAt: true,
+  source: true,
+  directoryCheckedAt: true,
 } as const;
 
 async function findUser(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
@@ -71,6 +73,9 @@ export async function userRoutes(app: FastifyInstance) {
     const user = await findUser(req, reply);
     if (!user) return reply;
 
+    if (user.source === "DIRECTORY" && body.role !== undefined && body.role !== user.role) {
+      return reply.code(400).send({ error: "this account's role comes from its Active Directory groups — change the group membership in AD" });
+    }
     const losesAdmin = user.role === "ADMIN" && user.isActive && (body.isActive === false || body.role === "VIEWER");
     if (losesAdmin && user.id === req.user.id) {
       return reply.code(400).send({ error: "you can't deactivate or demote your own account — ask another admin" });
@@ -109,6 +114,9 @@ export async function userRoutes(app: FastifyInstance) {
     if (!user) return reply;
     if (user.id === req.user.id) {
       return reply.code(400).send({ error: "change your own password under My account" });
+    }
+    if (user.source === "DIRECTORY") {
+      return reply.code(400).send({ error: "this is an Active Directory account — reset its password in AD" });
     }
     const problem = passwordProblem(body.newPassword, user.email);
     if (problem) return reply.code(400).send({ error: `password: ${problem}` });

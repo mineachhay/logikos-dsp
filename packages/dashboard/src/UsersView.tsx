@@ -4,6 +4,7 @@ import { usePolling } from "./usePolling.js";
 import * as api from "./api.js";
 import type { AuditEntry, ManagedUser, Role } from "./api.js";
 import { useAuth } from "./auth.js";
+import DirectorySettingsCard from "./DirectorySettingsCard.js";
 
 function formatDate(iso: string | null): string {
   return iso ? new Date(iso).toLocaleString() : "never";
@@ -59,12 +60,26 @@ function UserRow({ user, isSelf }: { user: ManagedUser; isSelf: boolean }) {
       <tr className={user.isActive ? "" : "row-disabled"}>
         <td data-label="Email" className="cell-wide">
           {user.email} {isSelf && <span className="badge badge-self">you</span>}
+          {user.source === "DIRECTORY" && (
+            <span
+              className="badge badge-directory"
+              title={`Active Directory account — password and role are managed in AD${user.directoryCheckedAt ? `; last confirmed ${new Date(user.directoryCheckedAt).toLocaleString()}` : ""}`}
+            >
+              AD
+            </span>
+          )}
         </td>
         <td data-label="Role">
           <select
             value={user.role}
-            disabled={busy || isSelf}
-            title={isSelf ? "Another admin has to change your role" : undefined}
+            disabled={busy || isSelf || user.source === "DIRECTORY"}
+            title={
+              user.source === "DIRECTORY"
+                ? "Set by the account's Active Directory group"
+                : isSelf
+                  ? "Another admin has to change your role"
+                  : undefined
+            }
             onChange={(e) => act(() => api.updateUser(user.id, { role: e.target.value as Role }))}
           >
             <option value="VIEWER">Viewer</option>
@@ -77,9 +92,11 @@ function UserRow({ user, isSelf }: { user: ManagedUser; isSelf: boolean }) {
         <td className="cell-actions">
           {!isSelf && (
             <div className="user-actions">
-              <button className="btn-link" disabled={busy} onClick={() => setResetTo(resetTo === null ? temporaryPassword() : null)}>
-                Reset password
-              </button>
+              {user.source === "LOCAL" && (
+                <button className="btn-link" disabled={busy} onClick={() => setResetTo(resetTo === null ? temporaryPassword() : null)}>
+                  Reset password
+                </button>
+              )}
               {locked && (
                 <button className="btn-link" disabled={busy} onClick={() => act(() => api.unlockUser(user.id), "Unlocked.")}>
                   Unlock
@@ -152,7 +169,7 @@ function describeUserAudit(entry: AuditEntry): string {
     "user.password.reset": `reset the password of ${who}`,
     "user.password.change": `${who} changed their password`,
     "user.unlock": `unlocked ${who}`,
-    "user.sessions.revoke": `signed ${who} out everywhere`,
+    "user.sessions.revoke": d.reason ? `signed ${who} out (${String(d.reason)})` : `signed ${who} out everywhere`,
   };
   return labels[entry.action] ?? `${entry.action} ${who}`;
 }
@@ -188,6 +205,8 @@ export default function UsersView() {
 
   return (
     <div className="users-view">
+      <DirectorySettingsCard />
+
       {/* autoComplete off / new-password: otherwise the browser fills in the
           signed-in admin's own saved credentials as the "new user". */}
       <form className="create-user" onSubmit={handleSubmit} autoComplete="off">

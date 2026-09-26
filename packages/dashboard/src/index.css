@@ -368,3 +368,14 @@ th.sortable:hover { color: #ccc; }
 .account-card { max-width: 460px; }
 .forced-password { max-width: 460px; margin: 10vh auto 0; padding: 0 16px; display: flex; flex-direction: column; gap: 8px; }
 .forced-password h1 { font-size: 18px; margin: 0; }
+
+/* Directory sign-in */
+.badge-directory { background: #1f3a33; color: #7fd6b6; margin-left: 6px; }
+.directory-card { margin-bottom: 16px; }
+.directory-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.directory-head p { margin: 2px 0 0; }
+.pem-input { background: #1b1e24; color: #e6e6e6; border: 1px solid #2c313a; border-radius: 6px; padding: 7px 9px; font-family: ui-monospace, monospace; font-size: 12px; width: 100%; box-sizing: border-box; resize: vertical; }
+.directory-test { border-top: 1px solid #22252c; padding-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.directory-test h4 { margin: 0; font-size: 13px; font-weight: 500; color: #ccc; }
+.directory-steps { margin: 0; padding-left: 4px; list-style: none; font-size: 13px; display: flex; flex-direction: column; gap: 4px; overflow-wrap: anywhere; }
+.fs-form label.inline-toggle { flex-direction: row; align-items: center; font-size: 13px; }

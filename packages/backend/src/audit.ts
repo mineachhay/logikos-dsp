@@ -24,3 +24,18 @@ export async function recordAudit(
     },
   });
 }
+
+/**
+ * For changes nobody clicked: Active Directory provisioning an account or
+ * changing its role at sign-in. `actor` names the system that made the change.
+ */
+export async function recordSystemAudit(
+  actor: string,
+  action: string,
+  target: { type: string; id?: string },
+  details?: Prisma.InputJsonValue,
+): Promise<void> {
+  await prisma.auditLog.create({
+    data: { userId: null, userEmail: actor, action, targetType: target.type, targetId: target.id, details },
+  });
+}

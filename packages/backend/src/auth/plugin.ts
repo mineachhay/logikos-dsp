@@ -3,6 +3,8 @@ import cookie from "@fastify/cookie";
 import jwt from "@fastify/jwt";
 import { prisma } from "../db.js";
 import { SESSION_TTL_SECONDS, allowedWhilePasswordChangeRequired, needsRenewal } from "./sessions.js";
+import { loadDirectoryConfig, recheckDirectoryAccount } from "./directoryClient.js";
+import { recordSystemAudit } from "../audit.js";
 
 export type Role = "ADMIN" | "VIEWER";
 
@@ -85,7 +87,16 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
     const claims = request.user;
     const user = await prisma.user.findUnique({
       where: { id: claims.id },
-      select: { id: true, email: true, role: true, isActive: true, sessionVersion: true, mustChangePassword: true },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        isActive: true,
+        sessionVersion: true,
+        mustChangePassword: true,
+        source: true,
+        directoryGuid: true,
+      },
     });
     if (!user || !user.isActive || user.sessionVersion !== claims.sv) {
       reply.clearCookie("token", { path: "/" }).code(401).send({ error: "unauthorized" });
@@ -97,7 +108,18 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
       return;
     }
     // Sliding expiry: an active session is re-issued every RENEW_AFTER_SECONDS.
-    if (needsRenewal(claims.iat, Date.now())) await issueSession(reply, user);
+    if (needsRenewal(claims.iat, Date.now())) {
+      if (user.source === "DIRECTORY") {
+        const role = await recheckDirectory(user, request);
+        if (!role) {
+          reply.clearCookie("token", { path: "/" }).code(401).send({ error: "unauthorized" });
+          return;
+        }
+        user.role = role;
+        request.user.role = role;
+      }
+      await issueSession(reply, user);
+    }
   });
 
   app.decorate("requireRole", (role: Role) => {
@@ -107,4 +129,36 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
       }
     };
   });
+}
+
+/**
+ * A directory account's standing is re-read from AD whenever its session is
+ * renewed (every RENEW_AFTER_SECONDS of activity), so someone disabled or
+ * removed from the groups in AD is out within that, not at token expiry.
+ * Returns the current role, or null when the session must end. AD being
+ * unreachable keeps the session (the token's own 12h expiry still bounds it)
+ * rather than signing everyone out during a DC reboot.
+ */
+async function recheckDirectory(
+  user: { id: string; email: string; role: Role; directoryGuid: string | null },
+  request: FastifyRequest,
+): Promise<Role | null> {
+  const cfg = await loadDirectoryConfig();
+  const endAll = async (why: string) => {
+    await prisma.user.update({ where: { id: user.id }, data: { sessionVersion: { increment: 1 } } });
+    await recordSystemAudit("active-directory", "user.sessions.revoke", { type: "user", id: user.id }, { email: user.email, reason: why });
+    return null;
+  };
+  if (!cfg || !user.directoryGuid) return endAll("directory sign-in is off");
+  const check = await recheckDirectoryAccount(cfg, user.directoryGuid);
+  if (check.state === "unavailable") {
+    request.log.warn({ detail: check.detail }, "directory re-check skipped: no domain controller answered");
+    return user.role;
+  }
+  if (check.state !== "ok") return endAll(check.state === "gone" ? "account no longer in AD" : check.state === "disabled" ? "disabled in AD" : "not in a mapped AD group");
+  if (check.role !== user.role) {
+    await recordSystemAudit("active-directory", "user.update", { type: "user", id: user.id }, { email: user.email, role: { from: user.role, to: check.role } });
+  }
+  await prisma.user.update({ where: { id: user.id }, data: { role: check.role, directoryDn: check.dn, directoryCheckedAt: new Date() } });
+  return check.role;
 }

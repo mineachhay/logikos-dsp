@@ -80,6 +80,14 @@ model User {
   /// /auth/me and /auth/password (auth/sessions.ts).
   mustChangePassword Boolean   @default(false)
   passwordChangedAt  DateTime?
+  /// LOCAL: password checked here. DIRECTORY: signs in against Active
+  /// Directory; the local passwordHash is random and never checked.
+  source             UserSource @default(LOCAL)
+  /// AD objectGUID — the stable identity (survives renames and moves).
+  directoryGuid      String?   @unique
+  directoryDn        String?
+  /// Last time AD confirmed this account is enabled and in a mapped group.
+  directoryCheckedAt DateTime?
 
   approvedResponseActions ResponseAction[]
 }
@@ -602,4 +610,31 @@ model RetentionSettings {
   lastRunAt           DateTime?
   lastRunSummary      String?
   updatedAt           DateTime  @updatedAt
+}
+
+enum UserSource {
+  LOCAL
+  DIRECTORY
+}
+
+/// Sign-in with Active Directory accounts (one row, id "default"). See
+/// auth/directory.ts. The lookup account's password is encrypted with
+/// SOURCE_CREDENTIALS_KEY like share passwords, and never returned.
+model DirectorySettings {
+  id              String   @id @default("default")
+  enabled         Boolean  @default(false)
+  /// DNS name, e.g. corp.example — the suffix for bare usernames.
+  domain          String   @default("")
+  /// Domain controllers, tried in order (LDAPS, `port`).
+  servers         String[] @default([])
+  port            Int      @default(636)
+  baseDn          String   @default("")
+  bindUsername    String   @default("")
+  bindPasswordEnc String?
+  /// PEM of the CA that issued the DCs' certificates; empty = system trust.
+  caCertPem       String   @default("")
+  /// Group DN or name → role. Checked with nested membership.
+  adminGroup      String   @default("")
+  viewerGroup     String   @default("")
+  updatedAt       DateTime @updatedAt
 }

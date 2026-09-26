@@ -1,10 +1,15 @@
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { prisma } from "../db.js";
 import { hashPassword, verifyPassword } from "../auth/passwords.js";
 import { issueSession } from "../auth/plugin.js";
 import { normalizeEmail, passwordProblem } from "../auth/passwordPolicy.js";
-import { recordAudit } from "../audit.js";
+import { randomBytes } from "node:crypto";
+import type { User } from "@prisma/client";
+import { recordAudit, recordSystemAudit } from "../audit.js";
+import { parseLoginName } from "../auth/directory.js";
+import { authenticateDirectory, loadDirectoryConfig } from "../auth/directoryClient.js";
+import type { DirectoryConfig } from "../auth/directoryClient.js";
 import {
   IP_WINDOW_MS,
   LOCK_AFTER_FAILURES,
@@ -13,8 +18,10 @@ import {
   secondsUntil,
 } from "../auth/loginThrottle.js";
 
+// "email" for API compatibility, but with directory sign-in it's also a
+// Windows account name: jdoe, CORP\jdoe or jdoe@corp.example.
 const loginSchema = z.object({
-  email: z.string().email().transform(normalizeEmail),
+  email: z.string().trim().min(1).max(256),
   password: z.string().min(1),
 });
 
@@ -56,6 +63,106 @@ function clientIp(req: FastifyRequest): string {
   return req.ip || "unknown";
 }
 
+/** Answers 429 and returns true when this account is in a lockout. */
+async function isLocked(user: User | null, ip: string, name: string, now: Date, reply: FastifyReply): Promise<boolean> {
+  // Checked before the password, so a locked account can't be probed by
+  // whether the answer comes back slowly.
+  if (!user?.lockedUntil || user.lockedUntil <= now) return false;
+  await recordAttempt(ip, name, false);
+  const seconds = secondsUntil(user.lockedUntil, now);
+  reply.code(429).header("retry-after", String(seconds)).send({ error: `too many failed sign-in attempts — try again in ${seconds} seconds` });
+  return true;
+}
+
+async function recordFailure(user: User | null, ip: string, name: string, now: Date): Promise<void> {
+  await recordAttempt(ip, name, false);
+  if (!user) return;
+  const failures = user.failedLoginCount + 1;
+  const lockMs = lockoutMsFor(failures);
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { failedLoginCount: failures, lockedUntil: lockMs ? new Date(now.getTime() + lockMs) : null },
+  });
+  if (lockMs && failures === LOCK_AFTER_FAILURES) {
+    await raiseLoginAttackAlert(user.email, ip, failures, lockMs / 1000);
+  }
+}
+
+async function completeLogin(user: User, ip: string, name: string, now: Date, reply: FastifyReply) {
+  await recordAttempt(ip, name, true);
+  await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: now, failedLoginCount: 0, lockedUntil: null } });
+  await issueSession(reply, user);
+  return reply.send({ id: user.id, email: user.email, role: user.role, mustChangePassword: user.mustChangePassword, source: user.source });
+}
+
+/**
+ * Sign-in with an Active Directory account. AD checks the password and group
+ * membership; here the account is provisioned on first sign-in (matched by
+ * objectGUID afterwards) and its role kept in step with its groups.
+ */
+async function directoryLogin(cfg: DirectoryConfig, name: string, password: string, byEmail: User | null, ip: string, now: Date, reply: FastifyReply) {
+  // The local row whose lockout applies: the directory user this name
+  // matches, even when typed as a bare username. Failures count against it
+  // before they count against the person's AD lockout.
+  const parsed = parseLoginName(name);
+  const row = byEmail ?? (parsed ? await prisma.user.findFirst({ where: { source: "DIRECTORY", email: `${parsed.sam}@${cfg.domain}`.toLowerCase() } }) : null);
+  if (await isLocked(row, ip, name, now, reply)) return reply;
+
+  const result = await authenticateDirectory(cfg, name, password);
+  if (!result.ok) {
+    if (result.reason === "unavailable") {
+      reply.log.warn({ detail: result.detail }, "directory sign-in: no domain controller answered");
+      return reply.code(503).send({ error: "Active Directory didn't answer — try again shortly" });
+    }
+    await recordFailure(row, ip, name, now);
+    return reply.code(401).send(FAILED);
+  }
+
+  const account = result.account;
+  let user = await prisma.user.findUnique({ where: { directoryGuid: account.guid } });
+  if (!user) {
+    // Never attach an AD account to an existing local one with the same
+    // address: that would let whoever controls the AD account take over it.
+    if (await prisma.user.findUnique({ where: { email: account.email } })) {
+      reply.log.warn({ email: account.email }, "directory sign-in refused: a local account already uses this address");
+      await recordAttempt(ip, name, false);
+      return reply.code(401).send(FAILED);
+    }
+    user = await prisma.user.create({
+      data: {
+        email: account.email,
+        role: account.role,
+        source: "DIRECTORY",
+        directoryGuid: account.guid,
+        directoryDn: account.dn,
+        directoryCheckedAt: now,
+        // Never checked for a directory account; random so it can't be guessed either.
+        passwordHash: await hashPassword(randomBytes(32).toString("base64")),
+      },
+    });
+    await recordSystemAudit("active-directory", "user.create", { type: "user", id: user.id }, { email: user.email, role: user.role, source: "DIRECTORY" });
+  } else {
+    // Deactivated here overrides AD: an admin can still shut someone out.
+    if (!user.isActive) {
+      await recordAttempt(ip, name, false);
+      return reply.code(401).send(FAILED);
+    }
+    if (await isLocked(user, ip, name, now, reply)) return reply;
+    const previousRole = user.role;
+    user = await prisma.user.update({
+      where: { id: user.id },
+      data: { role: account.role, directoryDn: account.dn, directoryCheckedAt: now },
+    });
+    if (previousRole !== account.role) {
+      await recordSystemAudit("active-directory", "user.update", { type: "user", id: user.id }, {
+        email: user.email,
+        role: { from: previousRole, to: account.role },
+      });
+    }
+  }
+  return completeLogin(user, ip, name, now, reply);
+}
+
 export async function authRoutes(app: FastifyInstance) {
   app.post("/auth/login", async (req, reply) => {
     const body = loginSchema.parse(req.body);
@@ -76,44 +183,21 @@ export async function authRoutes(app: FastifyInstance) {
         .send({ error: `too many failed sign-in attempts — try again in ${seconds} seconds` });
     }
 
-    const user = await prisma.user.findUnique({ where: { email: body.email } });
+    const user = await prisma.user.findUnique({ where: { email: normalizeEmail(body.email) } });
 
-    // 2. Is this account locked? Checked before the password, so a locked
-    //    account can't be probed by whether the answer comes back slowly.
-    if (user?.lockedUntil && user.lockedUntil > now) {
-      await recordAttempt(ip, body.email, false);
-      const seconds = secondsUntil(user.lockedUntil, now);
-      return reply
-        .code(429)
-        .header("retry-after", String(seconds))
-        .send({ error: `too many failed sign-in attempts — try again in ${seconds} seconds` });
-    }
+    // A local account that matches is always checked locally — so the local
+    // admin keeps working when AD is down or misconfigured (break-glass).
+    // Anything else goes to Active Directory when directory sign-in is on.
+    const directory = !user || user.source === "DIRECTORY" ? await loadDirectoryConfig() : null;
+    if (directory) return directoryLogin(directory, body.email, body.password, user, ip, now, reply);
 
-    const ok = Boolean(user) && user!.isActive && (await verifyPassword(body.password, user!.passwordHash));
+    if (await isLocked(user, ip, body.email, now, reply)) return reply;
+    const ok = Boolean(user) && user!.isActive && user!.source === "LOCAL" && (await verifyPassword(body.password, user!.passwordHash));
     if (!ok) {
-      await recordAttempt(ip, body.email, false);
-      if (user) {
-        const failures = user.failedLoginCount + 1;
-        const lockMs = lockoutMsFor(failures);
-        await prisma.user.update({
-          where: { id: user.id },
-          data: { failedLoginCount: failures, lockedUntil: lockMs ? new Date(now.getTime() + lockMs) : null },
-        });
-        if (lockMs && failures === LOCK_AFTER_FAILURES) {
-          await raiseLoginAttackAlert(user.email, ip, failures, lockMs / 1000);
-        }
-      }
+      await recordFailure(user, ip, body.email, now);
       return reply.code(401).send(FAILED);
     }
-
-    await recordAttempt(ip, body.email, true);
-    await prisma.user.update({
-      where: { id: user!.id },
-      data: { lastLoginAt: now, failedLoginCount: 0, lockedUntil: null },
-    });
-
-    await issueSession(reply, user!);
-    reply.send({ id: user!.id, email: user!.email, role: user!.role, mustChangePassword: user!.mustChangePassword });
+    return completeLogin(user!, ip, body.email, now, reply);
   });
 
   app.post("/auth/logout", async (_req, reply) => {
@@ -122,7 +206,8 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.get("/auth/me", { preHandler: app.authenticate }, async (req, reply) => {
     const { id, email, role, mustChangePassword } = req.user;
-    reply.send({ id, email, role, mustChangePassword: Boolean(mustChangePassword) });
+    const { source } = await prisma.user.findUniqueOrThrow({ where: { id }, select: { source: true } });
+    reply.send({ id, email, role, mustChangePassword: Boolean(mustChangePassword), source });
   });
 
   /**
@@ -133,6 +218,9 @@ export async function authRoutes(app: FastifyInstance) {
   app.post("/auth/password", { preHandler: app.authenticate }, async (req, reply) => {
     const body = changePasswordSchema.parse(req.body);
     const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user.id } });
+    if (user.source === "DIRECTORY") {
+      return reply.code(400).send({ error: "your password is your Windows password — change it in Windows (Ctrl+Alt+Del → Change a password)" });
+    }
     if (!(await verifyPassword(body.currentPassword, user.passwordHash))) {
       return reply.code(400).send({ error: "current password is incorrect" });
     }

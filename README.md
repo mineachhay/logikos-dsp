@@ -370,6 +370,32 @@ unlock, or sign someone out everywhere; recent user changes are listed below.
 Everyone changes their own password under **My account**, opened from their
 email in the top bar.
 
+## Sign in with Active Directory
+
+People can sign in to the dashboard with their Windows account (`jdoe`,
+`DOMAIN\jdoe` or `jdoe@corp.example`); AD checks the password over LDAPS and
+their AD group decides whether they're an Admin or a Viewer. Accounts appear on
+the Users page on first sign-in. The local admin keeps working if AD is down.
+
+In Active Directory:
+
+1. Create two security groups, e.g. `DSP-Admins` and `DSP-Viewers`, and add the
+   people (or groups — nesting works). Anyone in neither can't sign in.
+2. Have a lookup account — any ordinary, enabled domain user (e.g. `svc-dsp`);
+   it only searches the directory. Set its password not to expire, or the
+   sign-in stops when it does.
+3. Make sure the domain controllers serve LDAPS (port 636) with a valid
+   certificate, and export the CA certificate that issued them (Base-64 `.cer`).
+   `openssl s_client -connect dc1.corp.example:636` shows each DC's certificate
+   and who issued it.
+
+Then under **Administration → Users → Directory sign-in**: domain, the domain
+controllers' host names (as they appear in their certificates), the lookup
+account and password, the two groups, and the CA certificate. **Save**, then
+**Test** — optionally signing in as a real user — and switch it on. Someone
+disabled or removed from the groups in AD loses access within 15 minutes of
+activity; their password is changed in Windows, not here.
+
 ## Notifications (Telegram)
 
 Approving a **webhook notification** response action sends the alert to every

@@ -17,9 +17,10 @@ export default function LoginView() {
       await login(email, password);
     } catch (err) {
       // The backend's own message when sign-ins are being throttled ("try again
-      // in N seconds"); anything else is the deliberately vague credentials error.
+      // in N seconds") or AD didn't answer ("try again shortly"); anything else
+      // is the deliberately vague credentials error.
       const message = err instanceof Error ? err.message : "";
-      setError(/try again in/i.test(message) ? message : "Invalid email or password");
+      setError(/try again/i.test(message) ? message : "Invalid sign-in name or password");
     } finally {
       setBusy(false);
     }
@@ -30,8 +31,19 @@ export default function LoginView() {
       <form onSubmit={handleSubmit}>
         <h1>logikos-dsp</h1>
         <label>
-          Email
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
+          Email or Windows account
+          {/* type=text, not email: the browser would refuse jdoe or CORP\jdoe before sending. */}
+          <input
+            type="text"
+            autoComplete="username"
+            autoCapitalize="none"
+            spellCheck={false}
+            placeholder="you@example.com or DOMAIN\\username"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            autoFocus
+          />
         </label>
         <label>
           Password

@@ -13,6 +13,7 @@ import { retentionRoutes } from "./routes/retention.js";
 import { registerAuth } from "./auth/plugin.js";
 import { authRoutes } from "./routes/auth.js";
 import { userRoutes } from "./routes/users.js";
+import { directoryRoutes } from "./routes/directory.js";
 import { agentRoutes } from "./routes/agents.js";
 import { ingestRoutes } from "./routes/ingest.js";
 import { agentCommandRoutes } from "./routes/agentCommands.js";
@@ -63,6 +64,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
 
   await app.register(authRoutes);
   await app.register(userRoutes);
+  await app.register(directoryRoutes);
   // Agent-facing: authenticated by enroll token / per-agent secret (auth/agentAuth.ts), not user login.
   // Never gate these behind app.authenticate. (agents.ts also holds the dashboard-side /agents routes.)
   await app.register(agentRoutes);

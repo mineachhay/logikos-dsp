@@ -40,6 +40,8 @@ export interface CurrentUser {
   role: Role;
   /** Set after an admin reset: the server allows nothing but a password change until it's done. */
   mustChangePassword?: boolean;
+  /** DIRECTORY: signs in with Active Directory; the password is managed there. */
+  source?: "LOCAL" | "DIRECTORY";
 }
 
 export async function login(email: string, password: string): Promise<CurrentUser> {
@@ -67,6 +69,8 @@ export interface ManagedUser {
   lockedUntil: string | null;
   mustChangePassword: boolean;
   passwordChangedAt: string | null;
+  source: "LOCAL" | "DIRECTORY";
+  directoryCheckedAt: string | null;
 }
 
 export async function listUsers(): Promise<ManagedUser[]> {
@@ -510,3 +514,33 @@ export interface DeployRequest {
 export async function deployAgent(body: DeployRequest): Promise<Deployment> {
   return postJson<Deployment>("/deployments", body);
 }
+
+export interface DirectorySettings {
+  enabled: boolean;
+  domain: string;
+  servers: string[];
+  port: number;
+  baseDn: string;
+  effectiveBaseDn: string;
+  bindUsername: string;
+  hasBindPassword: boolean;
+  caCertPem: string;
+  adminGroup: string;
+  viewerGroup: string;
+  updatedAt: string;
+}
+
+export type DirectorySettingsInput = Omit<DirectorySettings, "effectiveBaseDn" | "hasBindPassword" | "updatedAt"> & { bindPassword?: string };
+
+export interface DirectoryTestStep {
+  step: string;
+  ok: boolean;
+  detail: string;
+}
+
+export const directoryApi = {
+  get: () => requestJson<DirectorySettings>("GET", "/directory/settings"),
+  save: (input: DirectorySettingsInput) => requestJson<DirectorySettings>("PUT", "/directory/settings", input),
+  test: (login?: { username: string; password: string }) =>
+    requestJson<{ steps: DirectoryTestStep[] }>("POST", "/directory/test", login ?? {}),
+};
