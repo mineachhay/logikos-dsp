@@ -280,7 +280,8 @@ th.sortable:hover { color: #ccc; }
 }
 
 @media (max-width: 640px) {
-  .session-email { display: none; }
+  /* Kept, not hidden: it's the way to My account (password change) on a phone too. */
+  .session-email { max-width: 38vw; }
   .session button { padding: 8px 12px; }
 
   .table-toolbar .search-input { flex: 1 1 100%; min-width: 0; }
@@ -349,3 +350,21 @@ th.sortable:hover { color: #ccc; }
 .deploy-row td { background: #12151b; }
 .deploy-form { padding: 6px 2px 12px; }
 .deploy-form p { font-size: 13px; margin: 0 0 4px; }
+
+/* Users and My account */
+.session-email.btn-link { font-size: 13px; color: #aab4c8; }
+.session-email.btn-link:hover { color: #6fa0ff; }
+.badge-self { background: #22304a; color: #8fb3ff; margin-left: 6px; }
+.row-disabled td { color: #7d828c; }
+.btn-link-danger { color: #ef6f6f; }
+.users-table select { background: #1b1e24; color: #e6e6e6; border: 1px solid #2c313a; border-radius: 6px; padding: 4px 6px; }
+.user-actions { display: flex; flex-wrap: wrap; gap: 2px; justify-content: flex-end; }
+.user-detail-row td { background: #14161b; }
+.reset-password { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
+.reset-password label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #aab4c8; flex: 1 1 260px; }
+.reset-password input { background: #1b1e24; color: #e6e6e6; border: 1px solid #2c313a; border-radius: 6px; padding: 7px 9px; font-family: ui-monospace, monospace; }
+.fs-form-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.form-hint { font-size: 12px; margin: 0; }
+.account-card { max-width: 460px; }
+.forced-password { max-width: 460px; margin: 10vh auto 0; padding: 0 16px; display: flex; flex-direction: column; gap: 8px; }
+.forced-password h1 { font-size: 18px; margin: 0; }

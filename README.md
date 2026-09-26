@@ -363,6 +363,13 @@ the email name and can't be a common password. After an admin reset the user
 must choose a new password before they can do anything else. Emails are
 case-insensitive. Every user-management change is recorded in the audit log.
 
+**Users** (Administration → Users) shows each account's status — active,
+disabled, locked after failed sign-ins, or waiting for a password change — and
+lets an admin change roles, deactivate, reset a password to a temporary one,
+unlock, or sign someone out everywhere; recent user changes are listed below.
+Everyone changes their own password under **My account**, opened from their
+email in the top bar.
+
 ## Notifications (Telegram)
 
 Approving a **webhook notification** response action sends the alert to every

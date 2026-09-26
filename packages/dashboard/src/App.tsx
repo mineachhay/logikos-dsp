@@ -6,6 +6,7 @@ import type { Alert, FileEvent, FileActivityRow, StorageSnapshot, Classification
 import { AuthProvider, useAuth } from "./auth.js";
 import LoginView from "./LoginView.js";
 import UsersView from "./UsersView.js";
+import AccountView from "./AccountView.js";
 import AgentsView from "./AgentsView.js";
 import FileServersView from "./FileServersView.js";
 import BackupsView from "./BackupsView.js";
@@ -642,7 +643,8 @@ function formatBytes(bytes: number): string {
 function Dashboard() {
   const { user, logout } = useAuth();
   const groups = user?.role === "ADMIN" ? [...NAV_GROUPS, { label: "Administration", items: ["File Servers", "Backups", "Retention", "Agents", "Users"] }] : NAV_GROUPS;
-  const allTabs = useMemo(() => groups.flatMap((g) => g.items), [groups]);
+  // "My account" isn't in the sidebar — it's opened from the email in the top bar.
+  const allTabs = useMemo(() => [...groups.flatMap((g) => g.items), "My account"], [groups]);
   // Read the hash on first render rather than in an effect, so the right view
   // is painted immediately instead of flashing Overview first.
   const [tab, setTab] = useState<string>(() => slugToTab(window.location.hash, allTabs) ?? "Overview");
@@ -712,7 +714,9 @@ function Dashboard() {
           </button>
           <h2 className="topbar-title">{tab}</h2>
           <div className="session">
-            <span className="session-email" title={user?.email}>{user?.email}</span>
+            <button className="session-email btn-link" title="My account — change password" onClick={() => selectTab("My account")}>
+              {user?.email}
+            </button>
             <button onClick={() => logout()}>Log out</button>
           </div>
         </div>
@@ -729,6 +733,7 @@ function Dashboard() {
           {tab === "Retention" && <RetentionView />}
           {tab === "Agents" && <AgentsView />}
           {tab === "Users" && <UsersView />}
+          {tab === "My account" && <AccountView />}
         </main>
       </div>
     </div>
@@ -738,7 +743,9 @@ function Dashboard() {
 function AppShell() {
   const { user, loading } = useAuth();
   if (loading) return null;
-  return user ? <Dashboard /> : <LoginView />;
+  if (!user) return <LoginView />;
+  // After an admin reset the server allows nothing but the password change.
+  return user.mustChangePassword ? <AccountView forced /> : <Dashboard />;
 }
 
 export default function App() {

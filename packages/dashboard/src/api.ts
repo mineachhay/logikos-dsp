@@ -38,6 +38,8 @@ export interface CurrentUser {
   id: string;
   email: string;
   role: Role;
+  /** Set after an admin reset: the server allows nothing but a password change until it's done. */
+  mustChangePassword?: boolean;
 }
 
 export async function login(email: string, password: string): Promise<CurrentUser> {
@@ -61,14 +63,40 @@ export interface ManagedUser {
   isActive: boolean;
   createdAt: string;
   lastLoginAt: string | null;
+  failedLoginCount: number;
+  lockedUntil: string | null;
+  mustChangePassword: boolean;
+  passwordChangedAt: string | null;
 }
 
 export async function listUsers(): Promise<ManagedUser[]> {
   return fetchJson<ManagedUser[]>("/users");
 }
 
+// requestJson throughout, so the backend's own reason ("use at least 12
+// characters", "that would leave no active admin") reaches the page.
 export async function createUser(email: string, password: string, role: Role): Promise<ManagedUser> {
-  return postJson<ManagedUser>("/users", { email, password, role });
+  return requestJson<ManagedUser>("POST", "/users", { email, password, role });
+}
+
+export async function updateUser(id: string, changes: { role?: Role; isActive?: boolean }): Promise<ManagedUser> {
+  return requestJson<ManagedUser>("PATCH", `/users/${id}`, changes);
+}
+
+export async function resetUserPassword(id: string, newPassword: string): Promise<ManagedUser> {
+  return requestJson<ManagedUser>("POST", `/users/${id}/password`, { newPassword });
+}
+
+export async function unlockUser(id: string): Promise<ManagedUser> {
+  return requestJson<ManagedUser>("POST", `/users/${id}/unlock`);
+}
+
+export async function revokeUserSessions(id: string): Promise<ManagedUser> {
+  return requestJson<ManagedUser>("POST", `/users/${id}/sessions/revoke`);
+}
+
+export async function changeOwnPassword(currentPassword: string, newPassword: string): Promise<void> {
+  await requestJson("POST", "/auth/password", { currentPassword, newPassword });
 }
 
 export interface SourceRef {

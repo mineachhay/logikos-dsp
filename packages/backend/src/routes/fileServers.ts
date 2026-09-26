@@ -393,7 +393,9 @@ export async function fileServerRoutes(app: FastifyInstance) {
   });
 
   app.get("/audit-log", admin, async (req) => {
-    const { limit } = z.object({ limit: z.coerce.number().int().positive().max(500).default(50) }).parse(req.query);
-    return prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: limit });
+    const { limit, targetType } = z
+      .object({ limit: z.coerce.number().int().positive().max(500).default(50), targetType: z.string().max(40).optional() })
+      .parse(req.query);
+    return prisma.auditLog.findMany({ where: targetType ? { targetType } : undefined, orderBy: { createdAt: "desc" }, take: limit });
   });
 }
