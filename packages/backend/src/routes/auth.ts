@@ -105,7 +105,12 @@ async function directoryLogin(cfg: DirectoryConfig, name: string, password: stri
   // matches, even when typed as a bare username. Failures count against it
   // before they count against the person's AD lockout.
   const parsed = parseLoginName(name);
-  const row = byEmail ?? (parsed ? await prisma.user.findFirst({ where: { source: "DIRECTORY", email: `${parsed.sam}@${cfg.domain}`.toLowerCase() } }) : null);
+  // By Windows username, not a guessed address: a UPN suffix needn't be the
+  // domain (name@brand.example in corp.local), and the guess
+  // used to miss such accounts, leaving only AD's own lockout and the IP limit.
+  const row =
+    byEmail ??
+    (parsed ? await prisma.user.findFirst({ where: { source: "DIRECTORY", directoryUsername: parsed.sam.toLowerCase() } }) : null);
   if (await isLocked(row, ip, name, now, reply)) return reply;
 
   const result = await authenticateDirectory(cfg, name, password);
@@ -135,6 +140,7 @@ async function directoryLogin(cfg: DirectoryConfig, name: string, password: stri
         source: "DIRECTORY",
         directoryGuid: account.guid,
         directoryDn: account.dn,
+        directoryUsername: account.username,
         directoryCheckedAt: now,
         // Never checked for a directory account; random so it can't be guessed either.
         passwordHash: await hashPassword(randomBytes(32).toString("base64")),
@@ -151,7 +157,7 @@ async function directoryLogin(cfg: DirectoryConfig, name: string, password: stri
     const previousRole = user.role;
     user = await prisma.user.update({
       where: { id: user.id },
-      data: { role: account.role, directoryDn: account.dn, directoryCheckedAt: now },
+      data: { role: account.role, directoryDn: account.dn, directoryUsername: account.username, directoryCheckedAt: now },
     });
     if (previousRole !== account.role) {
       await recordSystemAudit("active-directory", "user.update", { type: "user", id: user.id }, {

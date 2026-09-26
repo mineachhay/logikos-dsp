@@ -37,6 +37,8 @@ export interface DirectoryConfig {
 export interface DirectoryAccount {
   guid: string;
   dn: string;
+  /** sAMAccountName, lowercased. */
+  username: string;
   email: string;
   displayName: string | null;
   role: DirectoryRole;
@@ -151,6 +153,7 @@ function toAccount(entry: Entry, cfg: DirectoryConfig, role: DirectoryRole): Dir
   return {
     guid: formatGuid(Buffer.isBuffer(guid) ? guid : Buffer.from(guid as unknown as string, "binary")),
     dn: entry.dn,
+    username: (text(entry, "sAMAccountName") ?? "").toLowerCase(),
     email: directoryEmail(
       { userPrincipalName: text(entry, "userPrincipalName"), mail: text(entry, "mail"), sAMAccountName: text(entry, "sAMAccountName") },
       cfg.domain,

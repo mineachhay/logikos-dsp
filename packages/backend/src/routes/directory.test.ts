@@ -29,7 +29,7 @@ const cfg = {
 };
 
 function account(role: "ADMIN" | "VIEWER", name = "jdoe", guid = randomUUID()) {
-  return { ok: true as const, account: { guid, dn: `CN=${name},CN=Users,DC=corp,DC=example`, email: `${name}@corp.example`, displayName: name, role } };
+  return { ok: true as const, account: { guid, dn: `CN=${name},CN=Users,DC=corp,DC=example`, username: name, email: `${name}@corp.example`, displayName: name, role } };
 }
 
 async function signIn(app: FastifyInstance, email: string, password = "windows-password") {
@@ -98,6 +98,24 @@ describe("directory sign-in", () => {
     }
     vi.mocked(directory.authenticateDirectory).mockResolvedValueOnce({ ok: false, reason: "unavailable", detail: "timeout" });
     expect((await signIn(app, "someone")).statusCode).toBe(503);
+  });
+
+  it("locks the account after repeated failures however the name is typed, whatever the UPN suffix", async () => {
+    const app = await buildApp({ logger: false });
+    const name = `u${randomUUID().slice(0, 8)}`;
+    // UPN suffix differs from the domain, as with an alternative UPN suffix.
+    const ok = account("VIEWER", name);
+    ok.account.email = `${name}@alt-suffix.example`;
+    vi.mocked(directory.authenticateDirectory).mockResolvedValue(ok);
+    expect((await signIn(app, `CORP\\${name}`)).statusCode).toBe(200);
+
+    vi.mocked(directory.authenticateDirectory).mockResolvedValue({ ok: false, reason: "bad_password" });
+    for (let i = 0; i < 5; i++) await signIn(app, `CORP\\${name}`, "wrong");
+    vi.mocked(directory.authenticateDirectory).mockClear();
+    const locked = await signIn(app, name, "wrong");
+    expect(locked.statusCode).toBe(429);
+    // Refused before AD was asked, so these don't count against the AD lockout.
+    expect(directory.authenticateDirectory).not.toHaveBeenCalled();
   });
 
   it("refuses someone deactivated here even if AD would let them in", async () => {

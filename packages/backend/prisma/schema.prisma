@@ -86,10 +86,15 @@ model User {
   /// AD objectGUID — the stable identity (survives renames and moves).
   directoryGuid      String?   @unique
   directoryDn        String?
+  /// sAMAccountName, lowercased — finds the account for the lockout check when
+  /// someone types DOMAIN\name, whatever their UPN suffix is.
+  directoryUsername  String?
   /// Last time AD confirmed this account is enabled and in a mapped group.
   directoryCheckedAt DateTime?
 
   approvedResponseActions ResponseAction[]
+
+  @@index([directoryUsername])
 }
 
 /// Login attempts, kept so a single IP can be throttled across accounts —
