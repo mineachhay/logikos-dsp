@@ -379,3 +379,7 @@ th.sortable:hover { color: #ccc; }
 .directory-test h4 { margin: 0; font-size: 13px; font-weight: 500; color: #ccc; }
 .directory-steps { margin: 0; padding-left: 4px; list-style: none; font-size: 13px; display: flex; flex-direction: column; gap: 4px; overflow-wrap: anywhere; }
 .fs-form label.inline-toggle { flex-direction: row; align-items: center; font-size: 13px; }
+
+/* Agents */
+.installer-hash code { font-size: 11px; overflow-wrap: anywhere; }
+.deploy-hint { font-size: 12px; margin-top: 4px; max-width: 520px; white-space: normal; }

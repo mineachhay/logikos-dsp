@@ -56,6 +56,9 @@ services:
       # dashboard is built against, because that is by definition the one
       # reachable from outside this host.
       PUBLIC_BACKEND_URL: ${DASHBOARD_BACKEND_URL:-}
+      # -ca for agent installs: "cloudflare-origin" when the site sits behind
+      # Cloudflare's origin CA; leave unset for a publicly trusted certificate.
+      AGENT_INSTALL_CA: ${AGENT_INSTALL_CA:-}
     volumes:
       # The built Windows agent, offered for download on the Agents page. Read
       # only, and outside the image so a new agent build is a file copy rather

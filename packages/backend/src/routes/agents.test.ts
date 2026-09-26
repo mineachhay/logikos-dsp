@@ -252,7 +252,7 @@ describe("DELETE /agents/:id", () => {
     const cookie = await loginAs(app, "ADMIN");
     const { agent, source } = await seedRevokedAgent();
 
-    const res = await app.inject({ method: "DELETE", url: `/agents/${agent.id}`, headers: { cookie } });
+    const res = await app.inject({ method: "DELETE", url: `/agents/${agent.id}?confirm=${encodeURIComponent(agent.hostname)}`, headers: { cookie } });
 
     expect(res.statusCode).toBe(200);
     expect(res.json().deleted.fileEvents).toBe(1);
@@ -263,6 +263,16 @@ describe("DELETE /agents/:id", () => {
 
   // A running agent would register again on its next request, leaving a row
   // that reappears seconds after someone deleted it.
+  it("refuses a delete without the hostname typed to confirm it", async () => {
+    const app = await buildApp({ logger: false });
+    const cookie = await loginAs(app, "ADMIN");
+    const { agent } = await seedAuthedAgent();
+    await prisma.agent.update({ where: { id: agent.id }, data: { revokedAt: new Date() } });
+    const res = await app.inject({ method: "DELETE", url: `/agents/${agent.id}?confirm=wrong`, headers: { cookie } });
+    expect(res.statusCode).toBe(400);
+    expect(await prisma.agent.count({ where: { id: agent.id } })).toBe(1);
+  });
+
   it("refuses to delete an agent that hasn't been revoked", async () => {
     const app = await buildApp();
     const cookie = await loginAs(app, "ADMIN");
@@ -270,7 +280,7 @@ describe("DELETE /agents/:id", () => {
       data: { key: `agent-${randomUUID()}`, hostname: "LIVE", watchedRoot: "/data" },
     });
 
-    const res = await app.inject({ method: "DELETE", url: `/agents/${agent.id}`, headers: { cookie } });
+    const res = await app.inject({ method: "DELETE", url: `/agents/${agent.id}?confirm=${encodeURIComponent(agent.hostname)}`, headers: { cookie } });
 
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toContain("revoke the agent first");
@@ -282,7 +292,7 @@ describe("DELETE /agents/:id", () => {
     const cookie = await loginAs(app, "VIEWER");
     const { agent } = await seedRevokedAgent();
 
-    const res = await app.inject({ method: "DELETE", url: `/agents/${agent.id}`, headers: { cookie } });
+    const res = await app.inject({ method: "DELETE", url: `/agents/${agent.id}?confirm=${encodeURIComponent(agent.hostname)}`, headers: { cookie } });
     expect(res.statusCode).toBe(403);
     await app.close();
   });
@@ -303,7 +313,7 @@ describe("DELETE /agents/:id", () => {
       data: { agentId: agent.id, sourceId: share.id, eventType: "CREATED", path: "a.txt", occurredAt: new Date() },
     });
 
-    const res = await app.inject({ method: "DELETE", url: `/agents/${agent.id}`, headers: { cookie } });
+    const res = await app.inject({ method: "DELETE", url: `/agents/${agent.id}?confirm=${encodeURIComponent(agent.hostname)}`, headers: { cookie } });
 
     expect(res.statusCode).toBe(409);
     expect(res.json().error).toContain("reassign those shares");
@@ -322,7 +332,7 @@ describe("DELETE /agents/:id", () => {
       data: { kind: "SMB", rootLabel: "smb://fs/idle", fileServerId: server.id, shareName: "idle", agentId: agent.id },
     });
 
-    const res = await app.inject({ method: "DELETE", url: `/agents/${agent.id}`, headers: { cookie } });
+    const res = await app.inject({ method: "DELETE", url: `/agents/${agent.id}?confirm=${encodeURIComponent(agent.hostname)}`, headers: { cookie } });
 
     expect(res.statusCode).toBe(200);
     const kept = await prisma.source.findUnique({ where: { id: share.id } });
@@ -336,7 +346,7 @@ describe("DELETE /agents/:id", () => {
     const cookie = await loginAs(app, "ADMIN");
     const { agent } = await seedRevokedAgent("AUDITED");
 
-    await app.inject({ method: "DELETE", url: `/agents/${agent.id}`, headers: { cookie } });
+    await app.inject({ method: "DELETE", url: `/agents/${agent.id}?confirm=${encodeURIComponent(agent.hostname)}`, headers: { cookie } });
     const audit = await prisma.auditLog.findFirst({ where: { targetId: agent.id, action: "agent.delete" } });
 
     expect(audit).not.toBeNull();

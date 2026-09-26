@@ -240,6 +240,8 @@ export interface ManagedAgent {
   lastSeenAt: string;
   revokedAt: string | null;
   capabilities: string[];
+  /** Address the agent last reported from (as the backend saw it). */
+  lastIp: string | null;
 }
 
 export interface InstallerInfo {
@@ -249,6 +251,8 @@ export interface InstallerInfo {
   builtAt?: string;
   /** The deployment-wide enroll token. ADMIN-only, like this whole endpoint. */
   enrollToken: string;
+  /** -ca for installs (AGENT_INSTALL_CA), or null when the certificate is publicly trusted. */
+  installCa: string | null;
 }
 
 /** Where the browser downloads the agent from — same origin, so the session cookie goes with it. */
@@ -261,8 +265,8 @@ export async function revokeAgent(id: string): Promise<ManagedAgent> {
   return postJson<ManagedAgent>(`/agents/${id}/revoke`, {});
 }
 
-export async function deleteAgent(id: string): Promise<{ deleted: { fileEvents: number } }> {
-  return requestJson<{ deleted: { fileEvents: number } }>("DELETE", `/agents/${id}`);
+export async function deleteAgent(id: string, confirmHostname: string): Promise<{ deleted: { fileEvents: number } }> {
+  return requestJson<{ deleted: { fileEvents: number } }>("DELETE", `/agents/${id}?confirm=${encodeURIComponent(confirmHostname)}`);
 }
 
 export async function restoreAgent(id: string): Promise<ManagedAgent> {

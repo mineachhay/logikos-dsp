@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { installCa } from "./deployments.js";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
@@ -27,6 +28,7 @@ const agentPublicFields = {
   lastSeenAt: true,
   revokedAt: true,
   capabilities: true,
+  lastIp: true,
 } as const;
 
 /**
@@ -61,7 +63,7 @@ export async function agentRoutes(app: FastifyInstance) {
   app.get(
     "/agents/installer-info",
     { preHandler: [app.authenticate, app.requireRole("ADMIN")] },
-    async () => ({ ...(await installerInfo()), enrollToken: process.env.AGENT_ENROLL_TOKEN ?? "" }),
+    async () => ({ ...(await installerInfo()), enrollToken: process.env.AGENT_ENROLL_TOKEN ?? "", installCa: installCa() ?? null }),
   );
 
   app.get(
@@ -138,6 +140,12 @@ export async function agentRoutes(app: FastifyInstance) {
         include: { sources: true },
       });
       if (!agent) return reply.code(404).send({ error: "agent not found" });
+      // Typed, like deleting a file server: this erases the agent's collected
+      // history for good, which a stray click on a browser confirm() shouldn't.
+      const { confirm } = z.object({ confirm: z.string().optional() }).parse(req.query);
+      if (confirm !== agent.hostname) {
+        return reply.code(400).send({ error: "type the agent's hostname to confirm the delete" });
+      }
       if (!agent.revokedAt) {
         return reply.code(400).send({ error: "revoke the agent first — a running agent would just register again" });
       }
@@ -176,7 +184,7 @@ export async function agentRoutes(app: FastifyInstance) {
         { timeout: 120_000 },
       );
 
-      await recordAudit(req, "agent.delete", { type: "Agent", id: agent.id }, {
+      await recordAudit(req, "agent.delete", { type: "agent", id: agent.id }, {
         hostname: agent.hostname,
         watchedRoot: agent.watchedRoot,
         unassignedShares: assignedShareIds.length,

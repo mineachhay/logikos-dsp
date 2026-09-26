@@ -113,6 +113,16 @@ This required **no backend or dashboard changes** — `Agent.watchedRoot`, `File
 
 **Bootstrap admin via a seed script, not auto-creation.** `packages/backend/prisma/seed.ts` creates one `ADMIN` from `ADMIN_EMAIL`/`ADMIN_PASSWORD` env vars if no `User` rows exist yet (`pnpm db:seed`) — explicit and scriptable, rather than a magic first-run behavior that's easy to trigger by accident.
 
+## Agents page: installing and managing agents
+
+**`-ca` for agent installs is a setting (`AGENT_INSTALL_CA`), not a constant.** The copy-paste command and the remote installer (`winrm/deploy.py`) both used to append `-ca cloudflare-origin`, correct only for a site behind Cloudflare's origin CA; on a deployment with a publicly trusted certificate it added an unrelated root to every agent's trust store. Unset, no `-ca` is passed; `dsp.logikos.dev` sets it to `cloudflare-origin` in its root `.env`. It travels to remote installs as an optional `install.ca` on `PendingDeployment`, so an older agent still parses the job.
+
+**Arguments are PowerShell single-quoted** in both places. Double quotes let PowerShell expand `$name`/`$(...)` — a watch path containing `$` was rewritten, or evaluated, on the target before the agent saw it. Inside single quotes only `'` is special, and doubling it is the whole escape.
+
+**`deploy.py` wasn't in the agent image.** The Dockerfile copied only `collect.py`, so "Install agent" could never have run from the containerised agent (script not found); both helpers are copied now.
+
+**The page shows what the backend already knew:** the installer's SHA-256 (with the `Get-FileHash` to compare it on the machine), each agent's last IP and what kind of agent it is (the server's own agent scans shares; a Windows service watches its PC). Deleting an agent — which erases the history it collected — needs its hostname typed, checked server side (`?confirm=`), as deleting a file server does. Agent, remote-install and network-scan audit entries share `targetType: "agent"` (they had been `Agent`, `Deployment`, `DiscoveryScan`, migrated) and are listed on the page. Remote-install failures that look like WinRM being off or the account refused get a plain explanation next to them; WinRM is off by default on Windows 10/11.
+
 ## Directory sign-in (Active Directory)
 
 **People sign in with their Windows account; AD checks the password and decides the role** (`auth/directory.ts` rules, `auth/directoryClient.ts` LDAP, settings in `DirectorySettings`, Users page). The lookup account finds the person (`sAMAccountName` or `userPrincipalName` — `jdoe`, `CORP\jdoe` and `jdoe@corp.example` all work), the password is checked by binding *as* them, and membership of the admin or viewer group — nested groups included, via AD's `LDAP_MATCHING_RULE_IN_CHAIN` — gives the role. In neither group, disabled (`userAccountControl` & 2), or a wrong password all answer the same "invalid" as a local failure; AD being unreachable answers 503 "try again shortly", because telling someone their correct password is wrong would be worse.

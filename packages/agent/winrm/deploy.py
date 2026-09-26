@@ -31,8 +31,14 @@ if ($LASTEXITCODE -ne 0) {{ Write-Output "EXITCODE:$LASTEXITCODE" }}
 
 
 def quote(value: str) -> str:
-    """Quotes an argument for PowerShell, doubling any embedded quotes."""
-    return '"' + value.replace('"', '""') + '"'
+    """Quotes an argument for PowerShell as a literal string.
+
+    Single quotes, not double: PowerShell expands $name and $(...) inside
+    double quotes, so a watch path containing $ was rewritten (or evaluated)
+    on the target. Inside single quotes only ' is special, and doubling it is
+    the whole escape.
+    """
+    return "'" + value.replace("'", "''") + "'"
 
 
 def build_args(install: dict) -> str:
@@ -45,7 +51,8 @@ def build_args(install: dict) -> str:
         args.append("-all-drives")
     if install.get("removable"):
         args.append("-removable")
-    args += ["-ca", "cloudflare-origin"]
+    if install.get("ca"):
+        args += ["-ca", quote(install["ca"])]
     return " ".join(args)
 
 

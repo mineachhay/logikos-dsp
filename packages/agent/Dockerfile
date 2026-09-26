@@ -48,7 +48,10 @@ ENV NODE_ENV=production
 COPY --from=build /app /app
 # `pnpm deploy` copies only the package's "files" (dist), so the collector
 # script is copied explicitly; activityCollector.ts resolves it relative to dist.
-COPY packages/agent/winrm/collect.py /app/winrm/collect.py
+# Both WinRM helpers: collect.py (who changed files) and deploy.py (remote
+# install). deploy.py was missing from the image, so "Install agent" on the
+# Agents page failed in the container with the script not found.
+COPY packages/agent/winrm/collect.py packages/agent/winrm/deploy.py /app/winrm/
 # No HTTP port — this is a background watcher, not a server. No
 # HEALTHCHECK either: there's no meaningful check beyond "is the process
 # alive," which Docker already tracks via the container's exit status.

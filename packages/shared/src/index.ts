@@ -166,6 +166,12 @@ export interface PendingDeployment {
     connectIp?: string;
     allDrives: boolean;
     removable: boolean;
+    /**
+     * -ca for the install: "cloudflare-origin" for the certificate built into
+     * the agent, or absent when the server's certificate is publicly trusted.
+     * Optional so an older agent (which always sent cloudflare-origin) still parses it.
+     */
+    ca?: string;
   };
 }
 

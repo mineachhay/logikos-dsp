@@ -1,7 +1,7 @@
 import { Fragment, useState } from "react";
 import { usePolling } from "./usePolling.js";
 import * as api from "./api.js";
-import type { ManagedAgent } from "./api.js";
+import type { AuditEntry, ManagedAgent } from "./api.js";
 
 /**
  * An agent that stopped reporting hours ago looked identical to one reporting
@@ -45,19 +45,51 @@ function agentStatus(agent: ManagedAgent) {
  * and this whole panel is ADMIN-only — a VIEWER can see which agents exist
  * without being handed the means to enrol another.
  */
+/**
+ * A PowerShell literal string. Single quotes because PowerShell expands $name
+ * and $(...) inside double quotes — a folder like C:\$Recycle.Bin was
+ * rewritten before the agent saw it. Inside single quotes only ' is special.
+ */
+function psQuote(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+/** What the agent is, from what it can do: the server's own agent scans shares; the Windows service watches its PC. */
+function agentKind(agent: ManagedAgent): string {
+  return agent.capabilities.includes("managed-sources") ? "Server (scans shares)" : "Windows workstation";
+}
+
+/** The usual reasons a remote install fails, in words someone can act on. */
+function deployFailureHint(message: string | null): string | null {
+  const m = (message ?? "").toLowerCase();
+  if (/5985|refused|timed out|timeout|unreachable|no route|connection/.test(m)) {
+    return "WinRM isn't reachable on that machine — it's off by default on Windows 10/11. Run `Enable-PSRemoting -Force` there (or enable it by GPO) and allow TCP 5985 from this server.";
+  }
+  if (/401|unauthori|credentials|logon|access is denied|access denied/.test(m)) {
+    return "The account was refused — it must be a local administrator on that machine (use DOMAIN\\user for a domain account).";
+  }
+  return null;
+}
+
 function InstallPanel() {
   const { data } = usePolling<api.InstallerInfo>("/agents/installer-info", 60000);
   const [showToken, setShowToken] = useState(false);
   const [copied, setCopied] = useState(false);
   const [connectIp, setConnectIp] = useState("");
   const [watchPath, setWatchPath] = useState("C:\\Users");
+  const [allDrives, setAllDrives] = useState(true);
+  const [removable, setRemovable] = useState(true);
 
   const token = data?.enrollToken ?? "";
   const shown = showToken ? token : "•".repeat(Math.min(token.length, 64));
   const command =
-    `.\\agent.exe install -server "${api.BACKEND_URL}" -token "${shown}"` +
-    (connectIp.trim() ? ` -ip "${connectIp.trim()}"` : "") +
-    ` -watch "${watchPath}" -all-drives -removable -ca cloudflare-origin`;
+    `.\\agent.exe install -server ${psQuote(api.BACKEND_URL)} -token ${psQuote(shown)}` +
+    (connectIp.trim() ? ` -ip ${psQuote(connectIp.trim())}` : "") +
+    ` -watch ${psQuote(watchPath)}` +
+    (allDrives ? " -all-drives" : "") +
+    (removable ? " -removable" : "") +
+    // Only when the server's certificate isn't publicly trusted (AGENT_INSTALL_CA).
+    (data?.installCa ? ` -ca ${psQuote(data.installCa)}` : "");
 
   async function copyCommand() {
     // Always copies the real token, whether or not it's on screen — the point
@@ -92,6 +124,12 @@ function InstallPanel() {
           </span>
         )}
       </div>
+      {data?.sha256 && (
+        <p className="muted install-hint installer-hash">
+          SHA-256 <code>{data.sha256}</code> — on the machine, <code>(Get-FileHash .\agent.exe).Hash</code> should show the same
+          (in capitals).
+        </p>
+      )}
 
       <div className="install-fields">
         <label>
@@ -101,6 +139,14 @@ function InstallPanel() {
         <label>
           Server IP on the local network <span className="muted">(optional)</span>
           <input value={connectIp} onChange={(e) => setConnectIp(e.target.value)} placeholder="e.g. 10.0.0.5" />
+        </label>
+      </div>
+      <div className="install-row">
+        <label className="inline-toggle">
+          <input type="checkbox" checked={allDrives} onChange={(e) => setAllDrives(e.target.checked)} /> Also watch every fixed drive
+        </label>
+        <label className="inline-toggle">
+          <input type="checkbox" checked={removable} onChange={(e) => setRemovable(e.target.checked)} /> Watch USB storage (alerts on copies to it)
         </label>
       </div>
 
@@ -159,6 +205,8 @@ function DeployForm({
   const [password, setPassword] = useState("");
   const [watchPath, setWatchPath] = useState("C:\\Users");
   const [connectIp, setConnectIp] = useState("");
+  const [allDrives, setAllDrives] = useState(true);
+  const [removable, setRemovable] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -174,8 +222,8 @@ function DeployForm({
         password,
         watchPath,
         connectIp: connectIp.trim() || undefined,
-        allDrives: true,
-        removable: true,
+        allDrives,
+        removable,
       });
       onDone();
     } catch (e) {
@@ -191,7 +239,9 @@ function DeployForm({
         <div className="deploy-form">
           <p className="muted">
             Installs the agent on <strong>{machine.address}</strong> over WinRM. The account must be an administrator
-            there. It is used once and never stored — repeating this means typing it again.
+            there. It is used once and never stored — repeating this means typing it again. WinRM is off by default on
+            Windows 10/11: enable it first (<code>Enable-PSRemoting -Force</code>, or by GPO) and allow TCP 5985 from this
+            server.
           </p>
           <div className="install-fields">
             <label>
@@ -224,7 +274,12 @@ function DeployForm({
             <button className="btn-link" onClick={onDone}>
               Cancel
             </button>
-            <span className="muted">Also watches every fixed drive and USB storage.</span>
+            <label className="inline-toggle">
+              <input type="checkbox" checked={allDrives} onChange={(e) => setAllDrives(e.target.checked)} /> every fixed drive
+            </label>
+            <label className="inline-toggle">
+              <input type="checkbox" checked={removable} onChange={(e) => setRemovable(e.target.checked)} /> USB storage
+            </label>
           </div>
         </div>
       </td>
@@ -270,7 +325,8 @@ function CoveragePanel({ agents }: { agents: ManagedAgent[] }) {
       <h3>Machines on the network</h3>
       <p className="muted">
         Sweep a network range to see which machines are there and which have no agent. Nothing is installed and no
-        credentials are used — this only looks.
+        credentials are used — this only looks. It knocks on ports 445, 3389 and 5985 of every address, which a firewall
+        or intrusion detection may flag as a port scan — tell whoever watches those first.
       </p>
 
       <div className="install-fields">
@@ -366,6 +422,9 @@ function CoveragePanel({ agents }: { agents: ManagedAgent[] }) {
                               Install failed
                             </span>
                           )}
+                          {deployment?.status === "FAILED" && !running && deployFailureHint(deployment.message) && (
+                            <div className="muted deploy-hint">{deployFailureHint(deployment.message)}</div>
+                          )}
                           {deployment?.status === "SUCCEEDED" && m.state !== "protected" && (
                             <span className="muted">Installed — rescan to confirm</span>
                           )}
@@ -395,8 +454,28 @@ function CoveragePanel({ agents }: { agents: ManagedAgent[] }) {
   );
 }
 
+function describeAgentAudit(entry: AuditEntry): string {
+  const d = (entry.details ?? {}) as Record<string, unknown>;
+  const host = String(d.hostname ?? d.address ?? "");
+  switch (entry.action) {
+    case "agent.revoke":
+      return `revoked ${host}`;
+    case "agent.restore":
+      return `restored ${host}`;
+    case "agent.delete":
+      return `deleted ${host} and its history`;
+    case "agent.deploy":
+      return `started a remote install on ${host}${d.username ? ` as ${String(d.username)}` : ""}`;
+    case "discovery.scan":
+      return `scanned ${String(d.cidr ?? "")} from ${String(d.agent ?? "")}`;
+    default:
+      return `${entry.action} ${host}`;
+  }
+}
+
 export default function AgentsView() {
   const { data, error } = usePolling<ManagedAgent[]>("/agents", 5000);
+  const audit = usePolling<AuditEntry[]>("/audit-log?targetType=agent&limit=20", 10000);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -406,13 +485,18 @@ export default function AgentsView() {
    * for something irreversible.
    */
   async function remove(agent: ManagedAgent) {
-    if (!window.confirm(`Delete ${agent.hostname} (${agent.watchedRoot})?\n\nThe file events, snapshots and alerts it collected are deleted with it. This cannot be undone.`)) {
+    const typed = window.prompt(
+      `Delete ${agent.hostname} (${agent.watchedRoot})?\n\nThe file events, snapshots and alerts it collected are deleted with it. This cannot be undone.\n\nType the hostname to confirm:`,
+    );
+    if (typed === null) return;
+    if (typed.trim() !== agent.hostname) {
+      setActionError(`Not deleted — "${typed.trim()}" isn't ${agent.hostname}.`);
       return;
     }
     setBusyId(agent.id);
     setActionError(null);
     try {
-      await api.deleteAgent(agent.id);
+      await api.deleteAgent(agent.id, typed.trim());
     } catch (e) {
       setActionError(e instanceof Error ? e.message : `Failed to delete ${agent.hostname}`);
     } finally {
@@ -449,8 +533,9 @@ export default function AgentsView() {
           <thead>
             <tr>
               <th>Hostname</th>
+              <th>Type</th>
               <th>Watched root</th>
-              <th>Key</th>
+              <th>IP</th>
               <th>Last seen</th>
               <th>Status</th>
               <th></th>
@@ -459,11 +544,10 @@ export default function AgentsView() {
           <tbody>
             {data.map((a) => (
               <tr key={a.id}>
-                <td data-label="Hostname">{a.hostname}</td>
+                <td data-label="Hostname" title={`Agent key ${a.key}`}>{a.hostname}</td>
+                <td data-label="Type" className="muted">{agentKind(a)}</td>
                 <td data-label="Watched root" className="path cell-wide">{a.watchedRoot}</td>
-                <td data-label="Key" className="cell-wide">
-                  <code>{a.key}</code>
-                </td>
+                <td data-label="IP">{a.lastIp ?? "—"}</td>
                 <td data-label="Last seen">{new Date(a.lastSeenAt).toLocaleString()}</td>
                 <td data-label="Status">{agentStatus(a)}</td>
                 <td className="cell-actions">
@@ -481,6 +565,23 @@ export default function AgentsView() {
           </tbody>
         </table>
         </div>
+      )}
+
+      {audit.data && audit.data.length > 0 && (
+        <section className="fs-audit">
+          <h3>Recent changes</h3>
+          <table className="data-table fs-audit-table">
+            <tbody>
+              {audit.data.map((entry) => (
+                <tr key={entry.id}>
+                  <td data-label="When" className="muted">{new Date(entry.createdAt).toLocaleString()}</td>
+                  <td data-label="By">{entry.userEmail}</td>
+                  <td data-label="Change" className="cell-wide">{describeAgentAudit(entry)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
       )}
     </div>
   );

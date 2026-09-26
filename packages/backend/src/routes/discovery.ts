@@ -52,7 +52,7 @@ export async function discoveryRoutes(app: FastifyInstance) {
     const scan = await prisma.discoveryScan.create({
       data: { cidr: parsed.value.cidr, agentId: agent.id, requestedBy: req.user.email },
     });
-    await recordAudit(req, "discovery.scan", { type: "DiscoveryScan", id: scan.id }, { cidr: parsed.value.cidr, agent: agent.hostname });
+    await recordAudit(req, "discovery.scan", { type: "agent", id: scan.id }, { cidr: parsed.value.cidr, agent: agent.hostname });
     return reply.code(201).send(scan);
   });
 

@@ -133,6 +133,10 @@ The binary is served from whatever is mounted at `AGENT_INSTALLER_PATH`
 (`./dist` in `docker-compose.yml`), so publishing a new agent build is a file
 copy on the server.
 
+**Certificate for agents:** installs pass `-ca` only when the root `.env` sets
+`AGENT_INSTALL_CA` — `cloudflare-origin` for a site behind Cloudflare's origin
+certificate. Leave it unset when the dashboard's certificate is publicly trusted.
+
 **Copying to a USB drive:** install the agent with `-removable` (see
 `native-agent/README.md`). While a drive is plugged in it is watched like any
 other folder, and every file landing on it is recorded with the device's label

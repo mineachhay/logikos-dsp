@@ -88,9 +88,10 @@ export async function deploymentRoutes(app: FastifyInstance) {
       connectIp: body.connectIp,
       allDrives: body.allDrives,
       removable: body.removable,
+      ca: installCa(),
     });
 
-    await recordAudit(req, "agent.deploy", { type: "Deployment", id: deployment.id }, {
+    await recordAudit(req, "agent.deploy", { type: "agent", id: deployment.id }, {
       address: body.address,
       username: body.username,
       via: agent.hostname,
@@ -122,8 +123,19 @@ export const pendingInstallOptions = new Map<
     connectIp?: string;
     allDrives: boolean;
     removable: boolean;
+    ca?: string;
   }
 >();
+
+/**
+ * The agent's -ca argument for this deployment (AGENT_INSTALL_CA): only needed
+ * when the server's certificate isn't publicly trusted — "cloudflare-origin"
+ * behind Cloudflare's origin CA. It used to be hard-coded to that, which on a
+ * site with a public certificate added an unrelated root to what agents trust.
+ */
+export function installCa(): string | undefined {
+  return process.env.AGENT_INSTALL_CA?.trim() || undefined;
+}
 
 /**
  * A job whose credentials have expired can never run, so it shouldn't sit at

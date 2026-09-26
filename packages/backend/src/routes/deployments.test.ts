@@ -4,6 +4,7 @@ import type { FastifyInstance } from "fastify";
 import { buildApp } from "../app.js";
 import { prisma } from "../db.js";
 import { hashPassword } from "../auth/passwords.js";
+import { pendingInstallOptions } from "./deployments.js";
 
 async function loginAs(app: FastifyInstance, role: "ADMIN" | "VIEWER"): Promise<string> {
   const email = `${role.toLowerCase()}-${randomUUID()}@example.com`;
@@ -36,6 +37,28 @@ describe("POST /deployments", () => {
     expect(res.json().status).toBe("PENDING");
     expect(res.json().username).toBe("Administrator");
     await app.close();
+  });
+
+  it("adds -ca only when AGENT_INSTALL_CA is set", async () => {
+    const app = await buildApp();
+    const cookie = await loginAs(app, "ADMIN");
+    const agent = await seedAgent();
+    const before = process.env.AGENT_INSTALL_CA;
+    try {
+      delete process.env.AGENT_INSTALL_CA;
+      const plain = await app.inject({ method: "POST", url: "/deployments", headers: { cookie }, payload: payload(agent.id, "20.20.5.31") });
+      expect(pendingInstallOptions.get(plain.json().id)?.ca).toBeUndefined();
+
+      process.env.AGENT_INSTALL_CA = "cloudflare-origin";
+      const behindCf = await app.inject({ method: "POST", url: "/deployments", headers: { cookie }, payload: payload(agent.id, "20.20.5.32") });
+      expect(pendingInstallOptions.get(behindCf.json().id)?.ca).toBe("cloudflare-origin");
+      const info = await app.inject({ method: "GET", url: "/agents/installer-info", headers: { cookie } });
+      expect(info.json().installCa).toBe("cloudflare-origin");
+    } finally {
+      if (before === undefined) delete process.env.AGENT_INSTALL_CA;
+      else process.env.AGENT_INSTALL_CA = before;
+      await app.close();
+    }
   });
 
   // The property this whole design exists for. A password column would make
