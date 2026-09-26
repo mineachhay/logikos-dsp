@@ -54,6 +54,8 @@ export interface AgentRegisterInput {
   watchedRoot: string;
   /** e.g. MANAGED_SOURCES_CAPABILITY. Omitted by agents that don't poll /agent-sync (the Go agent). */
   capabilities?: string[];
+  /** The build the agent runs (the Go agent sends its git revision); optional. */
+  version?: string;
 }
 
 export interface AgentRegisterResponse {

@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { binaryVersion } from "../agentVersion.js";
 import { installCa } from "./deployments.js";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
@@ -16,6 +17,7 @@ const registerSchema = z.object({
   hostname: z.string().min(1),
   watchedRoot: z.string().min(1),
   capabilities: z.array(z.string().max(64)).max(16).default([]),
+  version: z.string().max(64).optional(),
 });
 
 // Never select secretHash into a response.
@@ -29,6 +31,7 @@ const agentPublicFields = {
   revokedAt: true,
   capabilities: true,
   lastIp: true,
+  version: true,
 } as const;
 
 /**
@@ -46,13 +49,14 @@ const INSTALLER_PATH = process.env.AGENT_INSTALLER_PATH ?? "/app/installers/agen
  * lets a machine register. Handing it to every VIEWER who opens the page would
  * undo the point of having roles.
  */
-async function installerInfo(): Promise<{ available: boolean; sizeBytes?: number; sha256?: string; builtAt?: string }> {
+async function installerInfo(): Promise<{ available: boolean; sizeBytes?: number; sha256?: string; builtAt?: string; version?: string | null }> {
   try {
     const info = await stat(INSTALLER_PATH);
+    const binary = await readFile(INSTALLER_PATH);
     // Shown next to the download so an administrator can check that what
     // landed on the machine is what the server offered.
-    const sha256 = createHash("sha256").update(await readFile(INSTALLER_PATH)).digest("hex");
-    return { available: true, sizeBytes: info.size, sha256, builtAt: info.mtime.toISOString() };
+    const sha256 = createHash("sha256").update(binary).digest("hex");
+    return { available: true, sizeBytes: info.size, sha256, builtAt: info.mtime.toISOString(), version: binaryVersion(binary) };
   } catch {
     return { available: false };
   }
@@ -109,6 +113,7 @@ export async function agentRoutes(app: FastifyInstance) {
         lastIp: req.ip,
         secretHash,
         capabilities: body.capabilities,
+        version: body.version ?? null,
       },
       create: { ...body, secretHash, lastIp: req.ip },
     });

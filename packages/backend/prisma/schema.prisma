@@ -135,6 +135,8 @@ model Agent {
   /// an agent is reported as unprotected, the one mistake coverage must not
   /// make.
   lastIp       String?
+  /// Build the agent reported at registration (native-agent/internal/buildinfo); null for agents that don't say.
+  version      String?
 
   sources          Source[]
   connectionTests  ConnectionTest[]

@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/logikos-dsp/native-agent/internal/buildinfo"
 	"io"
 	"log"
 	"net/http"
@@ -90,7 +91,7 @@ func statusError(method, path string, res *http.Response) error {
 // fresh agent secret that replaces any previous one.
 func (c *Client) Register(key, hostname, watchedRoot string) error {
 	c.mu.Lock()
-	c.registration = wire.RegisterRequest{Key: key, Hostname: hostname, WatchedRoot: watchedRoot}
+	c.registration = wire.RegisterRequest{Key: key, Hostname: hostname, WatchedRoot: watchedRoot, Version: buildinfo.Version()}
 	c.mu.Unlock()
 	return c.register()
 }

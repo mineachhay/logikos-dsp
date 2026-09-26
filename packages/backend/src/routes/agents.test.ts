@@ -52,6 +52,15 @@ describe("POST /agents/register", () => {
     expect(row.secretHash).not.toContain(agentSecret);
   });
 
+  it("records the build an agent reports, and forgets it when a re-registration doesn't say", async () => {
+    const app = await buildApp({ logger: false });
+    const payload = registerPayload();
+    await app.inject({ method: "POST", url: "/agents/register", payload: { ...payload, version: "3bdf58922755" }, headers: enroll });
+    expect((await prisma.agent.findUniqueOrThrow({ where: { key: payload.key } })).version).toBe("3bdf58922755");
+    await app.inject({ method: "POST", url: "/agents/register", payload, headers: enroll });
+    expect((await prisma.agent.findUniqueOrThrow({ where: { key: payload.key } })).version).toBeNull();
+  });
+
   it("rotates the secret on re-registration, cutting off the old one", async () => {
     const app = await buildApp({ logger: false });
     const payload = registerPayload();

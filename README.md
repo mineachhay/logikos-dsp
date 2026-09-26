@@ -133,6 +133,10 @@ The binary is served from whatever is mounted at `AGENT_INSTALLER_PATH`
 (`./dist` in `docker-compose.yml`), so publishing a new agent build is a file
 copy on the server.
 
+**Updating agents:** after rebuilding `dist/agent.exe`, the Agents page shows the
+new build next to the download and marks every Windows agent still on an older
+one as *outdated* — reinstall on those machines (the same install command).
+
 **Certificate for agents:** installs pass `-ca` only when the root `.env` sets
 `AGENT_INSTALL_CA` — `cloudflare-origin` for a site behind Cloudflare's origin
 certificate. Leave it unset when the dashboard's certificate is publicly trusted.

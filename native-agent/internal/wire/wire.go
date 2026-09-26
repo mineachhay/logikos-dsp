@@ -66,6 +66,9 @@ type RegisterRequest struct {
 	// Capabilities stays empty: this agent doesn't poll /agent-sync, so the
 	// dashboard won't offer it for managed shares.
 	Capabilities []string `json:"capabilities,omitempty"`
+	// Version is the build this agent runs (internal/buildinfo), shown on the
+	// Agents page next to the version of the agent.exe the server offers.
+	Version string `json:"version,omitempty"`
 }
 
 // RegisterResponse matches AgentRegisterResponse (packages/shared/src/index.ts).

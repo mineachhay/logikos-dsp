@@ -242,6 +242,8 @@ export interface ManagedAgent {
   capabilities: string[];
   /** Address the agent last reported from (as the backend saw it). */
   lastIp: string | null;
+  /** Build it reported (git revision, 12 chars); null when the agent doesn't say. */
+  version: string | null;
 }
 
 export interface InstallerInfo {
@@ -253,6 +255,8 @@ export interface InstallerInfo {
   enrollToken: string;
   /** -ca for installs (AGENT_INSTALL_CA), or null when the certificate is publicly trusted. */
   installCa: string | null;
+  /** Build of the agent.exe offered for download, comparable with ManagedAgent.version. */
+  version?: string | null;
 }
 
 /** Where the browser downloads the agent from — same origin, so the session cookie goes with it. */

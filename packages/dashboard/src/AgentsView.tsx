@@ -138,6 +138,7 @@ function InstallPanel() {
           <span className="muted">
             {Math.round((data.sizeBytes ?? 0) / 1024 / 1024)} MB
             {data.builtAt && ` · built ${new Date(data.builtAt).toLocaleDateString()}`}
+            {data.version && ` · version ${data.version}`}
           </span>
         )}
       </div>
@@ -490,8 +491,25 @@ function describeAgentAudit(entry: AuditEntry): string {
   }
 }
 
+/**
+ * The Windows agent reports the git build it runs; the server reads the same
+ * stamp out of the agent.exe it offers. Different means the machine runs an
+ * older (or newer) build than the download — reinstall to update it.
+ */
+function AgentVersion({ agent, offered }: { agent: ManagedAgent; offered: string | null | undefined }) {
+  if (!agent.version) return <span className="muted">{agentKind(agent).startsWith("Server") ? "server build" : "—"}</span>;
+  const outdated = !agentKind(agent).startsWith("Server") && offered && agent.version !== offered;
+  return (
+    <span title={outdated ? `The download is ${offered}; reinstall agent.exe on this machine to update it.` : undefined}>
+      <code>{agent.version}</code>
+      {outdated && <span className="badge badge-cov-stale version-badge">outdated</span>}
+    </span>
+  );
+}
+
 export default function AgentsView() {
   const { data, error } = usePolling<ManagedAgent[]>("/agents", 5000);
+  const installer = usePolling<api.InstallerInfo>("/agents/installer-info", 60000);
   const audit = usePolling<AuditEntry[]>("/audit-log?targetType=agent&limit=20", 10000);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | AgentState>("all");
@@ -579,6 +597,7 @@ export default function AgentsView() {
               <th>Type</th>
               <th>Watched root</th>
               <th>IP</th>
+              <th>Version</th>
               <th>Last seen</th>
               <th>Status</th>
               <th></th>
@@ -591,6 +610,7 @@ export default function AgentsView() {
                 <td data-label="Type" className="muted">{agentKind(a)}</td>
                 <td data-label="Watched root" className="path cell-wide">{a.watchedRoot}</td>
                 <td data-label="IP">{a.lastIp ?? "—"}</td>
+                <td data-label="Version"><AgentVersion agent={a} offered={installer.data?.version} /></td>
                 <td data-label="Last seen" title={new Date(a.lastSeenAt).toLocaleString()}>
                   {duration(Date.now() - new Date(a.lastSeenAt).getTime())} ago
                 </td>
