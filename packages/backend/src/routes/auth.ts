@@ -1,7 +1,10 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { prisma } from "../db.js";
-import { verifyPassword } from "../auth/passwords.js";
+import { hashPassword, verifyPassword } from "../auth/passwords.js";
+import { issueSession } from "../auth/plugin.js";
+import { normalizeEmail, passwordProblem } from "../auth/passwordPolicy.js";
+import { recordAudit } from "../audit.js";
 import {
   IP_WINDOW_MS,
   LOCK_AFTER_FAILURES,
@@ -11,8 +14,13 @@ import {
 } from "../auth/loginThrottle.js";
 
 const loginSchema = z.object({
-  email: z.string().email(),
+  email: z.string().email().transform(normalizeEmail),
   password: z.string().min(1),
+});
+
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(1).max(1024),
 });
 
 /**
@@ -104,15 +112,8 @@ export async function authRoutes(app: FastifyInstance) {
       data: { lastLoginAt: now, failedLoginCount: 0, lockedUntil: null },
     });
 
-    const token = await reply.jwtSign({ id: user!.id, email: user!.email, role: user!.role });
-    reply
-      .setCookie("token", token, {
-        httpOnly: true,
-        sameSite: "lax",
-        secure: process.env.NODE_ENV === "production",
-        path: "/",
-      })
-      .send({ id: user!.id, email: user!.email, role: user!.role });
+    await issueSession(reply, user!);
+    reply.send({ id: user!.id, email: user!.email, role: user!.role, mustChangePassword: user!.mustChangePassword });
   });
 
   app.post("/auth/logout", async (_req, reply) => {
@@ -120,6 +121,37 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   app.get("/auth/me", { preHandler: app.authenticate }, async (req, reply) => {
-    reply.send(req.user);
+    const { id, email, role, mustChangePassword } = req.user;
+    reply.send({ id, email, role, mustChangePassword: Boolean(mustChangePassword) });
+  });
+
+  /**
+   * Change your own password. Needs the current one, so a session left open
+   * on someone's desk can't be turned into a permanent takeover. Ends every
+   * other session of this user (sessionVersion bump) and re-issues this one.
+   */
+  app.post("/auth/password", { preHandler: app.authenticate }, async (req, reply) => {
+    const body = changePasswordSchema.parse(req.body);
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user.id } });
+    if (!(await verifyPassword(body.currentPassword, user.passwordHash))) {
+      return reply.code(400).send({ error: "current password is incorrect" });
+    }
+    const problem = passwordProblem(body.newPassword, user.email);
+    if (problem) return reply.code(400).send({ error: problem });
+    if (await verifyPassword(body.newPassword, user.passwordHash)) {
+      return reply.code(400).send({ error: "choose a password different from the current one" });
+    }
+    const updated = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordHash: await hashPassword(body.newPassword),
+        mustChangePassword: false,
+        passwordChangedAt: new Date(),
+        sessionVersion: { increment: 1 },
+      },
+    });
+    await issueSession(reply, updated);
+    await recordAudit(req, "user.password.change", { type: "user", id: user.id }, { email: user.email });
+    reply.send({ ok: true });
   });
 }

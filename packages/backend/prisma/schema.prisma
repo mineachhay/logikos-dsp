@@ -73,6 +73,13 @@ model User {
   /// in auth/loginThrottle.ts.
   failedLoginCount Int       @default(0)
   lockedUntil      DateTime?
+  /// Carried in the session token; bumping it ends every session the user has
+  /// (deactivate, password reset/change, force logout). See auth/plugin.ts.
+  sessionVersion     Int       @default(0)
+  /// Set by an admin's password reset: until changed, the server allows only
+  /// /auth/me and /auth/password (auth/sessions.ts).
+  mustChangePassword Boolean   @default(false)
+  passwordChangedAt  DateTime?
 
   approvedResponseActions ResponseAction[]
 }

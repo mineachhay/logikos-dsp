@@ -1,5 +1,6 @@
 import { prisma } from "../src/db.js";
 import { hashPassword } from "../src/auth/passwords.js";
+import { normalizeEmail } from "../src/auth/passwordPolicy.js";
 
 async function main() {
   const existing = await prisma.user.count();
@@ -16,7 +17,7 @@ async function main() {
 
   const passwordHash = await hashPassword(password);
   const user = await prisma.user.create({
-    data: { email, passwordHash, role: "ADMIN" },
+    data: { email: normalizeEmail(email), passwordHash, role: "ADMIN" },
   });
   console.log(`Created admin user ${user.email}`);
 }

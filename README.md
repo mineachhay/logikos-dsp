@@ -355,6 +355,14 @@ Every failed sign-in says the same thing, so the form can't be used to find out
 which accounts exist. A lockout raises a `LOGIN_ATTACK` alert you can send to
 Telegram like any other.
 
+Sessions end after 12 hours without activity, and immediately when an admin
+deactivates the account, resets its password or signs it out everywhere; a role
+change applies on the user's next click. New passwords need at least 12
+characters (at most 72 bytes — bcrypt ignores anything longer), must not contain
+the email name and can't be a common password. After an admin reset the user
+must choose a new password before they can do anything else. Emails are
+case-insensitive. Every user-management change is recorded in the audit log.
+
 ## Notifications (Telegram)
 
 Approving a **webhook notification** response action sends the alert to every
