@@ -205,6 +205,8 @@ Every feature up to this point was verified by hand — live processes, curl scr
 
 **No native low-footprint agent yet, so "production packaging" packages the same Node/chokidar agent dev already uses.** This section is about deployability, not about closing the Go/Rust agent gap noted in "Design decisions" above — that's still open.
 
+**The dashboard's nginx revalidates `index.html` on every load and caches `/assets/` for good** (`packages/dashboard/nginx.conf`). With the image's default config `index.html` went out with no `Cache-Control`, so after a deploy a browser could keep its cached copy — and so the previous bundle — through ordinary reloads: the new "My account" link didn't exist for the one person who needed it until a hard refresh. Vite puts a content hash in every asset name, so those can be `immutable`; only the entry page needs checking. A tab left open across a deploy still runs the old code until it's reloaded — that's inherent to a single-page app and not addressed here.
+
 ## Deployment behind a shared reverse proxy
 
 **Served at `https://dsp.logikos.dev` through the shared `logikos-gateway` nginx, not a per-project nginx.** That gateway already terminates TLS for `*.logikos.dev` for three other projects on the same host and is the only thing bound to :80/:443; standing up a second TLS terminator would have collided with it. The vhost lives in this repo at `deploy/dsp.conf` and is *copied* into `logikos-gateway/conf.d/` — the gateway's `conf.d` is mounted read-only and the gateway is not a git repo, so without the copy in here the deployment config would be tracked nowhere. Same pattern `logikos-school` uses.

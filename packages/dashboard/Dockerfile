@@ -20,4 +20,6 @@ RUN pnpm --filter @logikos-dsp/dashboard build
 
 FROM nginx:1.27-alpine AS runtime
 COPY --from=build /repo/packages/dashboard/dist /usr/share/nginx/html
+# Cache headers: index.html revalidated every load, hashed assets cached for good.
+COPY packages/dashboard/nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
