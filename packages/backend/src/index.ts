@@ -1,5 +1,6 @@
 import { buildApp } from "./app.js";
 import { runRetention, summarize } from "./retention.js";
+import { checkSilentAgents } from "./rules/agentSilence.js";
 
 const app = await buildApp();
 
@@ -23,3 +24,15 @@ async function sweep(): Promise<void> {
 }
 setInterval(() => void sweep(), RETENTION_INTERVAL_MS).unref();
 void sweep();
+
+// Share-scanning agents that stopped reporting (rules/agentSilence.ts). Same
+// reason as retention for living here: tests must never start this timer.
+async function checkAgents(): Promise<void> {
+  try {
+    const { raised, resolved } = await checkSilentAgents();
+    if (raised || resolved) app.log.info(`agent silence: ${raised} raised, ${resolved} resolved`);
+  } catch (err) {
+    app.log.error({ err }, "agent silence check failed");
+  }
+}
+setInterval(() => void checkAgents(), 60_000).unref();

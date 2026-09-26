@@ -288,7 +288,8 @@ export interface Alert {
     | "BACKUP_FAILED"
     | "LOGIN_ATTACK"
     | "BULK_FILE_READ"
-    | "COPY_TO_REMOVABLE";
+    | "COPY_TO_REMOVABLE"
+    | "AGENT_SILENT";
   severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
   status: "OPEN" | "ACKNOWLEDGED" | "RESOLVED";
   message: string;

@@ -41,6 +41,8 @@ enum AlertType {
   LOGIN_ATTACK
   BULK_FILE_READ
   COPY_TO_REMOVABLE
+  /// An agent that scans file shares stopped reporting (rules/agentSilence.ts).
+  AGENT_SILENT
 }
 
 enum AlertSeverity {

@@ -16,14 +16,31 @@ import type { AuditEntry, ManagedAgent } from "./api.js";
  */
 const STALE_AFTER_MS = 60 * 60 * 1000;
 
+type AgentState = "active" | "quiet" | "revoked";
+
+function stateOf(agent: ManagedAgent): AgentState {
+  if (agent.revokedAt) return "revoked";
+  return Date.now() - new Date(agent.lastSeenAt).getTime() > STALE_AFTER_MS ? "quiet" : "active";
+}
+
+/** "40 s", "12 min", "14 h", "3 d" — how long, at a glance. */
+function duration(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s} s`;
+  if (s < 3600) return `${Math.round(s / 60)} min`;
+  if (s < 86_400) return `${Math.round(s / 3600)} h`;
+  return `${Math.round(s / 86_400)} d`;
+}
+
 function agentStatus(agent: ManagedAgent) {
   if (agent.revokedAt) return <span className="muted">revoked {new Date(agent.revokedAt).toLocaleString()}</span>;
-
   const quietMs = Date.now() - new Date(agent.lastSeenAt).getTime();
   if (quietMs > STALE_AFTER_MS) {
+    // How long matters more than that it happened: a laptop shut overnight
+    // (quiet 14 h) and one gone for three weeks read very differently.
     return (
       <span className="badge badge-cov-stale" title={`Last seen ${new Date(agent.lastSeenAt).toLocaleString()}`}>
-        Gone quiet
+        Quiet for {duration(quietMs)}
       </span>
     );
   }
@@ -476,6 +493,17 @@ function describeAgentAudit(entry: AuditEntry): string {
 export default function AgentsView() {
   const { data, error } = usePolling<ManagedAgent[]>("/agents", 5000);
   const audit = usePolling<AuditEntry[]>("/audit-log?targetType=agent&limit=20", 10000);
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<"all" | AgentState>("all");
+
+  const counts = { active: 0, quiet: 0, revoked: 0 };
+  for (const a of data ?? []) counts[stateOf(a)]++;
+  const q = query.trim().toLowerCase();
+  const shown = (data ?? []).filter(
+    (a) =>
+      (filter === "all" || stateOf(a) === filter) &&
+      (!q || `${a.hostname} ${a.lastIp ?? ""} ${a.watchedRoot} ${agentKind(a)}`.toLowerCase().includes(q)),
+  );
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -528,6 +556,21 @@ export default function AgentsView() {
       {!data && !error && <p>Loading…</p>}
       {data && data.length === 0 && <p className="empty">No agents have registered yet.</p>}
       {data && data.length > 0 && (
+        <div className="table-toolbar">
+          <input className="search-input" type="text" placeholder="Search hostname, IP, folder…" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <select value={filter} onChange={(e) => setFilter(e.target.value as typeof filter)}>
+            <option value="all">All agents</option>
+            <option value="active">Active</option>
+            <option value="quiet">Gone quiet</option>
+            <option value="revoked">Revoked</option>
+          </select>
+          <span className="muted agent-counts">
+            {counts.active} active · {counts.quiet} gone quiet · {counts.revoked} revoked
+          </span>
+        </div>
+      )}
+      {data && data.length > 0 && shown.length === 0 && <p className="empty">No agents match.</p>}
+      {data && shown.length > 0 && (
         <div className="table-scroll">
         <table className="data-table">
           <thead>
@@ -542,13 +585,15 @@ export default function AgentsView() {
             </tr>
           </thead>
           <tbody>
-            {data.map((a) => (
+            {shown.map((a) => (
               <tr key={a.id}>
                 <td data-label="Hostname" title={`Agent key ${a.key}`}>{a.hostname}</td>
                 <td data-label="Type" className="muted">{agentKind(a)}</td>
                 <td data-label="Watched root" className="path cell-wide">{a.watchedRoot}</td>
                 <td data-label="IP">{a.lastIp ?? "—"}</td>
-                <td data-label="Last seen">{new Date(a.lastSeenAt).toLocaleString()}</td>
+                <td data-label="Last seen" title={new Date(a.lastSeenAt).toLocaleString()}>
+                  {duration(Date.now() - new Date(a.lastSeenAt).getTime())} ago
+                </td>
                 <td data-label="Status">{agentStatus(a)}</td>
                 <td className="cell-actions">
                   <button className={`btn btn-sm ${a.revokedAt ? "" : "btn-secondary danger"}`} onClick={() => toggle(a)} disabled={busyId === a.id}>
