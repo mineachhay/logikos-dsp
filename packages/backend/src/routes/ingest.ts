@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { hostNameFor } from "../reverseDns.js";
 import { z } from "zod";
 import { prisma } from "../db.js";
 import { checkRansomwareRate } from "../rules/ransomwareRate.js";
@@ -202,6 +203,7 @@ export async function ingestRoutes(app: FastifyInstance) {
               userName: record.userName,
               userDomain: record.userDomain,
               clientIp: record.clientIp,
+              clientHost: await hostNameFor(record.clientIp),
               occurredAt: new Date(record.occurredAt),
               recordId: BigInt(record.recordId),
             },

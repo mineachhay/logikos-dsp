@@ -338,6 +338,8 @@ export interface FileEvent {
   /** From the file server's Windows audit log, when collection is on and a record matched. */
   actorUser: string | null;
   actorIp: string | null;
+  /** Machine name for actorIp at the time of the change. */
+  actorHost?: string | null;
 }
 
 export interface StorageSnapshot {
@@ -357,6 +359,8 @@ export interface FileActivityRow {
   userName: string;
   userDomain: string | null;
   clientIp: string | null;
+  /** Machine name for clientIp when the record arrived (null when DNS had none). */
+  clientHost?: string | null;
   occurredAt: string;
   fileServer: { name: string } | null;
   source: SourceRef | null;

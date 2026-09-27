@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { collapseBursts, RepeatBadge } from "./activityBursts.js";
+import { collapseBursts, FromCell, fromText, RepeatBadge } from "./activityBursts.js";
 import { usePolling } from "./usePolling.js";
 import { patchAlertStatus, approveResponseAction, rejectResponseAction } from "./api.js";
 import { sourceName } from "./api.js";
@@ -323,6 +323,7 @@ function readsAsEvents(reads: FileActivityRow[]): FileEvent[] {
     source: r.source,
     actorUser: r.userDomain ? `${r.userDomain}\\${r.userName}` : r.userName,
     actorIp: r.clientIp,
+    actorHost: r.clientHost ?? null,
   }));
 }
 
@@ -346,7 +347,7 @@ function FileEventsView() {
     const q = search.trim().toLowerCase();
     return combined.filter((e) => {
       if (typeFilter && e.eventType !== typeFilter) return false;
-      if (q && !`${e.path} ${sourceName(e)} ${e.actorUser ?? ""}`.toLowerCase().includes(q)) return false;
+      if (q && !`${e.path} ${sourceName(e)} ${e.actorUser ?? ""} ${e.actorHost ?? ""} ${e.actorIp ?? ""}`.toLowerCase().includes(q)) return false;
       return true;
     });
   }, [combined, search, typeFilter]);
@@ -386,13 +387,14 @@ function FileEventsView() {
         onExport={() =>
           downloadCsv(
             "file-events.csv",
-            ["Type", "Path", "Size", "Source", "Who", "When"],
+            ["Type", "Path", "Size", "Source", "Who", "From", "When"],
             (sorted ?? []).map((e) => [
               e.eventType,
               e.previousPath ? `${e.previousPath} → ${e.path}` : e.path,
               e.sizeBytes ?? "",
               sourceName(e),
               e.actorUser ?? "",
+              fromText(e.actorHost, e.actorIp),
               e.occurredAt,
             ]),
           )
@@ -410,6 +412,7 @@ function FileEventsView() {
               <SortableHeader label="Size" columnKey="sizeBytes" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <th>Source</th>
               <SortableHeader label="Who" columnKey="actorUser" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <SortableHeader label="From" columnKey="actorHost" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <SortableHeader label="When" columnKey="occurredAt" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
             </tr>
           </thead>
@@ -437,7 +440,8 @@ function FileEventsView() {
                 </td>
                 <td data-label="Size">{e.sizeBytes ?? "—"}</td>
                 <td data-label="Source" title={e.source?.rootLabel}>{sourceName(e)}</td>
-                <td data-label="Who" title={e.actorIp ? `from ${e.actorIp}` : undefined}>{whoDidIt(e)}</td>
+                <td data-label="Who">{whoDidIt(e)}</td>
+                <td data-label="From"><FromCell host={e.actorHost} ip={e.actorIp} /></td>
                 <td data-label="When" className="cell-time">{new Date(e.occurredAt).toLocaleString()}</td>
               </tr>
             ))}

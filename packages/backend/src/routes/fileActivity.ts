@@ -32,6 +32,7 @@ export async function fileActivityRoutes(app: FastifyInstance) {
         userName: true,
         userDomain: true,
         clientIp: true,
+        clientHost: true,
         occurredAt: true,
         fileServer: { select: { name: true } },
         source: { select: { id: true, kind: true, rootLabel: true, fileServer: { select: { name: true } } } },

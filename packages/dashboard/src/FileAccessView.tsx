@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { collapseBursts, RepeatBadge } from "./activityBursts.js";
+import { collapseBursts, FromCell, fromText, RepeatBadge } from "./activityBursts.js";
 import type { CollapsedActivity } from "./activityBursts.js";
 import { usePolling } from "./usePolling.js";
 import { sourceName } from "./api.js";
@@ -36,7 +36,7 @@ export default function FileAccessView() {
     const q = search.trim().toLowerCase();
     return collapseBursts(data).filter((row) => {
       if (actionFilter && row.action !== actionFilter) return false;
-      if (q && !`${row.path} ${actor(row)} ${row.clientIp ?? ""}`.toLowerCase().includes(q)) return false;
+      if (q && !`${row.path} ${actor(row)} ${row.clientIp ?? ""} ${row.clientHost ?? ""}`.toLowerCase().includes(q)) return false;
       return true;
     });
   }, [data, search, actionFilter]);
@@ -78,7 +78,7 @@ export default function FileAccessView() {
           downloadCsv(
             "file-access.csv",
             ["Action", "Path", "Who", "From", "Source", "When"],
-            (sorted ?? []).map((r) => [ACTION_LABELS[r.action], r.path, actor(r), r.clientIp ?? "", sourceName(r), r.occurredAt]),
+            (sorted ?? []).map((r) => [ACTION_LABELS[r.action], r.path, actor(r), fromText(r.clientHost, r.clientIp), sourceName(r), r.occurredAt]),
           )
         }
       />
@@ -106,7 +106,7 @@ export default function FileAccessView() {
                   </td>
                   <td data-label="Path" className="path cell-wide">{row.path}</td>
                   <td data-label="Who">{actor(row)}</td>
-                  <td data-label="From">{row.clientIp ?? "—"}</td>
+                  <td data-label="From"><FromCell host={row.clientHost} ip={row.clientIp} /></td>
                   <td data-label="Source" title={row.source?.rootLabel}>{sourceName(row)}</td>
                   <td data-label="When">{new Date(row.occurredAt).toLocaleString()}</td>
                 </tr>

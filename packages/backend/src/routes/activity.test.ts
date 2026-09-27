@@ -1,4 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// Reverse DNS is stubbed: the real lookup is a network query (it ignores
+// /etc/hosts), checked against a live domain instead. Unknown IPs get no name.
+vi.mock("../reverseDns.js", () => ({
+  hostNameFor: vi.fn(async (ip: string | null | undefined) => (ip === "10.0.0.42" ? "pc-042.corp.example" : null)),
+}));
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { MANAGED_SOURCES_CAPABILITY } from "@logikos-dsp/shared";
@@ -195,6 +201,27 @@ describe("matching who to what", () => {
     });
     expect(res.json()).toMatchObject({ matched: 1 });
     expect((await prisma.fileEvent.findFirstOrThrow()).actorUser).toBe("mallory");
+  });
+
+  it("records the machine a change came from, by name as DNS gave it at the time", async () => {
+    const { app, seeded, server, share } = await setup();
+    const changedAt = new Date();
+    await prisma.fileEvent.create({
+      data: { agentId: seeded.agent.id, sourceId: share.id, eventType: "MODIFIED", path: "budget.xlsx", occurredAt: new Date(changedAt.getTime() + 20_000) },
+    });
+    await app.inject({
+      method: "POST",
+      url: "/ingest/activity",
+      headers: seeded.headers,
+      payload: {
+        ...activityPayload(seeded.agent.key, server.id),
+        records: [{ sourceId: share.id, path: "budget.xlsx", action: "WRITE", userName: "jdoe", clientIp: "10.0.0.42", occurredAt: changedAt.toISOString(), recordId: 991 }],
+      },
+    });
+    const record = await prisma.fileActivity.findFirstOrThrow();
+    const event = await prisma.fileEvent.findFirstOrThrow();
+    expect(record.clientHost).toBe("pc-042.corp.example");
+    expect(event).toMatchObject({ actorIp: "10.0.0.42", actorHost: "pc-042.corp.example" });
   });
 
   it("matches a record whose path Windows logged in different letter case", async () => {

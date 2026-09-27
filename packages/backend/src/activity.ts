@@ -27,13 +27,15 @@ function toCandidate(a: FileActivity): ActivityCandidate {
     userName: a.userName,
     userDomain: a.userDomain,
     clientIp: a.clientIp,
+    clientHost: a.clientHost,
   };
 }
 
-function actorFields(match: ActivityCandidate): { actorUser: string; actorIp: string | null } {
+function actorFields(match: ActivityCandidate): { actorUser: string; actorIp: string | null; actorHost: string | null } {
   return {
     actorUser: match.userDomain ? `${match.userDomain}\\${match.userName}` : match.userName,
     actorIp: match.clientIp ?? null,
+    actorHost: match.clientHost ?? null,
   };
 }
 
@@ -41,7 +43,7 @@ function actorFields(match: ActivityCandidate): { actorUser: string; actorIp: st
 export async function findActorForEvent(
   event: { sourceId: string; path: string; previousPath?: string | null; eventType: string; occurredAt: Date },
   scanIntervalSec: number,
-): Promise<{ actorUser: string; actorIp: string | null } | null> {
+): Promise<{ actorUser: string; actorIp: string | null; actorHost: string | null } | null> {
   const window = activityWindowFor(scanIntervalSec);
   const candidates = await prisma.fileActivity.findMany({
     where: {

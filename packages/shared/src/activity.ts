@@ -102,6 +102,8 @@ export interface ActivityCandidate {
   userName: string;
   userDomain?: string | null;
   clientIp?: string | null;
+  /** The client's machine name, resolved when the record arrived (backend reverseDns.ts). */
+  clientHost?: string | null;
 }
 
 const WRITE_ACTIONS: FileActivityActionName[] = ["WRITE", "CREATE", "RENAME"];

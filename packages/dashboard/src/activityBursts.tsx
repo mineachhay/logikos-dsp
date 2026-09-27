@@ -41,3 +41,22 @@ export function RepeatBadge({ count }: { count: number }) {
     </span>
   );
 }
+
+/**
+ * Where a change came from: the machine name as DNS gave it when the change
+ * was recorded (domain suffix dropped, the full name on hover), and its IP.
+ */
+export function FromCell({ host, ip }: { host?: string | null; ip?: string | null }) {
+  if (!host && !ip) return <span className="muted">—</span>;
+  const short = host ? host.split(".")[0]!.toUpperCase() : null;
+  return (
+    <span title={[host, ip].filter(Boolean).join(" · ")}>
+      {short ?? ip}
+      {short && ip && <span className="muted"> · {ip}</span>}
+    </span>
+  );
+}
+
+export function fromText(host?: string | null, ip?: string | null): string {
+  return [host, ip].filter(Boolean).join(" ");
+}

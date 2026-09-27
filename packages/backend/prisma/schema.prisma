@@ -383,6 +383,8 @@ model FileActivity {
   userName     String
   userDomain   String?
   clientIp     String?
+  /// Machine name for clientIp, resolved from DNS when the record arrived (reverseDns.ts).
+  clientHost   String?
   occurredAt   DateTime
   /// Windows EventRecordID — unique per server, so a re-poll can't duplicate rows.
   recordId     BigInt
@@ -423,6 +425,8 @@ model FileEvent {
   /// event's path and time; null when activity collection is off or nothing matched.
   actorUser        String?
   actorIp          String?
+  /// Machine name for actorIp at the time of the change (from the matched audit record).
+  actorHost        String?
   occurredAt       DateTime
   receivedAt       DateTime      @default(now())
 
