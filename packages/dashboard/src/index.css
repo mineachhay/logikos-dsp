@@ -385,3 +385,15 @@ th.sortable:hover { color: #ccc; }
 .deploy-hint { font-size: 12px; margin-top: 4px; max-width: 520px; white-space: normal; }
 .version-badge { margin-left: 6px; }
 .repeat-badge { margin-left: 6px; font-size: 11px; color: #898781; background: #1f232b; border-radius: 999px; padding: 1px 6px; }
+
+/* Dashboard-wide warnings (BackupWarning.tsx) */
+.global-warning { margin: 12px 24px 0; padding: 8px 12px; border-radius: 6px; font-size: 13px; }
+.warning-bad { background: #3a1d1d; color: #f0b4b4; border: 1px solid #5c2a2a; }
+.warning-note { background: #33301c; color: #e6d59a; border: 1px solid #4d4626; }
+@media (max-width: 900px) { .global-warning { margin: 10px 16px 0; } }
+
+/* Storage */
+.storage-growth { margin-top: 16px; }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 6px; font-size: 12px; color: #aab4c8; }
+.legend-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+.btn-export { margin-left: auto; }

@@ -363,6 +363,10 @@ Two details exist because of how backup stories usually fail. The dump is writte
 
 **Still approve-first.** A Telegram message goes out when an ADMIN approves the suggested notification, not when the alert is raised. That keeps the loop documented above intact, and it means Telegram tells the *rest* of the team about something an admin has already looked at; paging on alert creation would be a separate, deliberate change to that design.
 
+## Storage page
+
+**The Storage page summarises sources instead of listing snapshots** (`GET /storage/summary`). Scans run about once a minute, so the raw snapshot list the page used to show was a minute-by-minute log — on the first real install 2,355 of its 3,709 rows were the bundled agent's empty `/data` folder. The summary gives, per source, the latest size and file count, the values a week earlier, a 30-day history (each day's last snapshot) for a growth chart, and whether the source ever held a file; sources that never did are hidden unless asked for.
+
 ## Data retention
 
 **Nothing was ever deleted.** File events, classification results, storage snapshots, alerts, and now Windows audit records and login attempts, all accumulated forever — fine at 9MB on one watched folder, not fine once shares are scanned on a schedule. Retention is configured under Administration → Retention and swept hourly by the backend (`retention.ts`, started from `index.ts` rather than `app.ts` so tests driving `app.inject()` never start a timer that deletes their own fixtures).

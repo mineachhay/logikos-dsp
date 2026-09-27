@@ -3,11 +3,13 @@ import { collapseBursts, FromCell, fromText, RepeatBadge } from "./activityBurst
 import { usePolling } from "./usePolling.js";
 import { patchAlertStatus, approveResponseAction, rejectResponseAction } from "./api.js";
 import { sourceName } from "./api.js";
-import type { Alert, FileEvent, FileActivityRow, StorageSnapshot, ClassificationMatch, ResponseAction } from "./api.js";
+import type { Alert, FileEvent, FileActivityRow, ClassificationMatch, ResponseAction } from "./api.js";
 import { AuthProvider, useAuth } from "./auth.js";
 import LoginView from "./LoginView.js";
 import UsersView from "./UsersView.js";
 import AccountView from "./AccountView.js";
+import BackupWarning from "./BackupWarning.js";
+import StorageView from "./StorageView.js";
 import AgentsView from "./AgentsView.js";
 import FileServersView from "./FileServersView.js";
 import BackupsView from "./BackupsView.js";
@@ -453,116 +455,6 @@ function FileEventsView() {
   );
 }
 
-/** Latest snapshot per source — same "latest, not summed" rule as the backend's /overview aggregation. */
-function latestBySource(data: StorageSnapshot[]): StorageSnapshot[] {
-  const latest = new Map<string, StorageSnapshot>();
-  for (const s of data) {
-    const key = s.source?.id ?? `${s.agent.hostname}:${s.rootPath}`;
-    const existing = latest.get(key);
-    if (!existing || new Date(s.takenAt) > new Date(existing.takenAt)) latest.set(key, s);
-  }
-  return Array.from(latest.values());
-}
-
-function StorageBreakdownChart({ data }: { data: StorageSnapshot[] }) {
-  const rows = latestBySource(data).sort((a, b) => Number(b.totalBytes) - Number(a.totalBytes));
-  const max = Math.max(1, ...rows.map((r) => Number(r.totalBytes)));
-
-  if (rows.length === 0) return null;
-  return (
-    <div className="chart-card">
-      <div className="chart-card-head"><h3>Storage by watched root (latest snapshot)</h3></div>
-      <div className="bar-chart">
-        {rows.map((r) => {
-          const pct = (Number(r.totalBytes) / max) * 100;
-          const labelFits = pct >= 20;
-          const label = formatBytes(Number(r.totalBytes));
-          return (
-            <div className="bar-row" key={r.source?.id ?? `${r.agent.hostname}:${r.rootPath}`}>
-              <div className="bar-label" title={r.rootPath}>{sourceName(r)}</div>
-              <div className="bar-track">
-                <div className="bar-fill" style={{ width: `${pct}%`, background: "#3987e5" }}>
-                  {labelFits && <span className="bar-value bar-value-inside">{label}</span>}
-                </div>
-                {!labelFits && (
-                  <span className="bar-value bar-value-outside" style={{ left: `calc(${pct}% + 6px)` }}>{label}</span>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function StorageView() {
-  const { data, error } = usePolling<StorageSnapshot[]>("/storage?limit=100", 10000);
-  const [search, setSearch] = useState("");
-
-  const filtered = useMemo(() => {
-    if (!data) return null;
-    const q = search.trim().toLowerCase();
-    if (!q) return data;
-    return data.filter((s) => `${s.rootPath} ${sourceName(s)}`.toLowerCase().includes(q));
-  }, [data, search]);
-
-  const { sorted, sortKey, sortDir, toggleSort } = useSort<StorageSnapshot>(filtered, "takenAt", "desc");
-
-  if (error) return <p className="error">Failed to load storage snapshots: {error}</p>;
-  if (!data) return <p>Loading…</p>;
-  if (data.length === 0) return <p className="empty">No storage snapshots yet.</p>;
-
-  return (
-    <>
-      <StorageBreakdownChart data={data} />
-      <TableToolbar
-        search={search}
-        onSearch={setSearch}
-        searchPlaceholder="Search path, source…"
-        resultCount={sorted?.length ?? 0}
-        onExport={() =>
-          downloadCsv(
-            "storage-snapshots.csv",
-            ["Root path", "Total bytes", "File count", "Source", "Taken at"],
-            (sorted ?? []).map((s) => [s.rootPath, s.totalBytes, s.fileCount, sourceName(s), s.takenAt]),
-          )
-        }
-      />
-      {sorted && sorted.length === 0 ? (
-        <p className="empty">No snapshots match.</p>
-      ) : (
-        <div className="table-scroll">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <SortableHeader label="Root path" columnKey="rootPath" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              {/* Not sortable: totalBytes is a BigInt serialized as a string (see api.ts), and useSort's string
-                  comparison would sort it lexicographically ("1000" before "200"), not numerically. */}
-              <th>Total size</th>
-              <SortableHeader label="File count" columnKey="fileCount" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <th>Source</th>
-              <SortableHeader label="Taken at" columnKey="takenAt" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-            </tr>
-          </thead>
-          <tbody>
-            {sorted!.map((s) => (
-              <tr key={s.id}>
-                <td data-label="Root path" className="path cell-wide">{s.rootPath}</td>
-                <td data-label="Total size">{formatBytes(Number(s.totalBytes))}</td>
-                <td data-label="Files">{s.fileCount}</td>
-                <td data-label="Source">{sourceName(s)}</td>
-                <td data-label="Taken at">{new Date(s.takenAt).toLocaleString()}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        </div>
-      )}
-    </>
-  );
-}
-
 function DataRiskView() {
   const { data, error } = usePolling<ClassificationMatch[]>("/classification-matches?limit=100", 5000);
   const [search, setSearch] = useState("");
@@ -729,6 +621,7 @@ function Dashboard() {
             <button onClick={() => logout()}>Log out</button>
           </div>
         </div>
+        {user?.role === "ADMIN" && <BackupWarning onOpen={() => selectTab("Backups")} />}
         <main>
           {tab === "Overview" && <OverviewView />}
           {tab === "Alerts" && <AlertsView />}
