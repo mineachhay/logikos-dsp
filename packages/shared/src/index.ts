@@ -234,3 +234,4 @@ export * from "./backups.js";
 export * from "./activity.js";
 export * from "./discovery.js";
 export * from "./settings.js";
+export * from "./tempFiles.js";

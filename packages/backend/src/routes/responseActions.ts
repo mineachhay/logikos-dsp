@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../db.js";
 import { executeNotification } from "../responseActions/execute.js";
+import { recordAudit } from "../audit.js";
 
 const listQuerySchema = z.object({
   status: z.enum(["PENDING", "APPROVED", "REJECTED", "EXECUTED", "FAILED"]).optional(),
@@ -50,6 +51,7 @@ export async function responseActionRoutes(app: FastifyInstance) {
           where: { id: action.id },
           data: { status: "APPROVED", approvedByUserId: req.user.id, approvedAt: new Date() },
         });
+        await recordAudit(req, "responseAction.approve", { type: "responseAction", id: action.id }, { type: action.type, alertId: action.alertId });
         return reply.send(updated);
       }
 
@@ -57,6 +59,7 @@ export async function responseActionRoutes(app: FastifyInstance) {
       const claimed = await prisma.responseAction.updateMany({ where: { id: action.id, status: "PENDING" }, data: { status: "APPROVED" } });
       if (claimed.count === 0) return reply.code(409).send({ error: "action already being sent" });
       const updated = await executeNotification(action.id, req.user.id);
+      await recordAudit(req, "responseAction.approve", { type: "responseAction", id: action.id }, { type: action.type, alertId: action.alertId, result: updated?.status ?? null });
       return reply.send(updated);
     },
   );
@@ -75,6 +78,7 @@ export async function responseActionRoutes(app: FastifyInstance) {
         where: { id: action.id },
         data: { status: "REJECTED", approvedByUserId: req.user.id, approvedAt: new Date() },
       });
+      await recordAudit(req, "responseAction.reject", { type: "responseAction", id: action.id }, { type: action.type, alertId: action.alertId });
       return reply.send(updated);
     },
   );

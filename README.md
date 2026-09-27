@@ -405,6 +405,17 @@ account and password, the two groups, and the CA certificate. **Save**, then
 disabled or removed from the groups in AD loses access within 15 minutes of
 activity; their password is changed in Windows, not here.
 
+## Working with alerts and history
+
+Alerts open on what needs attention (open and acknowledged). Click one for the
+files behind it and its history; acknowledge, resolve or reopen it with a note,
+or select several and do it at once. On File Events and File Access, search,
+the time range, account and folder filters apply to all stored history, not
+just the rows on screen, and "Load older" pages back through it. Click an
+account to see everything it touched (with a summary), or a path for its
+history; filtered views are links you can share. Office's temporary files
+(`~$…`, `~WRL….tmp`) are hidden on File Events unless you tick them.
+
 ## Settings
 
 Administration → **Settings** (admins edit; viewers see it read-only) holds

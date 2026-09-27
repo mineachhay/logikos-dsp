@@ -1,7 +1,12 @@
 import { fmtDateTime } from "./format.js";
 import { useId, useState } from "react";
 import { usePolling } from "./usePolling.js";
-import type { Overview } from "./api.js";
+import { patternLabel, sourceName } from "./api.js";
+import type { Overview, SystemHealth } from "./api.js";
+import { useAuth } from "./auth.js";
+import { viewHref } from "./hashState.js";
+import { UserLink } from "./ListFilters.js";
+import { useSetting } from "./settingsContext.js";
 
 // Categorical slot 1 (blue) and the fixed status scale — dark-mode steps,
 // validated against this app's actual chart surface (#0f1115), not the
@@ -25,13 +30,21 @@ function formatBytes(bytes: number): string {
   return `${value.toFixed(1)} ${units[unitIndex]}`;
 }
 
-function StatTile({ label, value, sub }: { label: string; value: string; sub?: React.ReactNode }) {
-  return (
-    <div className="stat-tile">
+function StatTile({ label, value, sub, href }: { label: string; value: string; sub?: React.ReactNode; href?: string }) {
+  const body = (
+    <>
       <div className="stat-label">{label}</div>
       <div className="stat-value">{value}</div>
       {sub && <div className="stat-sub">{sub}</div>}
-    </div>
+    </>
+  );
+  // A tile that counts something opens the list of it.
+  return href ? (
+    <a className="stat-tile stat-tile-link" href={href}>
+      {body}
+    </a>
+  ) : (
+    <div className="stat-tile">{body}</div>
   );
 }
 
@@ -160,7 +173,8 @@ function AlertTrendChart({ data }: { data: Overview["alertTrend"] }) {
 function MatchesBarChart({ data }: { data: Overview["matchesByPattern"] }) {
   const [showTable, setShowTable] = useState(false);
   const titleId = useId();
-  const sorted = [...data].sort((a, b) => b.count - a.count);
+  // Already most serious first (the server ranks by the classification settings), then most frequent.
+  const sorted = data.map((d) => ({ ...d, label: patternLabel(d) }));
   const max = Math.max(1, ...sorted.map((d) => d.count));
 
   return (
@@ -175,10 +189,10 @@ function MatchesBarChart({ data }: { data: Overview["matchesByPattern"] }) {
         <p className="empty">No matches yet.</p>
       ) : showTable ? (
         <table className="chart-table">
-          <thead><tr><th>Pattern</th><th>Matches</th></tr></thead>
+          <thead><tr><th>Pattern</th><th>Severity</th><th>Matches</th></tr></thead>
           <tbody>
             {sorted.map((d) => (
-              <tr key={d.patternType}><td>{d.patternType}</td><td>{d.count}</td></tr>
+              <tr key={d.label}><td>{d.label}</td><td>{d.severity.toLowerCase()}</td><td>{d.count}</td></tr>
             ))}
           </tbody>
         </table>
@@ -193,8 +207,11 @@ function MatchesBarChart({ data }: { data: Overview["matchesByPattern"] }) {
             // clipped, not stranded at the track's far edge" rule.
             const labelFits = pct >= 12;
             return (
-              <div className="bar-row" key={d.patternType}>
-                <div className="bar-label">{d.patternType}</div>
+              <a className="bar-row bar-row-link" key={d.label} href={viewHref("data-risk", { pattern: d.label })} title={`${d.severity.toLowerCase()} — open on Data Risk`}>
+                <div className="bar-label">
+                  <span className="dot" style={{ background: STATUS[d.severity] }} aria-hidden="true" />
+                  {d.label}
+                </div>
                 <div className="bar-track">
                   <div className="bar-fill" style={{ width: `${pct}%`, background: SERIES_BLUE }}>
                     {labelFits && <span className="bar-value bar-value-inside">{d.count}</span>}
@@ -205,7 +222,7 @@ function MatchesBarChart({ data }: { data: Overview["matchesByPattern"] }) {
                     </span>
                   )}
                 </div>
-              </div>
+              </a>
             );
           })}
         </div>
@@ -221,7 +238,7 @@ function RecentAlertsList({ alerts }: { alerts: Overview["recentAlerts"] }) {
       {alerts.map((a) => (
         <li key={a.id}>
           <span className="dot" style={{ background: STATUS[a.severity] }} aria-hidden="true" />
-          <span className="recent-alert-msg">{a.message}</span>
+          <a className="recent-alert-msg cell-link" href={viewHref("alerts", { alert: a.id })}>{a.message}</a>
           <span className="muted">{a.agent?.hostname ?? "—"} · {fmtDateTime(a.createdAt)}</span>
         </li>
       ))}
@@ -229,8 +246,121 @@ function RecentAlertsList({ alerts }: { alerts: Overview["recentAlerts"] }) {
   );
 }
 
+function ActivityPanels({ data }: { data: Overview }) {
+  const threshold = useSetting("detection.ransomware.threshold", 50);
+  const windowSeconds = useSetting("detection.ransomware.windowSeconds", 60);
+  return (
+    <div className="overview-grid overview-grid-3">
+      <div className="chart-card">
+        <div className="chart-card-head">
+          <h3>Most active accounts, last 24h</h3>
+        </div>
+        {data.topUsers.length === 0 ? (
+          <p className="empty">No audited activity in the last 24 hours.</p>
+        ) : (
+          <ol className="summary-list overview-list">
+            {data.topUsers.map((u) => (
+              <li key={u.user}>
+                <UserLink user={u.user} />
+                <span className="muted">
+                  {u.changes.toLocaleString()} change{u.changes === 1 ? "" : "s"} · {u.reads.toLocaleString()} read{u.reads === 1 ? "" : "s"}
+                </span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+      <div className="chart-card">
+        <div className="chart-card-head">
+          <h3>Busiest minutes, last 24h</h3>
+        </div>
+        {data.bursts.length === 0 ? (
+          <p className="empty">No changes in the last 24 hours.</p>
+        ) : (
+          <ol className="summary-list overview-list">
+            {data.bursts.map((b) => {
+              const start = new Date(b.minute);
+              const end = new Date(start.getTime() + 60_000);
+              return (
+                <li key={`${b.source?.id}-${b.minute}`}>
+                  <a className="cell-link" href={viewHref("file-events", { range: "custom", from: localInput(start), to: localInput(end) })}>
+                    {b.count.toLocaleString()} change{b.count === 1 ? "" : "s"}
+                  </a>
+                  <span className="muted">
+                    {b.source ? sourceName({ source: b.source }) : "—"} · {fmtDateTime(b.minute)}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+        )}
+        <p className="muted fs-hint">
+          The mass-change alert fires at {threshold} changes within {windowSeconds} s (Settings → Detection rules).
+        </p>
+      </div>
+      <div className="chart-card">
+        <div className="chart-card-head">
+          <h3>Content discovery</h3>
+        </div>
+        {data.discovery.length === 0 ? (
+          <p className="empty">No share is being examined yet.</p>
+        ) : (
+          <ul className="discovery-progress">
+            {data.discovery.map((d) => {
+              const pct = d.candidates ? Math.min(100, Math.round((d.examined / d.candidates) * 100)) : 0;
+              return (
+                <li key={d.source.id}>
+                  <div className="discovery-progress-head">
+                    <span>{sourceName({ source: d.source })}</span>
+                    <span className="muted">{d.passFinishedAt ? "pass finished" : `${pct}%`}</span>
+                  </div>
+                  <div className="bar-track">
+                    <div className="bar-fill" style={{ width: `${d.passFinishedAt ? 100 : pct}%`, background: SERIES_BLUE }} />
+                  </div>
+                  <div className="muted fs-hint">
+                    {d.examined.toLocaleString()} of {d.candidates.toLocaleString()} files examined
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** A Date as the value of a datetime-local input (the browser's local time). */
+function localInput(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** Admins: whether anything in System health needs attention, as one tile. */
+function HealthTile() {
+  const { data } = usePolling<SystemHealth>("/system/health", 5 * 60_000);
+  if (!data) return <StatTile label="System health" value="…" />;
+  const bad = data.warnings.filter((w) => w.level === "bad").length;
+  const n = data.warnings.length;
+  return (
+    <StatTile
+      label="System health"
+      value={n === 0 ? "OK" : `${n} warning${n === 1 ? "" : "s"}`}
+      href={viewHref("settings", { section: "system" })}
+      sub={
+        n === 0 ? (
+          <span className="stat-sub-empty">all checks pass</span>
+        ) : (
+          <span className={bad ? "test-fail" : "test-warn"}>{data.warnings[0]!.message}</span>
+        )
+      }
+    />
+  );
+}
+
 export default function OverviewView() {
   const { data, error } = usePolling<Overview>("/overview", 5000);
+  const { user } = useAuth();
 
   if (error) return <p className="error">Failed to load overview: {error}</p>;
   if (!data) return <p>Loading…</p>;
@@ -241,7 +371,14 @@ export default function OverviewView() {
         <StatTile
           label="Open alerts"
           value={String(data.alerts.openTotal)}
+          href={viewHref("alerts")}
           sub={<SeverityDots bySeverity={data.alerts.openBySeverity} />}
+        />
+        <StatTile
+          label="Waiting for approval"
+          value={String(data.pendingApprovals)}
+          href={viewHref("alerts")}
+          sub={<span className="stat-sub-empty">{data.pendingApprovals === 0 ? "nothing to approve" : "notifications or quarantines"}</span>}
         />
         <StatTile
           label="Agents"
@@ -249,8 +386,20 @@ export default function OverviewView() {
           sub={<span className="stat-sub-empty">{data.agents.activeLast24h} active last 24h</span>}
         />
         <StatTile label="Storage watched" value={formatBytes(Number(data.storage.totalBytes))} sub={<span className="stat-sub-empty">{data.storage.fileCount.toLocaleString()} files</span>} />
-        <StatTile label="Events, last 24h" value={data.eventsLast24h.toLocaleString()} />
+        <StatTile
+          label="Changes, last 24h"
+          value={data.eventsLast24h.toLocaleString()}
+          href={viewHref("file-events", { range: "24h" })}
+          sub={
+            <span className="stat-sub-empty">
+              {data.tempEventsLast24h > 0 ? `+${data.tempEventsLast24h.toLocaleString()} Office temporary files, not counted` : "excluding Office temporary files"}
+            </span>
+          }
+        />
+        {user?.role === "ADMIN" && <HealthTile />}
       </div>
+
+      <ActivityPanels data={data} />
 
       <div className="overview-grid">
         <AlertTrendChart data={data.alertTrend} />

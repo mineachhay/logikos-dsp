@@ -17,21 +17,6 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-async function patchJson<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    method: "PATCH",
-    credentials: "include",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`PATCH ${path} -> ${res.status}`);
-  return res.json() as Promise<T>;
-}
-
-export async function patchAlertStatus(id: string, status: string): Promise<void> {
-  await patchJson(`/alerts/${id}`, { status });
-}
-
 export type Role = "ADMIN" | "VIEWER";
 
 export interface CurrentUser {
@@ -303,6 +288,40 @@ export interface Alert {
   agent: { hostname: string; watchedRoot: string } | null;
   source: SourceRef | null;
   responseActions: ResponseAction[];
+  metadata?: Record<string, unknown> | null;
+  acknowledgedAt?: string | null;
+  acknowledgedByEmail?: string | null;
+  resolvedAt?: string | null;
+  resolvedByEmail?: string | null;
+  /** Why it was acknowledged or resolved. */
+  note?: string | null;
+}
+
+export interface AlertDetail extends Alert {
+  history: AuditEntry[];
+  related:
+    | { kind: "events"; paths: string[]; rows: Pick<FileEvent, "id" | "eventType" | "path" | "previousPath" | "sizeBytes" | "actorUser" | "actorHost" | "actorIp" | "occurredAt">[] }
+    | { kind: "activity"; rows: Omit<FileActivityRow, "fileServer" | "source">[] }
+    | null;
+}
+
+export type AlertStatus = Alert["status"];
+
+export const alertsApi = {
+  detail: (id: string) => requestJson<AlertDetail>("GET", `/alerts/${id}`),
+  setStatus: (id: string, status: AlertStatus, note?: string) => requestJson<Alert>("PATCH", `/alerts/${id}`, { status, ...(note ? { note } : {}) }),
+  bulk: (ids: string[], status: AlertStatus, note?: string) => requestJson<{ updated: number }>("POST", "/alerts/bulk", { ids, status, ...(note ? { note } : {}) }),
+};
+
+export interface ActivitySummary {
+  total: number;
+  byAction: Partial<Record<FileActivityRow["action"], number>>;
+  distinctFiles: number;
+  distinctFilesCapped: boolean;
+  first: string | null;
+  last: string | null;
+  topFolders: { folder: string; count: number }[];
+  topUsers: { user: string; count: number }[];
 }
 
 export async function approveResponseAction(id: string): Promise<ResponseAction> {
@@ -342,6 +361,12 @@ export interface FileEvent {
   actorIp: string | null;
   /** Machine name for actorIp at the time of the change. */
   actorHost?: string | null;
+  /** The file's size at its previous recorded change (MODIFIED only), for "+2 KB". */
+  prevSizeBytes?: number | null;
+  /** Why there's no actor: nothing to say who ("local"), audit off, the change predates audit records, or no record matched. */
+  noActorReason?: "local" | "audit-off" | "before-audit" | "unmatched" | null;
+  /** When the file server's audit records begin (with "before-audit"). */
+  auditSince?: string | null;
 }
 
 export interface StorageSnapshot {
@@ -395,8 +420,15 @@ export interface Overview {
   agents: { total: number; activeLast24h: number };
   storage: { totalBytes: string; fileCount: number };
   eventsLast24h: number;
+  /** Office lock/save files in the same 24 h, counted apart. */
+  tempEventsLast24h: number;
+  pendingApprovals: number;
+  topUsers: { user: string; changes: number; reads: number }[];
+  bursts: { source: SourceRef | null; minute: string; count: number }[];
+  discovery: { source: SourceRef; examined: number; candidates: number; passFinishedAt: string | null }[];
   alertTrend: { date: string; count: number }[];
-  matchesByPattern: { patternType: string; count: number }[];
+  /** Most serious first, by the classification settings. */
+  matchesByPattern: { patternType: string; customName: string | null; count: number; severity: Alert["severity"] }[];
   recentAlerts: Alert[];
 }
 

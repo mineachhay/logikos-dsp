@@ -402,6 +402,9 @@ model FileActivity {
 
   @@unique([fileServerId, recordId])
   @@index([sourceId, path, occurredAt])
+  @@index([occurredAt])
+  /// When audit collection started, per server — for "no audit record before …".
+  @@index([fileServerId, occurredAt])
 }
 
 model FileEvent {
@@ -444,6 +447,9 @@ model FileEvent {
 
   @@index([agentId, occurredAt])
   @@index([sourceId, occurredAt])
+  @@index([occurredAt])
+  /// Previous size of the same file, for the size change on File Events.
+  @@index([sourceId, path, occurredAt])
 }
 
 model StorageSnapshot {
@@ -531,10 +537,17 @@ model Alert {
   metadata  Json?
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
+  /// Who moved it on, and why ("false positive — Office save"). Also in the audit log.
+  acknowledgedAt      DateTime?
+  acknowledgedByEmail String?
+  resolvedAt          DateTime?
+  resolvedByEmail     String?
+  note                String?
 
   responseActions ResponseAction[]
 
   @@index([status, createdAt])
+  @@index([createdAt])
 }
 
 enum ResponseActionType {
