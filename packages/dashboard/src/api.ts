@@ -372,6 +372,10 @@ export interface ClassificationMatch {
   redactedSample: string;
   path: string;
   createdAt: string;
+  sourceId?: string | null;
+  source?: SourceRef | null;
+  /** "discovery": an existing file content discovery examined; "change": a file that was created or edited. */
+  foundBy?: "discovery" | "change";
 }
 
 export interface Overview {

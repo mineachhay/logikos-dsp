@@ -2,7 +2,7 @@ import type { FileEventInput, FileEventType } from "@logikos-dsp/shared";
 import type { Source } from "./sources/types.js";
 import { config } from "./config.js";
 import { postEvents, postStorageSnapshot } from "./client.js";
-import { isSampleable } from "./contentSampling.js";
+import { sampleContent } from "./sampleContent.js";
 import { absorbNewlyReadable, carryForwardUnreadable, diffSnapshots } from "./diff.js";
 import type { Baseline } from "./diff.js";
 
@@ -13,7 +13,15 @@ export interface DiffLoopOptions {
   runScan?: <T>(scan: () => Promise<T>) => Promise<T>;
   onScanComplete?: (
     result:
-      | { ok: true; fileCount: number; totalBytes: number; paths: ReadonlySet<string>; unreadable: readonly string[] }
+      | {
+          ok: true;
+          fileCount: number;
+          totalBytes: number;
+          paths: ReadonlySet<string>;
+          /** Every file with its size and time, for content discovery. */
+          files: ReadonlyMap<string, Baseline>;
+          unreadable: readonly string[];
+        }
       | { ok: false; error: unknown },
   ) => void;
 }
@@ -30,11 +38,10 @@ async function buildEvent(
   path: string,
   stats: Baseline,
 ): Promise<FileEventInput> {
-  let contentSample: string | undefined;
-  if (isSampleable(path, stats.sizeBytes)) {
-    const buf = await source.readSample(path, config.maxContentSampleBytes);
-    contentSample = buf?.toString("base64");
-  }
+  // Extracted text (Word, Excel, PowerPoint, PDF, plain text), not raw bytes:
+  // the first 8 KB of an Office file or PDF is compressed data, so they were
+  // never classified at all. Same path as content discovery (sampleContent).
+  const contentSample = (await sampleContent(source, path, stats.sizeBytes))?.contentSample;
   return {
     agentKey: config.agentKey,
     sourceId,
@@ -182,6 +189,7 @@ export function startDiffLoop(source: Source, intervalMs: number, opts: DiffLoop
           fileCount: result.fileCount,
           totalBytes: result.totalBytes,
           paths: new Set(result.baseline.keys()),
+          files: result.baseline,
           unreadable: result.unreadable,
         });
       }

@@ -143,3 +143,38 @@ export async function completeDeployment(id: string, success: boolean, message: 
     console.error(`failed to report deployment ${id}: ${res.status} ${await res.text()}`);
   }
 }
+
+// Content discovery (contentDiscovery.ts): what's already examined, results, progress.
+export async function fetchContentScans(sourceId: string): Promise<[string, number, number][] | null> {
+  const url = new URL(`${config.backendUrl}/agent-sync/sources/${sourceId}/content-scans`);
+  url.searchParams.set("agentKey", config.agentKey);
+  const res = await session.request((authorization) => fetch(url, { headers: { authorization } }));
+  if (!res.ok) {
+    console.error(`failed to load discovery state for source ${sourceId}: ${res.status} ${await res.text()}`);
+    return null;
+  }
+  return (await res.json()) as [string, number, number][];
+}
+
+export interface ContentScanInput {
+  path: string;
+  sizeBytes: number;
+  mtimeMs: number;
+  extractor: string;
+  contentSample?: string;
+  note?: string;
+}
+
+export async function postContentScans(sourceId: string, files: ContentScanInput[]): Promise<boolean> {
+  const res = await postJson("/ingest/content-scans", { agentKey: config.agentKey, sourceId, files });
+  if (!res.ok) console.error(`failed to post ${files.length} content scan(s): ${res.status} ${await res.text()}`);
+  return res.ok;
+}
+
+export async function postDiscoveryProgress(
+  sourceId: string,
+  progress: { candidates: number; skippedType: number; skippedSize: number; passStartedAt?: string; passFinishedAt?: string },
+): Promise<void> {
+  const res = await postJson("/ingest/discovery-progress", { agentKey: config.agentKey, sourceId, ...progress });
+  if (!res.ok) console.error(`failed to post discovery progress: ${res.status} ${await res.text()}`);
+}

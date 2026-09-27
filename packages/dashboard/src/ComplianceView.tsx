@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import DiscoveryCoverage from "./DiscoveryCoverage.js";
 import { usePolling } from "./usePolling.js";
 import type { ClassificationMatch } from "./api.js";
 
@@ -82,6 +83,7 @@ export default function ComplianceView() {
 
   return (
     <div className="overview">
+      <DiscoveryCoverage />
       <p className="compliance-disclaimer">
         This groups sensitive-data matches by the regulatory scope they're conventionally associated with — it's a
         discovery lens over what the classification worker has already found, not a certified compliance audit.

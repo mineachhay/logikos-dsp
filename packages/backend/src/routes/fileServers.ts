@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
+import { removeContentScans } from "../contentScans.js";
 import type { Prisma, Source } from "@prisma/client";
 import { z } from "zod";
 import { MANAGED_SOURCES_CAPABILITY, normalizeSubPath, smbRootLabel } from "@logikos-dsp/shared";
@@ -138,6 +139,7 @@ export async function deleteSourcesWithHistory(tx: Prisma.TransactionClient, sou
   await tx.responseAction.deleteMany({ where: { alertId: { in: alertIds } } });
   const deletedAlerts = await tx.alert.deleteMany({ where: { id: { in: alertIds } } });
 
+  await removeContentScans(tx, { sourceId: { in: sourceIds } });
   const jobFilter = { fileEvent: { sourceId: { in: sourceIds } } };
   await tx.classificationMatch.deleteMany({ where: { classificationJob: jobFilter } });
   await tx.classificationJob.deleteMany({ where: jobFilter });

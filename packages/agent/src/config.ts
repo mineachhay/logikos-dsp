@@ -127,6 +127,11 @@ export const config = {
   activityMaxEvents: Number(process.env.ACTIVITY_WINDOW_SIZE ?? 500),
   activityTimeoutMs: Number(process.env.ACTIVITY_TIMEOUT_MS ?? 90_000),
   maxConcurrentScans: Math.max(1, Number(process.env.MAX_CONCURRENT_SCANS ?? 2)),
+  // Content discovery (contentDiscovery.ts): examine existing files, slowly — one at a
+  // time across all shares, this many per second — and look again this often.
+  discoveryEnabled: process.env.DISCOVERY_ENABLED !== "false",
+  discoveryFilesPerSecond: Number(process.env.DISCOVERY_FILES_PER_SEC ?? 2),
+  discoveryRepassMs: Number(process.env.DISCOVERY_REPASS_HOURS ?? 24 * 7) * 3600_000,
   eventFlushIntervalMs: Number(process.env.EVENT_FLUSH_INTERVAL_MS ?? 500),
   eventBatchSize: 50,
   maxContentSampleBytes: CLASSIFICATION_JOB_MAX_SAMPLE_BYTES,

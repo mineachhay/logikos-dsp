@@ -433,6 +433,18 @@ have no endpoint at all yet, point `RESPONSE_WEBHOOK_URL` at the bundled
 `docker compose --profile webhook-logger up -d webhook-logger`, then
 `RESPONSE_WEBHOOK_URL="http://webhook-logger:9099/hook"`.
 
+## Data risk: what's examined
+
+Each share's existing files are examined in the background, not only files
+that change: Word, Excel, PowerPoint, PDF and plain-text files have their text
+extracted and checked for personal and payment data. It's deliberately slow —
+2 files per second in total (`DISCOVERY_FILES_PER_SEC` for the agent), so a
+large share's first pass takes hours — and resumes after a restart. Data Risk
+and Compliance show how far it has got, so an empty result is never mistaken
+for a clean one. Scanned PDFs (images), legacy `.doc/.xls` and files over
+25 MB aren't examined. Findings on existing files raise one alert per share
+rather than one per file.
+
 ## Backup and restore
 
 Backups work before any off-site destination is set: "Back up now" and the

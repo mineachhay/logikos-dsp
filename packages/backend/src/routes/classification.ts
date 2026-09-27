@@ -11,10 +11,23 @@ export async function classificationRoutes(app: FastifyInstance) {
 
   app.get("/classification-matches", async (req) => {
     const { limit } = querySchema.parse(req.query);
-    return prisma.classificationMatch.findMany({
+    const matches = await prisma.classificationMatch.findMany({
       orderBy: { createdAt: "desc" },
       take: limit,
+      include: { classificationJob: { select: { contentScanId: true } } },
     });
+    // Which share, and whether discovery found it (an existing file) or a change did.
+    const sourceIds = [...new Set(matches.map((m) => m.sourceId).filter((id): id is string => Boolean(id)))];
+    const sources = await prisma.source.findMany({
+      where: { id: { in: sourceIds } },
+      select: { id: true, kind: true, rootLabel: true, fileServer: { select: { name: true } } },
+    });
+    const byId = new Map(sources.map((s) => [s.id, s]));
+    return matches.map(({ classificationJob, ...m }) => ({
+      ...m,
+      source: m.sourceId ? (byId.get(m.sourceId) ?? null) : null,
+      foundBy: classificationJob.contentScanId ? "discovery" : "change",
+    }));
   });
 
   app.get("/classification-jobs", async (req) => {

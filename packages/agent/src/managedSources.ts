@@ -1,4 +1,5 @@
 import type { ManagedSmbSource, PendingConnectionTest, PendingDiscoveryScan } from "@logikos-dsp/shared";
+import { stopDiscovery, updateDiscovery } from "./contentDiscovery.js";
 import { MAX_UNREADABLE_FOLDERS } from "@logikos-dsp/shared";
 import { config } from "./config.js";
 import { completeConnectionTest, completeDiscoveryScan, fetchAgentSync, reportSourceStatus, startDiscoveryScan } from "./client.js";
@@ -45,7 +46,11 @@ function start(spec: ManagedSmbSource): void {
     sourceId: spec.id,
     runScan: (scan) => limiter.run(scan),
     onScanComplete: (result) => {
-      if (result.ok) setKnownFiles(spec.id, result.paths);
+      if (result.ok) {
+        setKnownFiles(spec.id, result.paths);
+        // Examine the files already there, not only the ones that change (contentDiscovery.ts).
+        updateDiscovery(spec.id, source, result.files);
+      }
       const status = result.ok
         ? {
             ok: true as const,
@@ -72,6 +77,7 @@ function stop(id: string): void {
   }
   running.delete(id);
   forgetKnownFiles(id);
+  stopDiscovery(id);
   console.log(`stopped managed source ${id}`);
 }
 

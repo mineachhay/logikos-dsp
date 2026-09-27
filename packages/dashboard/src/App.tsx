@@ -10,6 +10,7 @@ import UsersView from "./UsersView.js";
 import AccountView from "./AccountView.js";
 import BackupWarning from "./BackupWarning.js";
 import StorageView from "./StorageView.js";
+import DiscoveryCoverage from "./DiscoveryCoverage.js";
 import AgentsView from "./AgentsView.js";
 import FileServersView from "./FileServersView.js";
 import BackupsView from "./BackupsView.js";
@@ -465,7 +466,7 @@ function DataRiskView() {
     const q = search.trim().toLowerCase();
     return data.filter((m) => {
       if (patternFilter && m.patternType !== patternFilter) return false;
-      if (q && !m.path.toLowerCase().includes(q)) return false;
+      if (q && !`${m.path} ${m.source ? sourceName({ source: m.source }) : ""}`.toLowerCase().includes(q)) return false;
       return true;
     });
   }, [data, search, patternFilter]);
@@ -478,6 +479,7 @@ function DataRiskView() {
 
   return (
     <>
+      <DiscoveryCoverage />
       <TableToolbar
         search={search}
         onSearch={setSearch}
@@ -494,8 +496,8 @@ function DataRiskView() {
         onExport={() =>
           downloadCsv(
             "data-risk-matches.csv",
-            ["Pattern", "Sample (redacted)", "Path", "Found at"],
-            (sorted ?? []).map((m) => [m.patternType, m.redactedSample, m.path, m.createdAt]),
+            ["Pattern", "Sample (redacted)", "Path", "Source", "Found by", "Found at"],
+            (sorted ?? []).map((m) => [m.patternType, m.redactedSample, m.path, m.source ? sourceName({ source: m.source }) : "", m.foundBy === "discovery" ? "existing file" : "change", m.createdAt]),
           )
         }
       />
@@ -509,6 +511,8 @@ function DataRiskView() {
               <SortableHeader label="Pattern" columnKey="patternType" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
               <th>Sample (redacted)</th>
               <SortableHeader label="Path" columnKey="path" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <th>Source</th>
+              <th>Found by</th>
               <SortableHeader label="Found at" columnKey="createdAt" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
             </tr>
           </thead>
@@ -518,6 +522,8 @@ function DataRiskView() {
                 <td data-label="Pattern">{m.patternType}</td>
                 <td data-label="Sample"><code>{m.redactedSample}</code></td>
                 <td data-label="Path" className="path cell-wide">{m.path}</td>
+                <td data-label="Source">{m.source ? sourceName({ source: m.source }) : "—"}</td>
+                <td data-label="Found by" className="muted">{m.foundBy === "discovery" ? "existing file" : "change"}</td>
                 <td data-label="Found at">{new Date(m.createdAt).toLocaleString()}</td>
               </tr>
             ))}

@@ -221,6 +221,13 @@ model Source {
   /// Subfolders the last successful scan skipped because the account can't read them (capped; see unreadableFolderCount).
   unreadableFolders     String[] @default([])
   unreadableFolderCount Int      @default(0)
+  /// Content discovery progress, as the agent last reported it (agent/src/contentDiscovery.ts):
+  /// files it can examine, and files it can't by type or size. Examined = ContentScan rows.
+  discoveryCandidates   Int?
+  discoverySkippedType  Int?
+  discoverySkippedSize  Int?
+  discoveryPassStartedAt  DateTime?
+  discoveryPassFinishedAt DateTime?
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 
@@ -229,6 +236,7 @@ model Source {
   storageSnapshots StorageSnapshot[]
   alerts           Alert[]
   activity         FileActivity[]
+  contentScans     ContentScan[]
 
   @@unique([fileServerId, shareName, subPath])
   @@index([agentId])
@@ -451,10 +459,14 @@ model StorageSnapshot {
   @@index([sourceId, takenAt])
 }
 
+/// Classifies either a file event's sample (a file that just changed) or a
+/// content scan's (an existing file, found by discovery) — exactly one is set.
 model ClassificationJob {
-  id          String                  @id @default(uuid())
-  fileEventId String                  @unique
-  fileEvent   FileEvent               @relation(fields: [fileEventId], references: [id])
+  id            String                  @id @default(uuid())
+  fileEventId   String?                 @unique
+  fileEvent     FileEvent?              @relation(fields: [fileEventId], references: [id])
+  contentScanId String?                 @unique
+  contentScan   ContentScan?            @relation(fields: [contentScanId], references: [id])
   status      ClassificationJobStatus @default(PENDING)
   createdAt   DateTime                @default(now())
   processedAt DateTime?
@@ -471,7 +483,35 @@ model ClassificationMatch {
   patternType         SensitivePatternType
   redactedSample      String
   path                String
+  /// The share or folder the file is in, for grouping on Data Risk / Compliance.
+  sourceId            String?
   createdAt           DateTime             @default(now())
+
+  @@index([sourceId])
+}
+
+/// An existing file whose contents discovery examined (agent/src/contentDiscovery.ts):
+/// one row per file per source, replaced when the file changes, moved or
+/// removed with it. Kept apart from FileEvent so a first pass over tens of
+/// thousands of files doesn't flood the change history.
+model ContentScan {
+  id            String             @id @default(uuid())
+  sourceId      String
+  source        Source             @relation(fields: [sourceId], references: [id])
+  agentId       String
+  path          String
+  sizeBytes     BigInt
+  mtimeMs       BigInt
+  /// How the text was got: text, docx, xlsx, pptx, pdf.
+  extractor     String
+  /// Base64 of the extracted text's beginning, like FileEvent.contentSample.
+  contentSample String?
+  /// Why there's no sample, e.g. "no text layer (scanned PDF?)".
+  note          String?
+  scannedAt     DateTime           @default(now())
+  job           ClassificationJob?
+
+  @@unique([sourceId, path])
 }
 
 model Alert {

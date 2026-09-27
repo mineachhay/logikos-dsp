@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { followFileEvents } from "../contentScans.js";
 import { hostNameFor } from "../reverseDns.js";
 import { z } from "zod";
 import { prisma } from "../db.js";
@@ -134,6 +135,11 @@ export async function ingestRoutes(app: FastifyInstance) {
     // A rename between two scans arrives as a create; the audit trail is what
     // identifies it (see linkBetweenScanRenames).
     await linkBetweenScanRenames(source.id);
+    // Discovery results follow the files: a deleted file's go, a rename moves them.
+    await followFileEvents(
+      source.id,
+      events.map((e) => ({ eventType: fileEventTypeMap[e.eventType], path: e.path, previousPath: e.previousPath })),
+    );
     // Identical files in several folders look the same to a scan; the read
     // that a copy makes of its source is what names it.
     await linkCopySources(source.id);
