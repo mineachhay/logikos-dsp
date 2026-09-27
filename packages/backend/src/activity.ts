@@ -46,8 +46,11 @@ export async function findActorForEvent(
   const candidates = await prisma.fileActivity.findMany({
     where: {
       sourceId: event.sourceId,
-      // A rename is logged against the old name (see matchActivity).
-      path: { in: event.previousPath ? [event.path, event.previousPath] : [event.path] },
+      // A rename is logged against the old name (see matchActivity). Case-
+      // insensitive, like Windows paths: a 5145 can carry the name in capitals
+      // (14_INFRASTRUCTURE/TEST.TXT for 14_Infrastructure/test.txt, seen on a
+      // real server), and that save went unattributed while this was `in`.
+      OR: (event.previousPath ? [event.path, event.previousPath] : [event.path]).map((p) => ({ path: { equals: p, mode: "insensitive" as const } })),
       occurredAt: { gte: new Date(event.occurredAt.getTime() - window.beforeMs), lte: new Date(event.occurredAt.getTime() + window.afterMs) },
     },
     orderBy: { occurredAt: "desc" },
@@ -72,8 +75,9 @@ export async function backfillActorsForActivity(records: FileActivity[]): Promis
     const events = await prisma.fileEvent.findMany({
       where: {
         sourceId: record.sourceId,
-        // Either the file itself, or a rename away from this name.
-        OR: [{ path: record.path }, { previousPath: record.path }],
+        // Either the file itself, or a rename away from this name — in any
+        // letter case, as Windows compares them (see findActorForEvent).
+        OR: [{ path: { equals: record.path, mode: "insensitive" } }, { previousPath: { equals: record.path, mode: "insensitive" } }],
         actorUser: null,
         occurredAt: { gte: new Date(record.occurredAt.getTime() - window.afterMs), lte: new Date(record.occurredAt.getTime() + window.beforeMs) },
       },

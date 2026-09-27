@@ -197,6 +197,37 @@ describe("matching who to what", () => {
     expect((await prisma.fileEvent.findFirstOrThrow()).actorUser).toBe("mallory");
   });
 
+  it("matches a record whose path Windows logged in different letter case", async () => {
+    // Seen on a real server: a save logged as 14_INFRASTRUCTURE/TEST-WHO.TXT
+    // for the file the scan sees as 14_Infrastructure/test-who.txt.
+    const { app, seeded, server, share } = await setup();
+    const changedAt = new Date();
+    await prisma.fileEvent.create({
+      data: { agentId: seeded.agent.id, sourceId: share.id, eventType: "MODIFIED", path: "14_Infrastructure/test-who.txt", occurredAt: new Date(changedAt.getTime() + 20_000) },
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/ingest/activity",
+      headers: seeded.headers,
+      payload: {
+        ...activityPayload(seeded.agent.key, server.id),
+        records: [{ sourceId: share.id, path: "14_INFRASTRUCTURE/TEST-WHO.TXT", action: "WRITE", userName: "jdoe", userDomain: "CORP", occurredAt: changedAt.toISOString(), recordId: 990 }],
+      },
+    });
+    expect(res.json()).toMatchObject({ matched: 1 });
+    expect((await prisma.fileEvent.findFirstOrThrow()).actorUser).toBe("CORP\\jdoe");
+
+    // And the other direction: the record is already there when the scan reports the change.
+    await app.inject({
+      method: "POST",
+      url: "/ingest/events",
+      headers: seeded.headers,
+      payload: [{ agentKey: seeded.agent.key, sourceId: share.id, eventType: "modified", path: "14_Infrastructure/Test-Who.txt", occurredAt: new Date(changedAt.getTime() + 25_000).toISOString() }],
+    });
+    const second = await prisma.fileEvent.findFirstOrThrow({ where: { path: "14_Infrastructure/Test-Who.txt" } });
+    expect(second.actorUser).toBe("CORP\\jdoe");
+  });
+
   it("attributes a rename, which Windows logs as a delete of the old name", async () => {
     const { app, seeded, server, share } = await setup();
     const renamedAt = new Date();
