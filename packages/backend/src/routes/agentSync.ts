@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { settingsFor } from "../settings.js";
 import { z } from "zod";
 import type { ActivityCollectorConfig, AgentSyncResponse } from "@logikos-dsp/shared";
 import { DISCOVERY_PORTS, MAX_UNREADABLE_FOLDERS, parseCidr } from "@logikos-dsp/shared";
@@ -112,6 +113,8 @@ export async function agentSyncRoutes(app: FastifyInstance) {
     }
 
     const response: AgentSyncResponse = {
+      // Settings → Content discovery and General, applied by the agent within one sync.
+      settings: await settingsFor("agent"),
       sources: sources.map((s) => ({
         id: s.id,
         kind: "SMB" as const,

@@ -1,3 +1,4 @@
+import { fmtDateTime } from "./format.js";
 import { usePolling } from "./usePolling.js";
 import type { BackupSettingsView } from "./api.js";
 
@@ -19,7 +20,7 @@ export default function BackupWarning({ onOpen }: { onOpen: () => void }) {
   if (stale) {
     return (
       <div className="global-warning warning-bad" role="alert">
-        {last ? `No successful backup since ${new Date(last.finishedAt!).toLocaleString()}.` : "There is no backup of this system."}{" "}
+        {last ? `No successful backup since ${fmtDateTime(last.finishedAt!)}.` : "There is no backup of this system."}{" "}
         A lost disk would take all audit history with it.{" "}
         <button className="btn-link" onClick={onOpen}>
           Set up backups

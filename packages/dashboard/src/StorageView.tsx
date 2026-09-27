@@ -1,3 +1,4 @@
+import { fmtDateTime } from "./format.js";
 import { useId, useMemo, useState } from "react";
 import { usePolling } from "./usePolling.js";
 import { downloadCsv } from "./csv.js";
@@ -186,8 +187,8 @@ export default function StorageView() {
                     </span>
                   )}
                 </td>
-                <td data-label="Last scan" title={new Date(s.takenAt).toLocaleString()}>
-                  {new Date(s.takenAt).toLocaleString()}
+                <td data-label="Last scan" title={fmtDateTime(s.takenAt)}>
+                  {fmtDateTime(s.takenAt)}
                 </td>
               </tr>
             ))}

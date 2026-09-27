@@ -1,4 +1,6 @@
 import Fastify from "fastify";
+import { systemRoutes } from "./routes/system.js";
+import { settingsRoutes } from "./routes/settings.js";
 import { contentDiscoveryRoutes } from "./routes/contentDiscovery.js";
 import type { FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
@@ -70,6 +72,8 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   // /agent-sync/sources/:id/content-scans (per-agent secret), plus the
   // dashboard's /content-discovery/coverage (user login) — one feature, one file.
   await app.register(contentDiscoveryRoutes);
+  await app.register(settingsRoutes);
+  await app.register(systemRoutes);
   // Agent-facing: authenticated by enroll token / per-agent secret (auth/agentAuth.ts), not user login.
   // Never gate these behind app.authenticate. (agents.ts also holds the dashboard-side /agents routes.)
   await app.register(agentRoutes);

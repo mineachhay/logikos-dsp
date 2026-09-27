@@ -39,8 +39,9 @@ const COMMON = new Set(
 );
 
 /** Why `password` isn't acceptable for `email`, or null if it is. */
-export function passwordProblem(password: string, email: string): string | null {
-  if (password.length < MIN_PASSWORD_LENGTH) return `use at least ${MIN_PASSWORD_LENGTH} characters`;
+/** `minLength` comes from Settings → Security (security.passwordMinLength). */
+export function passwordProblem(password: string, email: string, minLength = MIN_PASSWORD_LENGTH): string | null {
+  if (password.length < minLength) return `use at least ${minLength} characters`;
   if (Buffer.byteLength(password, "utf8") > MAX_PASSWORD_BYTES) {
     return `use at most ${MAX_PASSWORD_BYTES} bytes (about ${MAX_PASSWORD_BYTES} plain letters) — longer is silently truncated`;
   }

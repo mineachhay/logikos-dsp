@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { setting } from "../settings.js";
 import { z } from "zod";
 import { prisma } from "../db.js";
 import { hashPassword, verifyPassword } from "../auth/passwords.js";
@@ -11,8 +12,6 @@ import { parseLoginName } from "../auth/directory.js";
 import { authenticateDirectory, loadDirectoryConfig } from "../auth/directoryClient.js";
 import type { DirectoryConfig } from "../auth/directoryClient.js";
 import {
-  IP_WINDOW_MS,
-  LOCK_AFTER_FAILURES,
   ipBlockedUntil,
   lockoutMsFor,
   secondsUntil,
@@ -78,12 +77,13 @@ async function recordFailure(user: User | null, ip: string, name: string, now: D
   await recordAttempt(ip, name, false);
   if (!user) return;
   const failures = user.failedLoginCount + 1;
-  const lockMs = lockoutMsFor(failures);
+  const lockAfter = await setting<number>("security.lockAfterFailures");
+  const lockMs = lockoutMsFor(failures, lockAfter);
   await prisma.user.update({
     where: { id: user.id },
     data: { failedLoginCount: failures, lockedUntil: lockMs ? new Date(now.getTime() + lockMs) : null },
   });
-  if (lockMs && failures === LOCK_AFTER_FAILURES) {
+  if (lockMs && failures === lockAfter) {
     await raiseLoginAttackAlert(user.email, ip, failures, lockMs / 1000);
   }
 }
@@ -175,12 +175,18 @@ export async function authRoutes(app: FastifyInstance) {
     const ip = clientIp(req);
     const now = new Date();
 
+    // Settings → Security.
+    const ipPolicy = {
+      limit: await setting<number>("security.ipFailureLimit"),
+      windowMs: (await setting<number>("security.ipWindowMinutes")) * 60_000,
+      blockMs: (await setting<number>("security.ipBlockMinutes")) * 60_000,
+    };
     // 1. Is this IP already guessing too much, across any accounts?
     const recent = await prisma.loginAttempt.findMany({
-      where: { ip, success: false, at: { gte: new Date(now.getTime() - IP_WINDOW_MS) } },
+      where: { ip, success: false, at: { gte: new Date(now.getTime() - ipPolicy.windowMs) } },
       select: { at: true },
     });
-    const blockedUntil = ipBlockedUntil(recent.map((r) => r.at), now);
+    const blockedUntil = ipBlockedUntil(recent.map((r) => r.at), now, ipPolicy);
     if (blockedUntil) {
       const seconds = secondsUntil(blockedUntil, now);
       return reply
@@ -230,7 +236,7 @@ export async function authRoutes(app: FastifyInstance) {
     if (!(await verifyPassword(body.currentPassword, user.passwordHash))) {
       return reply.code(400).send({ error: "current password is incorrect" });
     }
-    const problem = passwordProblem(body.newPassword, user.email);
+    const problem = passwordProblem(body.newPassword, user.email, await setting<number>("security.passwordMinLength"));
     if (problem) return reply.code(400).send({ error: problem });
     if (await verifyPassword(body.newPassword, user.passwordHash)) {
       return reply.code(400).send({ error: "choose a password different from the current one" });

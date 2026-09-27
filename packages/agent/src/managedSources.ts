@@ -1,4 +1,5 @@
 import type { ManagedSmbSource, PendingConnectionTest, PendingDiscoveryScan } from "@logikos-dsp/shared";
+import { setRuntimeSettings } from "./runtimeSettings.js";
 import { stopDiscovery, updateDiscovery } from "./contentDiscovery.js";
 import { MAX_UNREADABLE_FOLDERS } from "@logikos-dsp/shared";
 import { config } from "./config.js";
@@ -103,6 +104,7 @@ async function runConnectionTest(test: PendingConnectionTest): Promise<void> {
 async function syncOnce(): Promise<void> {
   const sync = await fetchAgentSync();
   if (!sync) return; // transport or auth problem, already logged; keep what's running
+  setRuntimeSettings(sync.settings);
 
   const plan = planReconcile(running, sync.sources);
   for (const id of plan.stop) stop(id);

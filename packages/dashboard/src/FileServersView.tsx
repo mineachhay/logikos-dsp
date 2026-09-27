@@ -1,3 +1,5 @@
+import { useSetting } from "./settingsContext.js";
+import { fmtDateTime, fmtTime } from "./format.js";
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { usePolling } from "./usePolling.js";
@@ -108,7 +110,8 @@ function ServerForm({
   const [winrmPort, setWinrmPort] = useState(initial?.winrmPort ? String(initial.winrmPort) : "");
   const [winrmUsername, setWinrmUsername] = useState(initial?.winrmUsername ?? "");
   const [winrmPassword, setWinrmPassword] = useState("");
-  const [recordReads, setRecordReads] = useState(initial?.recordReads ?? false);
+  const defaultRecordReads = useSetting("monitoring.defaultRecordReads", false);
+  const [recordReads, setRecordReads] = useState(initial?.recordReads ?? defaultRecordReads);
   const [bulkReadThreshold, setBulkReadThreshold] = useState(initial?.bulkReadThreshold ? String(initial.bulkReadThreshold) : "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -236,7 +239,8 @@ function ShareForm({
 }) {
   const [shareName, setShareName] = useState(initial?.shareName ?? "");
   const [subPath, setSubPath] = useState(initial?.subPath ?? "");
-  const [scanIntervalSec, setScanIntervalSec] = useState(initial?.scanIntervalSec ?? 300);
+  const defaultInterval = useSetting("monitoring.defaultScanIntervalSec", 300);
+  const [scanIntervalSec, setScanIntervalSec] = useState(initial?.scanIntervalSec ?? defaultInterval);
   const [agentId, setAgentId] = useState(initial?.agentId ?? agents[0]?.id ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -272,6 +276,7 @@ function ShareForm({
           Scan
           <select value={scanIntervalSec} onChange={(e) => setScanIntervalSec(Number(e.target.value))}>
             {INTERVALS.map((i) => <option key={i.sec} value={i.sec}>{i.label}</option>)}
+            {!INTERVALS.some((i) => i.sec === scanIntervalSec) && <option value={scanIntervalSec}>{intervalLabel(scanIntervalSec)}</option>}
           </select>
         </label>
         <label>
@@ -392,7 +397,7 @@ function ShareRow({ server, share, agents }: { server: FileServer; share: Share;
         <td data-label="Agent">{share.agent?.hostname ?? "—"}</td>
         <td data-label="Schedule">{intervalLabel(share.scanIntervalSec)}</td>
         <td data-label="Status" className="fs-status"><ShareStatus server={server} share={share} /></td>
-        <td data-label="Last scan">{share.lastScanAt ? new Date(share.lastScanAt).toLocaleString() : "—"}</td>
+        <td data-label="Last scan">{share.lastScanAt ? fmtDateTime(share.lastScanAt) : "—"}</td>
         <td data-label="Files / size">{share.lastFileCount ?? "—"} / {formatBytes(share.lastTotalBytes)}</td>
         <td className="fs-row-actions cell-actions">
           <button
@@ -466,7 +471,7 @@ function ServerCard({ server, agents }: { server: FileServer; agents: ManagedAge
               <p className={`field-hint ${server.lastActivityError ? "test-fail" : "test-ok"}`}>
                 {server.lastActivityError
                   ? `who-changed-files: ${server.lastActivityError}`
-                  : `who-changed-files: on${server.lastActivityAt ? ` · last read ${new Date(server.lastActivityAt).toLocaleTimeString()}` : " · waiting for first read"}`}
+                  : `who-changed-files: on${server.lastActivityAt ? ` · last read ${fmtTime(server.lastActivityAt)}` : " · waiting for first read"}`}
               </p>
             )}
           </div>
@@ -570,7 +575,7 @@ export default function FileServersView() {
             <tbody>
               {audit.data.map((entry) => (
                 <tr key={entry.id}>
-                  <td data-label="When" className="muted">{new Date(entry.createdAt).toLocaleString()}</td>
+                  <td data-label="When" className="muted">{fmtDateTime(entry.createdAt)}</td>
                   <td data-label="By">{entry.userEmail}</td>
                   <td data-label="Change" className="cell-wide">{describeAudit(entry)}</td>
                 </tr>

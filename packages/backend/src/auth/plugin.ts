@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { setting } from "../settings.js";
 import cookie from "@fastify/cookie";
 import jwt from "@fastify/jwt";
 import { prisma } from "../db.js";
@@ -33,13 +34,13 @@ declare module "fastify" {
   }
 }
 
-export function sessionCookieOptions() {
+export function sessionCookieOptions(ttlSeconds = SESSION_TTL_SECONDS) {
   return {
     httpOnly: true,
     sameSite: "lax" as const,
     secure: process.env.NODE_ENV === "production",
     path: "/",
-    maxAge: SESSION_TTL_SECONDS,
+    maxAge: ttlSeconds,
   };
 }
 
@@ -48,11 +49,10 @@ export async function issueSession(
   reply: FastifyReply,
   user: { id: string; email: string; role: Role; sessionVersion: number },
 ): Promise<void> {
-  const token = await reply.jwtSign(
-    { id: user.id, email: user.email, role: user.role, sv: user.sessionVersion },
-    { expiresIn: SESSION_TTL_SECONDS },
-  );
-  reply.setCookie("token", token, sessionCookieOptions());
+  // Settings → Security: how long a session lasts without activity.
+  const ttlSeconds = (await setting<number>("security.sessionIdleHours")) * 3600;
+  const token = await reply.jwtSign({ id: user.id, email: user.email, role: user.role, sv: user.sessionVersion }, { expiresIn: ttlSeconds });
+  reply.setCookie("token", token, sessionCookieOptions(ttlSeconds));
 }
 
 /**

@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { setting } from "../settings.js";
 import { z } from "zod";
 import { prisma } from "../db.js";
 import { hashPassword } from "../auth/passwords.js";
@@ -55,7 +56,7 @@ export async function userRoutes(app: FastifyInstance) {
 
   app.post("/users", async (req, reply) => {
     const body = createUserSchema.parse(req.body);
-    const problem = passwordProblem(body.password, body.email);
+    const problem = passwordProblem(body.password, body.email, await setting<number>("security.passwordMinLength"));
     if (problem) return reply.code(400).send({ error: `password: ${problem}` });
     if (await prisma.user.findUnique({ where: { email: body.email } })) {
       return reply.code(409).send({ error: "a user with that email already exists" });
@@ -118,7 +119,7 @@ export async function userRoutes(app: FastifyInstance) {
     if (user.source === "DIRECTORY") {
       return reply.code(400).send({ error: "this is an Active Directory account — reset its password in AD" });
     }
-    const problem = passwordProblem(body.newPassword, user.email);
+    const problem = passwordProblem(body.newPassword, user.email, await setting<number>("security.passwordMinLength"));
     if (problem) return reply.code(400).send({ error: `password: ${problem}` });
     const updated = await prisma.user.update({
       where: { id: user.id },

@@ -32,6 +32,8 @@ enum SensitivePatternType {
   PERSON
   ORGANIZATION
   LOCATION
+  /// A pattern added under Settings → Classification; its name is in ClassificationMatch.customName.
+  CUSTOM
 }
 
 enum AlertType {
@@ -485,6 +487,8 @@ model ClassificationMatch {
   path                String
   /// The share or folder the file is in, for grouping on Data Risk / Compliance.
   sourceId            String?
+  /// For patternType CUSTOM: which custom pattern matched.
+  customName          String?
   createdAt           DateTime             @default(now())
 
   @@index([sourceId])
@@ -619,6 +623,9 @@ model BackupSettings {
   /// matching private key is never on this server.
   agePublicKey        String?
   workerHeartbeatAt   DateTime?
+  /// Free and total bytes where the worker keeps local dumps (BACKUP_DIR), for System health.
+  workerDiskFreeBytes  BigInt?
+  workerDiskTotalBytes BigInt?
   updatedAt           DateTime               @updatedAt
 }
 
@@ -690,4 +697,14 @@ model DirectorySettings {
   adminGroup      String   @default("")
   viewerGroup     String   @default("")
   updatedAt       DateTime @updatedAt
+}
+
+/// A setting changed from its default on the Settings page (registry:
+/// packages/shared/src/settings.ts). Only overrides are stored; secrets are
+/// encrypted with SOURCE_CREDENTIALS_KEY. History is in AuditLog.
+model Setting {
+  key            String   @id
+  value          Json
+  updatedAt      DateTime @updatedAt
+  updatedByEmail String?
 }

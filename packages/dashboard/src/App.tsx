@@ -1,14 +1,18 @@
+import { fmtDateTime } from "./format.js";
 import { useEffect, useMemo, useState } from "react";
 import { collapseBursts, FromCell, fromText, RepeatBadge } from "./activityBursts.js";
 import { usePolling } from "./usePolling.js";
 import { patchAlertStatus, approveResponseAction, rejectResponseAction } from "./api.js";
-import { sourceName } from "./api.js";
+import { sourceName, patternLabel } from "./api.js";
 import type { Alert, FileEvent, FileActivityRow, ClassificationMatch, ResponseAction } from "./api.js";
 import { AuthProvider, useAuth } from "./auth.js";
 import LoginView from "./LoginView.js";
 import UsersView from "./UsersView.js";
 import AccountView from "./AccountView.js";
 import BackupWarning from "./BackupWarning.js";
+import CertificateWarning from "./CertificateWarning.js";
+import SettingsView from "./SettingsView.js";
+import { SettingsProvider, useSetting } from "./settingsContext.js";
 import StorageView from "./StorageView.js";
 import DiscoveryCoverage from "./DiscoveryCoverage.js";
 import AgentsView from "./AgentsView.js";
@@ -48,7 +52,8 @@ function tabToSlug(tab: string): string {
 }
 
 function slugToTab(slug: string, available: readonly string[]): string | null {
-  const wanted = slug.replace(/^#\/?/, "");
+  // A view can take options after "?" (#/settings?section=system); they don't pick the view.
+  const wanted = slug.replace(/^#\/?/, "").split("?")[0]!;
   return available.find((tab) => tabToSlug(tab) === wanted) ?? null;
 }
 
@@ -211,7 +216,7 @@ function AlertsView() {
                 <td data-label="Message" className="cell-wide">{a.message}</td>
                 <td data-label="Source" title={a.source?.rootLabel}>{sourceName(a)}</td>
                 <td data-label="Status">{a.status}</td>
-                <td data-label="When" className="cell-time">{new Date(a.createdAt).toLocaleString()}</td>
+                <td data-label="When" className="cell-time">{fmtDateTime(a.createdAt)}</td>
                 <td className="cell-actions">
                   {a.status === "OPEN" && user?.role === "ADMIN" && (
                     <button className="btn btn-sm btn-secondary" disabled={busyId === a.id} onClick={() => acknowledge(a.id)}>
@@ -445,7 +450,7 @@ function FileEventsView() {
                 <td data-label="Source" title={e.source?.rootLabel}>{sourceName(e)}</td>
                 <td data-label="Who">{whoDidIt(e)}</td>
                 <td data-label="From"><FromCell host={e.actorHost} ip={e.actorIp} /></td>
-                <td data-label="When" className="cell-time">{new Date(e.occurredAt).toLocaleString()}</td>
+                <td data-label="When" className="cell-time">{fmtDateTime(e.occurredAt)}</td>
               </tr>
             ))}
           </tbody>
@@ -465,14 +470,14 @@ function DataRiskView() {
     if (!data) return null;
     const q = search.trim().toLowerCase();
     return data.filter((m) => {
-      if (patternFilter && m.patternType !== patternFilter) return false;
+      if (patternFilter && patternLabel(m) !== patternFilter) return false;
       if (q && !`${m.path} ${m.source ? sourceName({ source: m.source }) : ""}`.toLowerCase().includes(q)) return false;
       return true;
     });
   }, [data, search, patternFilter]);
 
   const { sorted, sortKey, sortDir, toggleSort } = useSort<ClassificationMatch>(filtered, "createdAt", "desc");
-  const patternTypes = useMemo(() => Array.from(new Set((data ?? []).map((m) => m.patternType))).sort(), [data]);
+  const patternTypes = useMemo(() => Array.from(new Set((data ?? []).map(patternLabel))).sort(), [data]);
 
   if (error) return <p className="error">Failed to load classification matches: {error}</p>;
   if (!data) return <p>Loading…</p>;
@@ -497,7 +502,7 @@ function DataRiskView() {
           downloadCsv(
             "data-risk-matches.csv",
             ["Pattern", "Sample (redacted)", "Path", "Source", "Found by", "Found at"],
-            (sorted ?? []).map((m) => [m.patternType, m.redactedSample, m.path, m.source ? sourceName({ source: m.source }) : "", m.foundBy === "discovery" ? "existing file" : "change", m.createdAt]),
+            (sorted ?? []).map((m) => [patternLabel(m), m.redactedSample, m.path, m.source ? sourceName({ source: m.source }) : "", m.foundBy === "discovery" ? "existing file" : "change", m.createdAt]),
           )
         }
       />
@@ -519,12 +524,12 @@ function DataRiskView() {
           <tbody>
             {sorted!.map((m) => (
               <tr key={m.id}>
-                <td data-label="Pattern">{m.patternType}</td>
+                <td data-label="Pattern">{patternLabel(m)}</td>
                 <td data-label="Sample"><code>{m.redactedSample}</code></td>
                 <td data-label="Path" className="path cell-wide">{m.path}</td>
                 <td data-label="Source">{m.source ? sourceName({ source: m.source }) : "—"}</td>
                 <td data-label="Found by" className="muted">{m.foundBy === "discovery" ? "existing file" : "change"}</td>
-                <td data-label="Found at">{new Date(m.createdAt).toLocaleString()}</td>
+                <td data-label="Found at">{fmtDateTime(m.createdAt)}</td>
               </tr>
             ))}
           </tbody>
@@ -549,7 +554,15 @@ function formatBytes(bytes: number): string {
 
 function Dashboard() {
   const { user, logout } = useAuth();
-  const groups = user?.role === "ADMIN" ? [...NAV_GROUPS, { label: "Administration", items: ["File Servers", "Backups", "Retention", "Agents", "Users"] }] : NAV_GROUPS;
+  const orgName = useSetting("general.orgName", "");
+  // Viewers get Settings too, read-only: how the system is configured is theirs to see.
+  const groups = useMemo(
+    () =>
+      user?.role === "ADMIN"
+        ? [...NAV_GROUPS, { label: "Administration", items: ["File Servers", "Backups", "Retention", "Agents", "Users", "Settings"] }]
+        : [...NAV_GROUPS, { label: null, items: ["Settings"] }],
+    [user?.role],
+  );
   // "My account" isn't in the sidebar — it's opened from the email in the top bar.
   const allTabs = useMemo(() => [...groups.flatMap((g) => g.items), "My account"], [groups]);
   // Read the hash on first render rather than in an effect, so the right view
@@ -594,6 +607,7 @@ function Dashboard() {
     <div className="app-shell">
       <aside id="app-nav" className={`sidebar ${navOpen ? "open" : ""}`}>
         <h1>logikos-dsp</h1>
+        {orgName && <div className="sidebar-org">{orgName}</div>}
         <nav>
           {groups.map((g) => (
             <div className="nav-group" key={g.label ?? "root"}>
@@ -628,6 +642,7 @@ function Dashboard() {
           </div>
         </div>
         {user?.role === "ADMIN" && <BackupWarning onOpen={() => selectTab("Backups")} />}
+        {user?.role === "ADMIN" && <CertificateWarning onOpen={() => { window.location.hash = "/settings?section=system"; }} />}
         <main>
           {tab === "Overview" && <OverviewView />}
           {tab === "Alerts" && <AlertsView />}
@@ -641,6 +656,7 @@ function Dashboard() {
           {tab === "Retention" && <RetentionView />}
           {tab === "Agents" && <AgentsView />}
           {tab === "Users" && <UsersView />}
+          {tab === "Settings" && <SettingsView />}
           {tab === "My account" && <AccountView />}
         </main>
       </div>
@@ -653,7 +669,13 @@ function AppShell() {
   if (loading) return null;
   if (!user) return <LoginView />;
   // After an admin reset the server allows nothing but the password change.
-  return user.mustChangePassword ? <AccountView forced /> : <Dashboard />;
+  return user.mustChangePassword ? (
+    <AccountView forced />
+  ) : (
+    <SettingsProvider>
+      <Dashboard />
+    </SettingsProvider>
+  );
 }
 
 export default function App() {

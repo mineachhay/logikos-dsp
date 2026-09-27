@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { setting } from "../settings.js";
 import { z } from "zod";
 import { coverageFor, MANAGED_SOURCES_CAPABILITY, parseCidr } from "@logikos-dsp/shared";
 import { prisma } from "../db.js";
@@ -85,6 +86,8 @@ export async function discoveryRoutes(app: FastifyInstance) {
     const machines = coverageFor(
       scan.hosts.map((h) => ({ address: h.address, hostname: h.hostname, openPorts: h.openPorts })),
       agents,
+      new Date(),
+      (await setting<number>("detection.agentQuietAfterMinutes")) * 60_000,
     );
     return {
       scan: { id: scan.id, cidr: scan.cidr, completedAt: scan.completedAt, scannedBy: scan.agent.hostname },

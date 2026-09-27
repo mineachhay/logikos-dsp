@@ -26,4 +26,10 @@ describe("planDiscovery", () => {
     ]);
     expect(planDiscovery(files, done).todo).toEqual(["a/notes.txt", "a/old.xlsx"]);
   });
+
+  it("follows the configured types, size limit and skip patterns", () => {
+    const plan = planDiscovery(files, new Map(), { maxFileBytes: 1500, fileTypes: new Set(["docx", "xlsx", "text"]), exclude: [/^a\/notes\.txt$/i] });
+    // report.docx only: old.xlsx is too large; photo.jpg and huge.pdf aren't allowed types; notes.txt is excluded.
+    expect(plan).toEqual({ candidates: 1, todo: ["a/report.docx"], skippedType: 3, skippedSize: 1 });
+  });
 });

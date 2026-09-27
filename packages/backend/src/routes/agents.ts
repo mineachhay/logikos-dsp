@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { setting } from "../settings.js";
 import { binaryVersion } from "../agentVersion.js";
 import { installCa } from "./deployments.js";
 import { createReadStream } from "node:fs";
@@ -67,7 +68,17 @@ export async function agentRoutes(app: FastifyInstance) {
   app.get(
     "/agents/installer-info",
     { preHandler: [app.authenticate, app.requireRole("ADMIN")] },
-    async () => ({ ...(await installerInfo()), enrollToken: process.env.AGENT_ENROLL_TOKEN ?? "", installCa: installCa() ?? null }),
+    async () => ({
+      ...(await installerInfo()),
+      enrollToken: process.env.AGENT_ENROLL_TOKEN ?? "",
+      installCa: (await installCa()) ?? null,
+      // Settings → Agents: what the install form starts with.
+      defaults: {
+        watchPath: await setting<string>("agents.defaultWatchPath"),
+        allDrives: await setting<boolean>("agents.defaultAllDrives"),
+        removable: await setting<boolean>("agents.defaultRemovable"),
+      },
+    }),
   );
 
   app.get(

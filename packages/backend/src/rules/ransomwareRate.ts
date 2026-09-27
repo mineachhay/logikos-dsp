@@ -1,8 +1,5 @@
-import {
-  RANSOMWARE_RATE_THRESHOLD,
-  RANSOMWARE_RATE_WINDOW_SECONDS,
-  supportsQuarantine,
-} from "@logikos-dsp/shared";
+import { supportsQuarantine } from "@logikos-dsp/shared";
+import { setting } from "../settings.js";
 import { prisma } from "../db.js";
 
 // A burst can touch far more files than anyone should approve-and-review in
@@ -23,13 +20,17 @@ const MAX_QUARANTINE_PATHS = 200;
  * rule, not a rewrite of this one.
  */
 export async function checkRansomwareRate(sourceId: string): Promise<void> {
-  const windowStart = new Date(Date.now() - RANSOMWARE_RATE_WINDOW_SECONDS * 1000);
+  // Settings page → Detection rules (defaults: 50 changes in 60 s, CRITICAL).
+  const threshold = await setting<number>("detection.ransomware.threshold");
+  const windowSeconds = await setting<number>("detection.ransomware.windowSeconds");
+  const severity = await setting<"HIGH" | "CRITICAL">("detection.ransomware.severity");
+  const windowStart = new Date(Date.now() - windowSeconds * 1000);
 
   const count = await prisma.fileEvent.count({
     where: { sourceId, occurredAt: { gte: windowStart } },
   });
 
-  if (count < RANSOMWARE_RATE_THRESHOLD) return;
+  if (count < threshold) return;
 
   // Avoid spamming a new alert every single event once past threshold:
   // only create one if there isn't already an open ransomware-rate alert
@@ -66,11 +67,11 @@ export async function checkRansomwareRate(sourceId: string): Promise<void> {
   const alert = await prisma.alert.create({
     data: {
       type: "RANSOMWARE_RATE",
-      severity: "CRITICAL",
+      severity,
       agentId: source.agentId,
       sourceId,
-      message: `${count} file events on ${source.rootLabel} in the last ${RANSOMWARE_RATE_WINDOW_SECONDS}s (threshold ${RANSOMWARE_RATE_THRESHOLD}) — possible ransomware or bulk-delete activity.`,
-      metadata: { count, windowSeconds: RANSOMWARE_RATE_WINDOW_SECONDS, affectedPaths },
+      message: `${count} file events on ${source.rootLabel} in the last ${windowSeconds}s (threshold ${threshold}) — possible ransomware or bulk-delete activity.`,
+      metadata: { count, windowSeconds, affectedPaths },
     },
   });
 

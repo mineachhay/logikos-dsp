@@ -1,6 +1,8 @@
 import { buildApp } from "./app.js";
-import { runRetention, summarize } from "./retention.js";
+import { runRetention, summarize, thinSnapshots } from "./retention.js";
+import { setting } from "./settings.js";
 import { checkSilentAgents } from "./rules/agentSilence.js";
+import { applyNotificationPolicy } from "./notificationPolicy.js";
 
 const app = await buildApp();
 
@@ -18,6 +20,10 @@ async function sweep(): Promise<void> {
   try {
     const result = await runRetention();
     if (result) app.log.info(`retention: ${summarize(result)}`);
+    if (await setting<boolean>("monitoring.snapshotThinning")) {
+      const thinned = await thinSnapshots();
+      if (thinned) app.log.info(`thinned ${thinned} old storage snapshot(s)`);
+    }
   } catch (err) {
     app.log.error({ err }, "retention sweep failed");
   }
@@ -36,3 +42,15 @@ async function checkAgents(): Promise<void> {
   }
 }
 setInterval(() => void checkAgents(), 60_000).unref();
+
+// Settings → Notifications: offer notifications from the configured severity,
+// and send the chosen alert types without approval (notificationPolicy.ts).
+async function notificationPolicy(): Promise<void> {
+  try {
+    const { offered, sent } = await applyNotificationPolicy();
+    if (offered || sent) app.log.info(`notifications: ${offered} offered, ${sent} sent automatically`);
+  } catch (err) {
+    app.log.error({ err }, "notification policy failed");
+  }
+}
+setInterval(() => void notificationPolicy(), 15_000).unref();

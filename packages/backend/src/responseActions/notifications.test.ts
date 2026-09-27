@@ -80,7 +80,7 @@ describe("sendWebhookNotification", () => {
     setEnv({ TELEGRAM_BOT_TOKEN: "123:secret-token" });
     const result = await sendWebhookNotification(alert);
     expect(result.ok).toBe(false);
-    expect(result.message).toContain("TELEGRAM_CHAT_ID");
+    expect(result.message).toContain("chat ID");
   });
 
   it("sends to every configured channel and fails if any one does", async () => {

@@ -1,5 +1,5 @@
-import { BULK_READ_THRESHOLD, BULK_READ_WINDOW_SECONDS } from "@logikos-dsp/shared";
 import { prisma } from "../db.js";
+import { setting } from "../settings.js";
 
 /**
  * Copying files *off* a share changes nothing on it, so no scan can see it —
@@ -11,13 +11,14 @@ import { prisma } from "../db.js";
  * file, and re-reading one document all morning isn't an exfiltration.
  */
 export async function checkBulkRead(sourceId: string, userName: string, now = new Date()): Promise<void> {
-  const windowStart = new Date(now.getTime() - BULK_READ_WINDOW_SECONDS * 1000);
+  const windowSeconds = await setting<number>("detection.bulkRead.windowSeconds");
+  const windowStart = new Date(now.getTime() - windowSeconds * 1000);
 
   // Per server: 50 suits a busy share where people open documents all day,
   // but on a share that should barely be read, five files in five minutes is
   // already worth knowing about.
   const source = await prisma.source.findUnique({ where: { id: sourceId }, include: { fileServer: true } });
-  const threshold = source?.fileServer?.bulkReadThreshold ?? BULK_READ_THRESHOLD;
+  const threshold = source?.fileServer?.bulkReadThreshold ?? (await setting<number>("detection.bulkRead.threshold"));
 
   const distinct = await prisma.fileActivity.findMany({
     where: { sourceId, userName, action: "READ", occurredAt: { gte: windowStart } },
@@ -39,8 +40,8 @@ export async function checkBulkRead(sourceId: string, userName: string, now = ne
       severity: "MEDIUM",
       agentId: source?.agentId,
       sourceId,
-      message: `${userName} read ${distinct.length}+ different files on ${source?.rootLabel ?? "a share"} within ${BULK_READ_WINDOW_SECONDS / 60} minutes — possible bulk copy off the share.`,
-      metadata: { userName, distinctFiles: distinct.length, windowSeconds: BULK_READ_WINDOW_SECONDS },
+      message: `${userName} read ${distinct.length}+ different files on ${source?.rootLabel ?? "a share"} within ${Math.round(windowSeconds / 60)} minutes — possible bulk copy off the share.`,
+      metadata: { userName, distinctFiles: distinct.length, windowSeconds },
     },
   });
   // Suggested, not automatic — same approve-first path as every other alert.

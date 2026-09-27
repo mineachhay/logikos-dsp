@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { setting } from "../settings.js";
 import { z } from "zod";
 import { MANAGED_SOURCES_CAPABILITY } from "@logikos-dsp/shared";
 import { prisma } from "../db.js";
@@ -88,7 +89,7 @@ export async function deploymentRoutes(app: FastifyInstance) {
       connectIp: body.connectIp,
       allDrives: body.allDrives,
       removable: body.removable,
-      ca: installCa(),
+      ca: await installCa(),
     });
 
     await recordAudit(req, "agent.deploy", { type: "agent", id: deployment.id }, {
@@ -133,8 +134,9 @@ export const pendingInstallOptions = new Map<
  * behind Cloudflare's origin CA. It used to be hard-coded to that, which on a
  * site with a public certificate added an unrelated root to what agents trust.
  */
-export function installCa(): string | undefined {
-  return process.env.AGENT_INSTALL_CA?.trim() || undefined;
+export async function installCa(): Promise<string | undefined> {
+  // Settings → Agents; the AGENT_INSTALL_CA environment variable still wins.
+  return (await setting<string>("agents.installCa")).trim() || undefined;
 }
 
 /**

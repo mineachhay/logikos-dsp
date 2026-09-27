@@ -1,3 +1,4 @@
+import { fmtDateTime } from "./format.js";
 import { useMemo, useState } from "react";
 import { collapseBursts, FromCell, fromText, RepeatBadge } from "./activityBursts.js";
 import type { CollapsedActivity } from "./activityBursts.js";
@@ -108,7 +109,7 @@ export default function FileAccessView() {
                   <td data-label="Who">{actor(row)}</td>
                   <td data-label="From"><FromCell host={row.clientHost} ip={row.clientIp} /></td>
                   <td data-label="Source" title={row.source?.rootLabel}>{sourceName(row)}</td>
-                  <td data-label="When">{new Date(row.occurredAt).toLocaleString()}</td>
+                  <td data-label="When">{fmtDateTime(row.occurredAt)}</td>
                 </tr>
               ))}
             </tbody>

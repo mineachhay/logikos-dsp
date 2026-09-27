@@ -1,18 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { applyPolicy, findCustomPatterns, type KeptMatch } from "./policy.js";
+import { classificationSettings } from "./settings.js";
 import { pool } from "./db.js";
 import { findSensitivePatterns } from "./patterns.js";
 import { findNamedEntities, preloadNerModel } from "./ner.js";
 import { supportsQuarantine } from "@logikos-dsp/shared";
-
-const PATTERN_TYPE_MAP: Record<string, string> = {
-  ssn: "SSN",
-  credit_card: "CREDIT_CARD",
-  email: "EMAIL",
-  phone: "PHONE",
-  person: "PERSON",
-  organization: "ORGANIZATION",
-  location: "LOCATION",
-};
 
 const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS ?? 2000);
 const BATCH_SIZE = 20;
@@ -111,23 +103,31 @@ async function processJob(jobId: string): Promise<void> {
     const content = row.content_sample
       ? Buffer.from(row.content_sample, "base64").toString("utf8")
       : "";
-    const matches = [...findSensitivePatterns(content), ...(await findNamedEntities(content))];
+    // Settings → Classification: which kinds are looked for, how serious
+    // each is, whether it alerts, custom patterns and the minimum per file.
+    const cfg = await classificationSettings(pool);
+    const builtIn = [
+      ...findSensitivePatterns(content),
+      ...(cfg.nerEnabled ? await findNamedEntities(content, cfg.nerConfidence / 100) : []),
+    ];
+    const verdict = applyPolicy(builtIn, findCustomPatterns(content, cfg.customPatterns), cfg.patterns, cfg.minMatches);
+    const matches = verdict.kept;
+    const label = (m: KeptMatch) => m.customName ?? m.patternType.toLowerCase();
 
     for (const match of matches) {
       await pool.query(
         `INSERT INTO "ClassificationMatch"
-           ("id","classificationJobId","patternType","redactedSample","path","sourceId","createdAt")
-         VALUES ($1,$2,$3,$4,$5,$6,now())`,
-        [randomUUID(), jobId, PATTERN_TYPE_MAP[match.patternType], match.redactedSample, row.path, row.source_id],
+           ("id","classificationJobId","patternType","redactedSample","path","sourceId","customName","createdAt")
+         VALUES ($1,$2,$3,$4,$5,$6,$7,now())`,
+        [randomUUID(), jobId, match.patternType, match.redactedSample, row.path, row.source_id, match.customName],
       );
     }
 
     if (matches.length > 0 && row.discovery) {
       await noteDiscoveryFinding(row.source_id, row.source_root, row.agent_id);
-    } else if (matches.length > 0) {
-      const severity = matches.some((m) => m.patternType === "ssn" || m.patternType === "credit_card")
-        ? "HIGH"
-        : "MEDIUM";
+    } else if (verdict.alertSeverity) {
+      const severity = verdict.alertSeverity;
+      const kinds = [...new Set(matches.map(label))];
       const alertId = randomUUID();
       await pool.query(
         `INSERT INTO "Alert"
@@ -138,18 +138,16 @@ async function processJob(jobId: string): Promise<void> {
           severity,
           row.agent_id,
           row.source_id,
-          `Sensitive data detected in ${row.path} on ${row.source_root}: ${matches.map((m) => m.patternType).join(", ")}`,
-          JSON.stringify({ path: row.path, patternTypes: matches.map((m) => m.patternType) }),
+          `Sensitive data detected in ${row.path} on ${row.source_root}: ${kinds.join(", ")}`,
+          JSON.stringify({ path: row.path, patternTypes: kinds }),
         ],
       );
 
-      // HIGH alerts get suggested response actions, but nothing fires until
-      // an ADMIN approves it via POST /response-actions/:id/approve — see
-      // ARCHITECTURE.md's "approve-first, always" note. Quarantine is
-      // suggested for local-path and SMB agents (both can write); M365 and
-      // Google Drive stay excluded (read-only OAuth scopes) — see
-      // watchedRoot.ts's supportsQuarantine.
-      if (severity === "HIGH") {
+      // HIGH/CRITICAL alerts get suggested response actions, but nothing fires
+      // until an ADMIN approves (or Settings → Notifications sends this alert
+      // type automatically) — see ARCHITECTURE.md's "approve-first" note.
+      // Quarantine only where the agent can write (supportsQuarantine).
+      if (severity === "HIGH" || severity === "CRITICAL") {
         await pool.query(
           `INSERT INTO "ResponseAction" ("id","alertId","type","status","createdAt")
            VALUES ($1,$2,'WEBHOOK_NOTIFICATION','PENDING',now())`,

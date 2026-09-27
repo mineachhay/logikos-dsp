@@ -1,3 +1,4 @@
+import { fmtDateTime } from "./format.js";
 import { useId, useState } from "react";
 import { usePolling } from "./usePolling.js";
 import type { Overview } from "./api.js";
@@ -221,7 +222,7 @@ function RecentAlertsList({ alerts }: { alerts: Overview["recentAlerts"] }) {
         <li key={a.id}>
           <span className="dot" style={{ background: STATUS[a.severity] }} aria-hidden="true" />
           <span className="recent-alert-msg">{a.message}</span>
-          <span className="muted">{a.agent?.hostname ?? "—"} · {new Date(a.createdAt).toLocaleString()}</span>
+          <span className="muted">{a.agent?.hostname ?? "—"} · {fmtDateTime(a.createdAt)}</span>
         </li>
       ))}
     </ul>

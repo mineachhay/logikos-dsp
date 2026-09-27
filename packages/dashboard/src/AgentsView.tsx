@@ -1,3 +1,5 @@
+import { useSetting } from "./settingsContext.js";
+import { fmtDate, fmtDateTime } from "./format.js";
 import { Fragment, useState } from "react";
 import { usePolling } from "./usePolling.js";
 import * as api from "./api.js";
@@ -10,11 +12,11 @@ import type { AuditEntry, ManagedAgent } from "./api.js";
  * from a dead agent reads as "nothing happened on that machine".
  */
 /**
- * Matches AGENT_STALE_AFTER_MS in packages/shared's discovery.ts. Copied
- * rather than imported: the dashboard deliberately doesn't depend on the
- * shared package — it talks to the backend over HTTP like any other client.
+ * When an agent counts as gone quiet: Settings → Detection rules, the same
+ * value the backend's coverage report uses. Set by AgentsView on each render;
+ * the dashboard doesn't import packages/shared, so the default is repeated.
  */
-const STALE_AFTER_MS = 60 * 60 * 1000;
+let STALE_AFTER_MS = 60 * 60 * 1000;
 
 type AgentState = "active" | "quiet" | "revoked";
 
@@ -33,13 +35,13 @@ function duration(ms: number): string {
 }
 
 function agentStatus(agent: ManagedAgent) {
-  if (agent.revokedAt) return <span className="muted">revoked {new Date(agent.revokedAt).toLocaleString()}</span>;
+  if (agent.revokedAt) return <span className="muted">revoked {fmtDateTime(agent.revokedAt)}</span>;
   const quietMs = Date.now() - new Date(agent.lastSeenAt).getTime();
   if (quietMs > STALE_AFTER_MS) {
     // How long matters more than that it happened: a laptop shut overnight
     // (quiet 14 h) and one gone for three weeks read very differently.
     return (
-      <span className="badge badge-cov-stale" title={`Last seen ${new Date(agent.lastSeenAt).toLocaleString()}`}>
+      <span className="badge badge-cov-stale" title={`Last seen ${fmtDateTime(agent.lastSeenAt)}`}>
         Quiet for {duration(quietMs)}
       </span>
     );
@@ -93,9 +95,9 @@ function InstallPanel() {
   const [showToken, setShowToken] = useState(false);
   const [copied, setCopied] = useState(false);
   const [connectIp, setConnectIp] = useState("");
-  const [watchPath, setWatchPath] = useState("C:\\Users");
-  const [allDrives, setAllDrives] = useState(true);
-  const [removable, setRemovable] = useState(true);
+  const [watchPath, setWatchPath] = useState(useSetting("agents.defaultWatchPath", "C:\\Users"));
+  const [allDrives, setAllDrives] = useState(useSetting("agents.defaultAllDrives", true));
+  const [removable, setRemovable] = useState(useSetting("agents.defaultRemovable", true));
 
   const token = data?.enrollToken ?? "";
   const shown = showToken ? token : "•".repeat(Math.min(token.length, 64));
@@ -137,7 +139,7 @@ function InstallPanel() {
         {data?.available && (
           <span className="muted">
             {Math.round((data.sizeBytes ?? 0) / 1024 / 1024)} MB
-            {data.builtAt && ` · built ${new Date(data.builtAt).toLocaleDateString()}`}
+            {data.builtAt && ` · built ${fmtDate(data.builtAt)}`}
             {data.version && ` · version ${data.version}`}
           </span>
         )}
@@ -221,10 +223,10 @@ function DeployForm({
 }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [watchPath, setWatchPath] = useState("C:\\Users");
+  const [watchPath, setWatchPath] = useState(useSetting("agents.defaultWatchPath", "C:\\Users"));
   const [connectIp, setConnectIp] = useState("");
-  const [allDrives, setAllDrives] = useState(true);
-  const [removable, setRemovable] = useState(true);
+  const [allDrives, setAllDrives] = useState(useSetting("agents.defaultAllDrives", true));
+  const [removable, setRemovable] = useState(useSetting("agents.defaultRemovable", true));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -378,7 +380,7 @@ function CoveragePanel({ agents }: { agents: ManagedAgent[] }) {
         {data?.scan && (
           <span className="muted">
             Last scan {data.scan.cidr} from {data.scan.scannedBy}
-            {data.scan.completedAt && `, ${new Date(data.scan.completedAt).toLocaleString()}`}
+            {data.scan.completedAt && `, ${fmtDateTime(data.scan.completedAt)}`}
           </span>
         )}
       </div>
@@ -420,7 +422,7 @@ function CoveragePanel({ agents }: { agents: ManagedAgent[] }) {
                             {m.state === "protected" ? "Protected" : m.state === "stale" ? "Gone quiet" : "No agent"}
                           </span>
                           {m.lastSeenAt && m.state !== "protected" && (
-                            <span className="muted"> last seen {new Date(m.lastSeenAt).toLocaleString()}</span>
+                            <span className="muted"> last seen {fmtDateTime(m.lastSeenAt)}</span>
                           )}
                         </td>
                         <td data-label="Ports" className="muted">{m.openPorts.join(", ")}</td>
@@ -508,6 +510,7 @@ function AgentVersion({ agent, offered }: { agent: ManagedAgent; offered: string
 }
 
 export default function AgentsView() {
+  STALE_AFTER_MS = useSetting("detection.agentQuietAfterMinutes", 60) * 60_000;
   const { data, error } = usePolling<ManagedAgent[]>("/agents", 5000);
   const installer = usePolling<api.InstallerInfo>("/agents/installer-info", 60000);
   const audit = usePolling<AuditEntry[]>("/audit-log?targetType=agent&limit=20", 10000);
@@ -611,7 +614,7 @@ export default function AgentsView() {
                 <td data-label="Watched root" className="path cell-wide">{a.watchedRoot}</td>
                 <td data-label="IP">{a.lastIp ?? "—"}</td>
                 <td data-label="Version"><AgentVersion agent={a} offered={installer.data?.version} /></td>
-                <td data-label="Last seen" title={new Date(a.lastSeenAt).toLocaleString()}>
+                <td data-label="Last seen" title={fmtDateTime(a.lastSeenAt)}>
                   {duration(Date.now() - new Date(a.lastSeenAt).getTime())} ago
                 </td>
                 <td data-label="Status">{agentStatus(a)}</td>
@@ -639,7 +642,7 @@ export default function AgentsView() {
             <tbody>
               {audit.data.map((entry) => (
                 <tr key={entry.id}>
-                  <td data-label="When" className="muted">{new Date(entry.createdAt).toLocaleString()}</td>
+                  <td data-label="When" className="muted">{fmtDateTime(entry.createdAt)}</td>
                   <td data-label="By">{entry.userEmail}</td>
                   <td data-label="Change" className="cell-wide">{describeAgentAudit(entry)}</td>
                 </tr>

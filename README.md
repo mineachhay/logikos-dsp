@@ -405,10 +405,29 @@ account and password, the two groups, and the CA certificate. **Save**, then
 disabled or removed from the groups in AD loses access within 15 minutes of
 activity; their password is changed in Windows, not here.
 
-## Notifications (Telegram)
+## Settings
+
+Administration → **Settings** (admins edit; viewers see it read-only) holds
+what used to be constants and env vars: detection thresholds, which kinds of
+sensitive data are looked for and how seriously (including your own regular
+expressions, with a tester), content-discovery speed, hours and exclusions,
+sign-in lockout and password length, notification channels and which alerts
+are sent without approval, time zone and date format, and defaults for new
+agents and shares. Changes apply within seconds, are audited with before and
+after values, and can be reverted, reset, exported and imported (never
+secrets). A value set in the server's environment wins and shows as locked.
+**System health** there shows backups, disk space, classification backlog,
+agent versions and certificate expiry.
+
+## Notifications (Telegram, email, webhook)
 
 Approving a **webhook notification** response action sends the alert to every
-configured channel. For Telegram, in the backend's env file:
+configured channel. Configure Telegram, email (SMTP) and the webhook under
+Settings → Notifications, where each has a test button; alerts from a chosen
+severity get a notification waiting for approval, and chosen alert types (by
+default a silent agent and a failed backup) are sent without approval outside
+quiet hours. Telegram can also be set in the backend's env file, which then
+locks it in Settings:
 
 ```bash
 TELEGRAM_BOT_TOKEN="123456:ABC..."   # from @BotFather
@@ -438,7 +457,8 @@ have no endpoint at all yet, point `RESPONSE_WEBHOOK_URL` at the bundled
 Each share's existing files are examined in the background, not only files
 that change: Word, Excel, PowerPoint, PDF and plain-text files have their text
 extracted and checked for personal and payment data. It's deliberately slow —
-2 files per second in total (`DISCOVERY_FILES_PER_SEC` for the agent), so a
+2 files per second in total by default (Settings → Content discovery, which
+also sets allowed hours, file types, size limit and paths to skip), so a
 large share's first pass takes hours — and resumes after a restart. Data Risk
 and Compliance show how far it has got, so an empty result is never mistaken
 for a clean one. Scanned PDFs (images), legacy `.doc/.xls` and files over

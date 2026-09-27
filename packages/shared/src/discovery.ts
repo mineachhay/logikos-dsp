@@ -120,6 +120,8 @@ export function coverageFor(
   machines: readonly DiscoveredMachine[],
   agents: readonly KnownAgent[],
   now = new Date(),
+  /** Settings → Detection rules (detection.agentQuietAfterMinutes). */
+  staleAfterMs = AGENT_STALE_AFTER_MS,
 ): Coverage[] {
   const byHost = new Map<string, KnownAgent>();
   const byAddress = new Map<string, KnownAgent>();
@@ -139,7 +141,7 @@ export function coverageFor(
     if (!agent || agent.revokedAt) {
       return { ...machine, state: "unprotected", agentHostname: agent?.hostname ?? null, lastSeenAt: agent?.lastSeenAt ?? null };
     }
-    const quiet = now.getTime() - agent.lastSeenAt.getTime() > AGENT_STALE_AFTER_MS;
+    const quiet = now.getTime() - agent.lastSeenAt.getTime() > staleAfterMs;
     return {
       ...machine,
       state: quiet ? "stale" : "protected",

@@ -1,4 +1,5 @@
 import { MANAGED_SOURCES_CAPABILITY } from "@logikos-dsp/shared";
+import { setting } from "../settings.js";
 import { prisma } from "../db.js";
 
 /**
@@ -10,8 +11,8 @@ import { prisma } from "../db.js";
  */
 export const SCANNER_SILENT_AFTER_MS = 15 * 60 * 1000;
 
-export function isSilent(lastSeenAt: Date, now: Date): boolean {
-  return now.getTime() - lastSeenAt.getTime() > SCANNER_SILENT_AFTER_MS;
+export function isSilent(lastSeenAt: Date, now: Date, afterMs = SCANNER_SILENT_AFTER_MS): boolean {
+  return now.getTime() - lastSeenAt.getTime() > afterMs;
 }
 
 /**
@@ -20,8 +21,11 @@ export function isSilent(lastSeenAt: Date, now: Date): boolean {
  * don't start the timer).
  */
 export async function checkSilentAgents(now = new Date()): Promise<{ raised: number; resolved: number }> {
+  // Settings page → Detection rules: how long, and whether workstations count too.
+  const afterMs = (await setting<number>("detection.agentSilence.afterMinutes")) * 60_000;
+  const everyAgent = (await setting<string>("detection.agentSilence.scope")) === "all";
   const agents = await prisma.agent.findMany({
-    where: { revokedAt: null, capabilities: { has: MANAGED_SOURCES_CAPABILITY } },
+    where: { revokedAt: null, ...(everyAgent ? {} : { capabilities: { has: MANAGED_SOURCES_CAPABILITY } }) },
     include: { sources: { where: { fileServerId: { not: null }, enabled: true }, select: { rootLabel: true } } },
   });
   let raised = 0;
@@ -30,7 +34,7 @@ export async function checkSilentAgents(now = new Date()): Promise<{ raised: num
     const open = await prisma.alert.findFirst({
       where: { type: "AGENT_SILENT", agentId: agent.id, status: { in: ["OPEN", "ACKNOWLEDGED"] } },
     });
-    if (isSilent(agent.lastSeenAt, now)) {
+    if (isSilent(agent.lastSeenAt, now, afterMs)) {
       if (open) continue;
       const minutes = Math.round((now.getTime() - agent.lastSeenAt.getTime()) / 60_000);
       const shares = agent.sources.map((s) => s.rootLabel);

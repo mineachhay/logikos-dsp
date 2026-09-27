@@ -134,3 +134,30 @@ export async function runRetention(db: PrismaClient = prisma, now = new Date()):
   });
   return result;
 }
+
+/**
+ * Settings → Monitoring defaults → thin out old storage snapshots. Scans take
+ * one a minute per source, which no one needs at that grain for long: after a
+ * day only the newest per hour is kept, after 30 days the newest per day. The
+ * newest snapshot of each source is always inside its own bucket, so it stays.
+ * Independent of retention (which deletes by age) and on by default, since it
+ * only removes near-duplicates.
+ */
+export async function thinSnapshots(db: PrismaClient = prisma, now = new Date()): Promise<number> {
+  const dayAgo = new Date(now.getTime() - DAY_MS);
+  const monthAgo = new Date(now.getTime() - 30 * DAY_MS);
+  // The bucket is computed once and named: DISTINCT ON must match ORDER BY
+  // exactly, and two copies of the expression get different parameter numbers.
+  return db.$executeRaw`
+    DELETE FROM "StorageSnapshot"
+    WHERE "takenAt" < ${dayAgo}
+      AND "id" NOT IN (
+        SELECT DISTINCT ON (grp, bucket) id
+        FROM (
+          SELECT "id" AS id, COALESCE("sourceId", "agentId") AS grp, "takenAt" AS taken,
+                 date_trunc(CASE WHEN "takenAt" < ${monthAgo} THEN 'day' ELSE 'hour' END, "takenAt") AS bucket
+          FROM "StorageSnapshot"
+        ) k
+        ORDER BY grp, bucket, taken DESC
+      )`;
+}

@@ -1,3 +1,4 @@
+import { fmtDateTime } from "./format.js";
 import { usePolling } from "./usePolling.js";
 
 interface Coverage {
@@ -43,7 +44,7 @@ export default function DiscoveryCoverage() {
       {data.map((c) => {
         const candidates = c.candidates ?? 0;
         const pct = candidates ? Math.min(100, Math.round((c.examined / candidates) * 100)) : 0;
-        const state = c.passFinishedAt ? `pass finished ${new Date(c.passFinishedAt).toLocaleString()}` : c.passStartedAt ? "examining…" : "waiting for the first scan";
+        const state = c.passFinishedAt ? `pass finished ${fmtDateTime(c.passFinishedAt)}` : c.passStartedAt ? "examining…" : "waiting for the first scan";
         return (
           <div key={c.sourceId} className="coverage-row">
             <div className="coverage-head">
@@ -58,7 +59,7 @@ export default function DiscoveryCoverage() {
                 <strong>{n(c.examined)}</strong> of {n(candidates)} readable files examined ({pct}%)
               </span>
               <span className="muted">
-                {n(c.totalFiles)} files in all · {n(c.skippedType)} of other types (images, archives, old .doc/.xls…) · {n(c.skippedSize)} too
+                {n(c.totalFiles)} files in all · {n(c.skippedType)} of other types or skipped by rule (images, archives, old .doc/.xls, Settings → Content discovery) · {n(c.skippedSize)} too
                 large · {n(c.noText)} with no text (e.g. scanned PDFs)
                 {c.pendingClassification > 0 && ` · ${n(c.pendingClassification)} waiting to be classified`}
               </span>

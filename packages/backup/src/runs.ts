@@ -22,11 +22,15 @@ export interface RunRow {
   trigger: "SCHEDULE" | "MANUAL";
 }
 
-export async function heartbeat(pool: pg.Pool): Promise<SettingsRow | null> {
+export async function heartbeat(pool: pg.Pool, disk?: { free: number; total: number }): Promise<SettingsRow | null> {
+  // Disk space rides along, when known, so System health can warn before dumps fail for lack of room.
   const { rows } = await pool.query(
     `INSERT INTO "BackupSettings" ("id", "workerHeartbeatAt", "updatedAt") VALUES ('default', now(), now())
-     ON CONFLICT ("id") DO UPDATE SET "workerHeartbeatAt" = now()
+     ON CONFLICT ("id") DO UPDATE SET "workerHeartbeatAt" = now(),
+       "workerDiskFreeBytes" = COALESCE($1, "BackupSettings"."workerDiskFreeBytes"),
+       "workerDiskTotalBytes" = COALESCE($2, "BackupSettings"."workerDiskTotalBytes")
      RETURNING *`,
+    [disk ? String(disk.free) : null, disk ? String(disk.total) : null],
   );
   return (rows[0] as SettingsRow) ?? null;
 }

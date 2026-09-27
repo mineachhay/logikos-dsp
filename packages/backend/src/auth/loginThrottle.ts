@@ -21,9 +21,10 @@ export const IP_BLOCK_MS = 15 * 60_000;
 const BACKOFF_MS = [60_000, 5 * 60_000, 15 * 60_000, 30 * 60_000];
 
 /** How long to lock an account that has just failed for the `failures`-th time in a row. */
-export function lockoutMsFor(failures: number): number {
-  if (failures < LOCK_AFTER_FAILURES) return 0;
-  const step = Math.min(failures - LOCK_AFTER_FAILURES, BACKOFF_MS.length - 1);
+/** `lockAfter` comes from Settings → Security (security.lockAfterFailures). */
+export function lockoutMsFor(failures: number, lockAfter = LOCK_AFTER_FAILURES): number {
+  if (failures < lockAfter) return 0;
+  const step = Math.min(failures - lockAfter, BACKOFF_MS.length - 1);
   return BACKOFF_MS[step];
 }
 
@@ -32,9 +33,14 @@ export function secondsUntil(until: Date, now: Date): number {
 }
 
 /** Whether this IP has failed too often lately, and for how long it stays blocked. */
-export function ipBlockedUntil(recentFailures: readonly Date[], now: Date): Date | null {
-  const inWindow = recentFailures.filter((at) => now.getTime() - at.getTime() < IP_WINDOW_MS);
-  if (inWindow.length < IP_FAILURE_LIMIT) return null;
+/** The policy comes from Settings → Security; the defaults are the constants above. */
+export function ipBlockedUntil(
+  recentFailures: readonly Date[],
+  now: Date,
+  policy: { limit: number; windowMs: number; blockMs: number } = { limit: IP_FAILURE_LIMIT, windowMs: IP_WINDOW_MS, blockMs: IP_BLOCK_MS },
+): Date | null {
+  const inWindow = recentFailures.filter((at) => now.getTime() - at.getTime() < policy.windowMs);
+  if (inWindow.length < policy.limit) return null;
   const newest = inWindow.reduce((a, b) => (a > b ? a : b));
-  return new Date(newest.getTime() + IP_BLOCK_MS);
+  return new Date(newest.getTime() + policy.blockMs);
 }

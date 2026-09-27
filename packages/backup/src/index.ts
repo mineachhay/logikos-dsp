@@ -1,4 +1,5 @@
 import { decryptSecret } from "@logikos-dsp/shared/credentials";
+import { mkdir, statfs } from "node:fs/promises";
 import { loadConfig } from "./config.js";
 import { createPool } from "./db.js";
 import { shortMessage } from "./pure.js";
@@ -54,8 +55,18 @@ async function execute(run: RunRow, s: SettingsRow): Promise<void> {
   }
 }
 
+async function diskSpace(): Promise<{ free: number; total: number } | undefined> {
+  try {
+    await mkdir(cfg.backupDir, { recursive: true });
+    const s = await statfs(cfg.backupDir);
+    return { free: s.bavail * s.bsize, total: s.blocks * s.bsize };
+  } catch {
+    return undefined;
+  }
+}
+
 async function tick(): Promise<void> {
-  const settings = await heartbeat(pool);
+  const settings = await heartbeat(pool, await diskSpace());
   if (!settings) return;
   await enqueueDueRuns(pool, settings);
   // Drain the queue, re-reading settings per run so a change saved mid-queue applies.

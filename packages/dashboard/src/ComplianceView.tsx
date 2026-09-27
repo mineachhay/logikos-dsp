@@ -1,6 +1,8 @@
+import { fmtDateTime } from "./format.js";
 import { useMemo } from "react";
 import DiscoveryCoverage from "./DiscoveryCoverage.js";
 import { usePolling } from "./usePolling.js";
+import { patternLabel } from "./api.js";
 import type { ClassificationMatch } from "./api.js";
 
 // This is a *data-discovery* lens over existing classification results —
@@ -60,9 +62,9 @@ function FrameworkCard({
           <tbody>
             {recent.map((m) => (
               <tr key={m.id}>
-                <td>{m.patternType}</td>
+                <td>{patternLabel(m)}</td>
                 <td className="path">{m.path}</td>
-                <td>{new Date(m.createdAt).toLocaleString()}</td>
+                <td>{fmtDateTime(m.createdAt)}</td>
               </tr>
             ))}
           </tbody>

@@ -257,6 +257,8 @@ export interface InstallerInfo {
   installCa: string | null;
   /** Build of the agent.exe offered for download, comparable with ManagedAgent.version. */
   version?: string | null;
+  /** Settings → Agents: what the install forms start with. */
+  defaults?: { watchPath: string; allDrives: boolean; removable: boolean };
 }
 
 /** Where the browser downloads the agent from — same origin, so the session cookie goes with it. */
@@ -366,9 +368,16 @@ export interface FileActivityRow {
   source: SourceRef | null;
 }
 
+/** What a match is called: the pattern type, or a custom pattern's own name. */
+export function patternLabel(m: { patternType: string; customName?: string | null }): string {
+  return m.patternType === "CUSTOM" ? (m.customName ?? "Custom pattern") : m.patternType;
+}
+
 export interface ClassificationMatch {
   id: string;
   patternType: string;
+  /** The custom pattern's name when patternType is CUSTOM. */
+  customName?: string | null;
   redactedSample: string;
   path: string;
   createdAt: string;
@@ -563,3 +572,126 @@ export const directoryApi = {
   test: (login?: { username: string; password: string }) =>
     requestJson<{ steps: DirectoryTestStep[] }>("POST", "/directory/test", login ?? {}),
 };
+
+// ---- Settings (Settings page; values also drive dates, defaults and the header)
+
+export type SettingType = "int" | "bool" | "string" | "secret" | "enum" | "time" | "stringList" | "patternPolicies" | "customPatterns";
+export type SeverityName = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+
+export interface PatternPolicy {
+  enabled: boolean;
+  severity: SeverityName;
+  alert: boolean;
+}
+
+export interface CustomPattern {
+  name: string;
+  regex: string;
+  enabled: boolean;
+  severity: SeverityName;
+  alert: boolean;
+  validator: "none" | "luhn";
+}
+
+export interface SettingView {
+  key: string;
+  section: string;
+  label: string;
+  description: string;
+  type: SettingType;
+  default: unknown;
+  value?: unknown;
+  /** Secrets only: whether one is stored. The value itself never leaves the server. */
+  isSet?: boolean;
+  source: "env" | "saved" | "default";
+  env?: string;
+  advanced?: boolean;
+  needsConfirmation: boolean;
+  min?: number;
+  max?: number;
+  unit?: string;
+  maxLength?: number;
+  patternHint?: string;
+  options?: { value: string; label: string }[];
+  maxItems?: number;
+  itemHint?: string;
+  updatedAt: string | null;
+  updatedByEmail: string | null;
+}
+
+export interface SettingsResponse {
+  sections: { id: string; label: string; description: string }[];
+  settings: SettingView[];
+}
+
+export interface SettingsHistoryEntry {
+  id: string;
+  createdAt: string;
+  userEmail: string | null;
+  action: string;
+  targetId: string | null;
+  details: { from?: unknown; to?: unknown } | null;
+}
+
+/** A save the server wants confirmed first: carries the questions to ask. */
+export class NeedsConfirmation extends Error {
+  constructor(public confirmations: string[]) {
+    super(confirmations.join(" "));
+  }
+}
+
+async function settingsRequest<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method,
+    credentials: "include",
+    headers: body === undefined ? undefined : { "content-type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const payload = await res.json().catch(() => null);
+  if (res.status === 409 && payload?.confirmations) throw new NeedsConfirmation(payload.confirmations);
+  if (!res.ok) throw new Error(payload?.error || `${method} ${path} -> ${res.status}`);
+  return payload as T;
+}
+
+export const settingsApi = {
+  get: () => settingsRequest<SettingsResponse>("GET", "/settings"),
+  save: (changes: Record<string, unknown>, confirmed = false) =>
+    settingsRequest<{ changed: string[]; settings: SettingView[] }>("PUT", "/settings", { changes, confirmed }),
+  reset: (keys: string[]) => settingsRequest<{ changed: string[]; settings: SettingView[] }>("POST", "/settings/reset", { keys }),
+  history: (key?: string) => settingsRequest<SettingsHistoryEntry[]>("GET", `/settings/history${key ? `?key=${encodeURIComponent(key)}` : ""}`),
+  revert: (auditId: string, confirmed = false) =>
+    settingsRequest<{ changed: string[]; settings: SettingView[] }>("POST", "/settings/revert", { auditId, confirmed }),
+  export: () => settingsRequest<{ format: number; exportedAt: string; settings: Record<string, unknown> }>("GET", "/settings/export"),
+  import: (settings: Record<string, unknown>, confirmed = false) =>
+    settingsRequest<{ changed: string[]; settings: SettingView[] }>("POST", "/settings/import", { settings, confirmed }),
+  testNotification: (channel: "telegram" | "webhook" | "email") =>
+    settingsRequest<{ ok: boolean; message: string }>("POST", "/settings/notifications/test", { channel }),
+  testPattern: (regex: string, validator: "none" | "luhn", text: string) =>
+    settingsRequest<{ matches: string[] }>("POST", "/settings/test-pattern", { regex, validator, text }),
+};
+
+export interface CertificateInfo {
+  name: string;
+  host: string;
+  port: number;
+  expiresAt: string | null;
+  subject: string | null;
+  error: string | null;
+}
+
+export interface SystemHealth {
+  warnings: { level: "bad" | "note"; message: string }[];
+  database: { sizeBytes: number };
+  backups: {
+    workerOnline: boolean;
+    workerLastSeenAt: string | null;
+    diskFreeBytes: number | null;
+    diskTotalBytes: number | null;
+    lastSuccessAt: string | null;
+    lastUploaded: boolean | null;
+    scheduleOn: boolean;
+  };
+  classification: { pending: number; lastProcessedAt: string | null };
+  agents: { active: number; quiet: number; versions: string[] };
+  certificates: CertificateInfo[];
+}

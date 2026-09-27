@@ -17,17 +17,29 @@ export interface DiscoveryPlan {
 }
 
 /** `done` maps path → "size:mtime" as examined; the key tells a changed file from an unchanged one. */
-export function planDiscovery(files: ReadonlyMap<string, KnownFile>, done: ReadonlyMap<string, string>): DiscoveryPlan {
+/** Settings → Content discovery; the defaults are the built-in limits. */
+export interface PlanOptions {
+  maxFileBytes: number;
+  /** Extractors allowed: text, docx, xlsx, pptx, pdf. */
+  fileTypes: ReadonlySet<string>;
+  /** Paths skipped (always-excluded ones plus the configured patterns); counted with other types. */
+  exclude: readonly RegExp[];
+}
+
+const DEFAULT_OPTIONS: PlanOptions = { maxFileBytes: MAX_EXTRACT_FILE_BYTES, fileTypes: new Set(["text", "docx", "xlsx", "pptx", "pdf"]), exclude: [] };
+
+export function planDiscovery(files: ReadonlyMap<string, KnownFile>, done: ReadonlyMap<string, string>, options: PlanOptions = DEFAULT_OPTIONS): DiscoveryPlan {
   let candidates = 0;
   let skippedType = 0;
   let skippedSize = 0;
   const todo: string[] = [];
   for (const [path, f] of files) {
-    if (!extractorFor(path)) {
+    const extractor = extractorFor(path);
+    if (!extractor || !options.fileTypes.has(extractor) || options.exclude.some((re) => re.test(path))) {
       skippedType++;
       continue;
     }
-    if (f.sizeBytes > MAX_EXTRACT_FILE_BYTES) {
+    if (f.sizeBytes > options.maxFileBytes) {
       skippedSize++;
       continue;
     }

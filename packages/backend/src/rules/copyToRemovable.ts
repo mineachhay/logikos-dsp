@@ -1,4 +1,5 @@
 import { prisma } from "../db.js";
+import { setting } from "../settings.js";
 
 /**
  * Files landing on removable media.
@@ -23,7 +24,7 @@ export const REMOVABLE_WINDOW_SECONDS = 300;
 const MAX_SAMPLE_PATHS = 200;
 
 export async function checkCopyToRemovable(sourceId: string, now = new Date()): Promise<void> {
-  const windowStart = new Date(now.getTime() - REMOVABLE_WINDOW_SECONDS * 1000);
+  const windowStart = new Date(now.getTime() - (await setting<number>("detection.removable.windowSeconds")) * 1000);
 
   const arrivals = await prisma.fileEvent.findMany({
     where: {

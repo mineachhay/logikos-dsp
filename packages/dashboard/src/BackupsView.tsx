@@ -1,3 +1,4 @@
+import { fmtDateTime } from "./format.js";
 import { useEffect, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { usePolling } from "./usePolling.js";
@@ -39,7 +40,7 @@ function formatBytes(raw: string | null): string {
 }
 
 function when(iso: string | null): string {
-  return iso ? new Date(iso).toLocaleString() : "—";
+  return iso ? fmtDateTime(iso) : "—";
 }
 
 const RUN_LABELS: Record<BackupRun["kind"], string> = {

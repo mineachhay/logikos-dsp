@@ -152,6 +152,8 @@ export interface AgentSyncResponse {
   discoveryScans: PendingDiscoveryScan[];
   /** Remote installs to perform. Carries credentials; never logged, never stored. */
   deployments: PendingDeployment[];
+  /** Settings the agent uses (scope "agent" in settings.ts); absent from an older backend. */
+  settings?: Record<string, unknown>;
 }
 
 export interface PendingDeployment {
@@ -231,3 +233,4 @@ export * from "./backups.js";
 
 export * from "./activity.js";
 export * from "./discovery.js";
+export * from "./settings.js";

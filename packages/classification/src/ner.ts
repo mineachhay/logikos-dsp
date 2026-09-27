@@ -57,22 +57,23 @@ export interface NamedEntity {
  * testable with fixture data — no need to load the real ONNX model just to
  * exercise the confidence-threshold/entity-type-mapping/redaction logic.
  */
-export function mapEntitiesToMatches(entities: NamedEntity[]): PatternMatch[] {
+/** `threshold` is Settings → Classification (classification.ner.confidence / 100). */
+export function mapEntitiesToMatches(entities: NamedEntity[], threshold = NER_CONFIDENCE_THRESHOLD): PatternMatch[] {
   const matches: PatternMatch[] = [];
   for (const entity of entities) {
     const patternType = ENTITY_TYPE_MAP[entity.entity_group];
     if (!patternType) continue;
-    if (entity.score < NER_CONFIDENCE_THRESHOLD) continue;
+    if (entity.score < threshold) continue;
     matches.push({ patternType, redactedSample: redactEntityName(entity.word) });
   }
   return matches;
 }
 
-export async function findNamedEntities(content: string): Promise<PatternMatch[]> {
+export async function findNamedEntities(content: string, threshold = NER_CONFIDENCE_THRESHOLD): Promise<PatternMatch[]> {
   const text = content.slice(0, MAX_NER_INPUT_CHARS).trim();
   if (!text) return [];
 
   const ner = await loadPipeline();
   const entities = await ner(text, { aggregation_strategy: "simple" });
-  return mapEntitiesToMatches(entities);
+  return mapEntitiesToMatches(entities, threshold);
 }

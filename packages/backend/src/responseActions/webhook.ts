@@ -1,4 +1,6 @@
 import { sendTelegramNotification } from "./telegram.js";
+import { sendEmailNotification } from "./email.js";
+import { setting } from "../settings.js";
 
 export interface AlertForNotification {
   id: string;
@@ -49,26 +51,49 @@ async function sendGenericWebhook(alert: AlertForNotification, url: string): Pro
  * ResponseAction.resultMessage. Both requests are bounded to 10s because
  * approval waits on them.
  */
-export async function sendWebhookNotification(alert: AlertForNotification): Promise<NotificationResult> {
-  const sends: Promise<NotificationResult>[] = [];
+export type Channel = "telegram" | "webhook" | "email";
 
-  const botToken = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
-  if (botToken && chatId) {
-    sends.push(sendTelegramNotification(alert, botToken, chatId));
-  } else if (botToken || chatId) {
-    sends.push(Promise.resolve({ ok: false, message: "telegram needs both TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID" }));
+/**
+ * Sends to every configured channel (Settings → Notifications; an environment
+ * variable still wins, shown as locked there). Succeeds only if every channel
+ * did. `only` limits it to one channel, for the Settings page's test button.
+ */
+export async function sendWebhookNotification(alert: AlertForNotification, only?: Channel): Promise<NotificationResult> {
+  const sends: Promise<NotificationResult>[] = [];
+  const want = (c: Channel) => !only || only === c;
+  const orgName = await setting<string>("general.orgName");
+
+  const botToken = await setting<string>("notify.telegram.botToken");
+  const chatId = await setting<string>("notify.telegram.chatId");
+  if (want("telegram")) {
+    if (botToken && chatId) sends.push(sendTelegramNotification(orgName ? { ...alert, message: `[${orgName}] ${alert.message}` } : alert, botToken, chatId));
+    else if (botToken || chatId || only === "telegram") sends.push(Promise.resolve({ ok: false, message: "telegram needs both a bot token and a chat ID" }));
   }
 
-  const url = process.env.RESPONSE_WEBHOOK_URL;
-  if (url) {
-    sends.push(sendGenericWebhook(alert, url));
+  const url = await setting<string>("notify.webhook.url");
+  if (want("webhook")) {
+    if (url) sends.push(sendGenericWebhook(alert, url));
+    else if (only === "webhook") sends.push(Promise.resolve({ ok: false, message: "no webhook URL set" }));
+  }
+
+  const host = await setting<string>("notify.email.host");
+  if (want("email")) {
+    const to = await setting<string[]>("notify.email.to");
+    const from = await setting<string>("notify.email.from");
+    if (host && to.length && from) {
+      sends.push(
+        sendEmailNotification(
+          alert,
+          { host, port: await setting<number>("notify.email.port"), username: await setting<string>("notify.email.username"), password: await setting<string>("notify.email.password"), from, to },
+          orgName,
+        ),
+      );
+    } else if (host || only === "email") sends.push(Promise.resolve({ ok: false, message: "email needs an SMTP server, a from address and at least one recipient" }));
   }
 
   if (sends.length === 0) {
-    return { ok: false, message: "no notification channel configured (TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID or RESPONSE_WEBHOOK_URL)" };
+    return { ok: false, message: "no notification channel configured — set one under Settings → Notifications" };
   }
-
   const results = await Promise.all(sends);
   return { ok: results.every((r) => r.ok), message: results.map((r) => r.message).join("; ") };
 }

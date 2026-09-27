@@ -1,3 +1,4 @@
+import { fmtDateTime, fmtTime } from "./format.js";
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { usePolling } from "./usePolling.js";
@@ -7,7 +8,7 @@ import { useAuth } from "./auth.js";
 import DirectorySettingsCard from "./DirectorySettingsCard.js";
 
 function formatDate(iso: string | null): string {
-  return iso ? new Date(iso).toLocaleString() : "never";
+  return iso ? fmtDateTime(iso) : "never";
 }
 
 function UserStatus({ user }: { user: ManagedUser }) {
@@ -17,7 +18,7 @@ function UserStatus({ user }: { user: ManagedUser }) {
     <span className="user-status">
       {locked ? (
         <span className="test-fail" title={`${user.failedLoginCount} failed sign-ins in a row`}>
-          locked until {new Date(user.lockedUntil!).toLocaleTimeString()}
+          locked until {fmtTime(user.lockedUntil!)}
         </span>
       ) : (
         <span className="test-ok">active</span>
@@ -63,7 +64,7 @@ function UserRow({ user, isSelf }: { user: ManagedUser; isSelf: boolean }) {
           {user.source === "DIRECTORY" && (
             <span
               className="badge badge-directory"
-              title={`Active Directory account — password and role are managed in AD${user.directoryCheckedAt ? `; last confirmed ${new Date(user.directoryCheckedAt).toLocaleString()}` : ""}`}
+              title={`Active Directory account — password and role are managed in AD${user.directoryCheckedAt ? `; last confirmed ${fmtDateTime(user.directoryCheckedAt)}` : ""}`}
             >
               AD
             </span>
@@ -262,7 +263,7 @@ export default function UsersView() {
             <tbody>
               {audit.data.map((entry) => (
                 <tr key={entry.id}>
-                  <td data-label="When" className="muted">{new Date(entry.createdAt).toLocaleString()}</td>
+                  <td data-label="When" className="muted">{fmtDateTime(entry.createdAt)}</td>
                   <td data-label="By">{entry.userEmail}</td>
                   <td data-label="Change" className="cell-wide">{describeUserAudit(entry)}</td>
                 </tr>

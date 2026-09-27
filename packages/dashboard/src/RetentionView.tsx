@@ -1,3 +1,4 @@
+import { fmtDateTime } from "./format.js";
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { retentionApi } from "./api.js";
@@ -129,11 +130,11 @@ export default function RetentionView() {
           </table>
 
           {settings.oldestFileEventAt && (
-            <p className="muted fs-hint">Oldest file event: {new Date(settings.oldestFileEventAt).toLocaleString()}.</p>
+            <p className="muted fs-hint">Oldest file event: {fmtDateTime(settings.oldestFileEventAt)}.</p>
           )}
           {settings.lastRunAt && (
             <p className="muted fs-hint">
-              Last cleanup {new Date(settings.lastRunAt).toLocaleString()} — {settings.lastRunSummary}
+              Last cleanup {fmtDateTime(settings.lastRunAt)} — {settings.lastRunSummary}
             </p>
           )}
           {error && <p className="error">{error}</p>}

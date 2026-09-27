@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { setting } from "../settings.js";
 import { followFileEvents } from "../contentScans.js";
 import { hostNameFor } from "../reverseDns.js";
 import { z } from "zod";
@@ -209,7 +210,7 @@ export async function ingestRoutes(app: FastifyInstance) {
               userName: record.userName,
               userDomain: record.userDomain,
               clientIp: record.clientIp,
-              clientHost: await hostNameFor(record.clientIp),
+              clientHost: (await setting<boolean>("monitoring.reverseDns")) ? await hostNameFor(record.clientIp) : null,
               occurredAt: new Date(record.occurredAt),
               recordId: BigInt(record.recordId),
             },
