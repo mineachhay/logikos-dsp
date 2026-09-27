@@ -384,3 +384,4 @@ th.sortable:hover { color: #ccc; }
 .installer-hash code { font-size: 11px; overflow-wrap: anywhere; }
 .deploy-hint { font-size: 12px; margin-top: 4px; max-width: 520px; white-space: normal; }
 .version-badge { margin-left: 6px; }
+.repeat-badge { margin-left: 6px; font-size: 11px; color: #898781; background: #1f232b; border-radius: 999px; padding: 1px 6px; }

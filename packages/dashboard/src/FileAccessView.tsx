@@ -1,4 +1,6 @@
 import { useMemo, useState } from "react";
+import { collapseBursts, RepeatBadge } from "./activityBursts.js";
+import type { CollapsedActivity } from "./activityBursts.js";
 import { usePolling } from "./usePolling.js";
 import { sourceName } from "./api.js";
 import type { FileActivityRow } from "./api.js";
@@ -32,14 +34,14 @@ export default function FileAccessView() {
   const filtered = useMemo(() => {
     if (!data) return null;
     const q = search.trim().toLowerCase();
-    return data.filter((row) => {
+    return collapseBursts(data).filter((row) => {
       if (actionFilter && row.action !== actionFilter) return false;
       if (q && !`${row.path} ${actor(row)} ${row.clientIp ?? ""}`.toLowerCase().includes(q)) return false;
       return true;
     });
   }, [data, search, actionFilter]);
 
-  const { sorted, sortKey, sortDir, toggleSort } = useSort<FileActivityRow>(filtered, "occurredAt", "desc");
+  const { sorted, sortKey, sortDir, toggleSort } = useSort<CollapsedActivity>(filtered, "occurredAt", "desc");
   const actions = useMemo(() => Array.from(new Set((data ?? []).map((r) => r.action))).sort(), [data]);
 
   if (error) return <p className="error">Failed to load file access: {error}</p>;
@@ -98,7 +100,10 @@ export default function FileAccessView() {
             <tbody>
               {sorted!.map((row) => (
                 <tr key={row.id}>
-                  <td data-label="Action">{ACTION_LABELS[row.action]}</td>
+                  <td data-label="Action">
+                    {ACTION_LABELS[row.action]}
+                    {row.repeat > 1 && <RepeatBadge count={row.repeat} />}
+                  </td>
                   <td data-label="Path" className="path cell-wide">{row.path}</td>
                   <td data-label="Who">{actor(row)}</td>
                   <td data-label="From">{row.clientIp ?? "—"}</td>

@@ -314,6 +314,8 @@ export async function rejectResponseAction(id: string): Promise<ResponseAction> 
 export interface FileEvent {
   id: string;
   eventType: string;
+  /** For READ rows built from audit records: how many identical records this one stands for (activityBursts.ts). */
+  repeat?: number;
   path: string;
   /** The old name on a RENAMED event, or the file a COPIED event came from. */
   previousPath: string | null;

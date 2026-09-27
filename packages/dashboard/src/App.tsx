@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { collapseBursts, RepeatBadge } from "./activityBursts.js";
 import { usePolling } from "./usePolling.js";
 import { patchAlertStatus, approveResponseAction, rejectResponseAction } from "./api.js";
 import { sourceName } from "./api.js";
@@ -305,9 +306,10 @@ function whoDidIt(event: FileEvent) {
 }
 
 function readsAsEvents(reads: FileActivityRow[]): FileEvent[] {
-  return reads.map((r) => ({
+  return collapseBursts(reads).map((r) => ({
     id: `read-${r.id}`,
     eventType: "READ",
+    repeat: r.repeat,
     path: r.path,
     previousPath: null,
     previousSource: null,
@@ -414,7 +416,10 @@ function FileEventsView() {
           <tbody>
             {sorted!.map((e) => (
               <tr key={e.id}>
-                <td data-label="Type">{e.eventType}</td>
+                <td data-label="Type">
+                  {e.eventType}
+                  {e.repeat && e.repeat > 1 && <RepeatBadge count={e.repeat} />}
+                </td>
                 <td data-label="Path" className="path cell-wide">
                   {e.previousPath ? (
                     <>
