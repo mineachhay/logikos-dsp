@@ -359,8 +359,12 @@ export interface ActivityIngestRequest {
   agentKey: string;
   fileServerId: string;
   records: FileActivityInput[];
-  /** Highest EventRecordID read in this poll; stored so the next poll asks for newer ones. */
-  bookmark: number;
+  /**
+   * Where the next poll should start; stored so it asks for newer events.
+   * Omitted when a poll failed: an error used to post 0 here, which later made
+   * the collector walk the Security log from its very first record number.
+   */
+  bookmark?: number;
   /** Set instead of records when the poll failed, so the dashboard can show why. */
   error?: string;
 }

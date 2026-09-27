@@ -72,17 +72,32 @@ describe("buildActivityRecords with read recording", () => {
 });
 
 describe("nextBookmark", () => {
-  it("continues from the highest record read", () => {
-    expect(nextBookmark({ after: 100, windowEnd: 600, recordIds: [101, 140], newestRecordId: 900 })).toBe(140);
+  it("continues right after the last event when the result was capped, so none is skipped", () => {
+    expect(nextBookmark({ after: 100, windowEnd: 50_100, recordIds: [101, 140, 900], newestRecordId: 90_000, maxEvents: 3 })).toBe(900);
   });
 
-  it("skips an empty window the log has already moved past, instead of stalling", () => {
-    expect(nextBookmark({ after: 100, windowEnd: 600, recordIds: [], newestRecordId: 5000 })).toBe(600);
+  it("moves to the end of the range once it's been read in full", () => {
+    // A busy server: most record IDs are other Security events, so a range
+    // holding only two 5145s is still read to its end, not stopped at 140.
+    expect(nextBookmark({ after: 100, windowEnd: 50_100, recordIds: [101, 140], newestRecordId: 90_000, maxEvents: 500 })).toBe(50_100);
+    expect(nextBookmark({ after: 100, windowEnd: 50_100, recordIds: [], newestRecordId: 90_000, maxEvents: 500 })).toBe(50_100);
   });
 
-  it("stays put when the window is empty because nothing new has happened", () => {
-    expect(nextBookmark({ after: 100, windowEnd: 600, recordIds: [], newestRecordId: 320 })).toBe(100);
-    expect(nextBookmark({ after: 100, windowEnd: 600, recordIds: [], newestRecordId: null })).toBe(100);
+  it("never moves past the newest record — later IDs are events not written yet", () => {
+    expect(nextBookmark({ after: 100, windowEnd: 50_100, recordIds: [], newestRecordId: 320, maxEvents: 500 })).toBe(320);
+    expect(nextBookmark({ after: 100, windowEnd: 50_100, recordIds: [330], newestRecordId: 320, maxEvents: 500 })).toBe(330);
+  });
+
+  it("jumps over record numbers the circular log no longer holds", () => {
+    expect(nextBookmark({ after: 7_000_000, windowEnd: 7_050_000, recordIds: [], newestRecordId: 26_010_000_000, oldestRecordId: 26_000_000_001, maxEvents: 500 })).toBe(
+      26_000_000_000,
+    );
+    // …but never backwards, and not past events it was handed.
+    expect(nextBookmark({ after: 900, windowEnd: 50_900, recordIds: [], newestRecordId: 90_000, oldestRecordId: 10, maxEvents: 500 })).toBe(50_900);
+  });
+
+  it("stays put when it knows nothing about the log", () => {
+    expect(nextBookmark({ after: 100, windowEnd: 50_100, recordIds: [], newestRecordId: null, maxEvents: 500 })).toBe(100);
   });
 });
 

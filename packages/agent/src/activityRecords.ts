@@ -81,21 +81,40 @@ export function buildActivityRecords(
 }
 
 /**
- * Each poll asks for a bounded range of EventRecordIDs rather than "the newest
- * N since the bookmark": with an unbounded query a busy server's backlog would
- * return only the newest N and silently strip everything older. So when the
- * window came back empty but the log has already moved past it, skip the
- * window; otherwise continue from the highest record actually read.
+ * Where the next poll starts. Each poll asks for 5145 events among a wide range
+ * of EventRecordIDs (every Security event has one — logons, Kerberos, … — so a
+ * narrow range covers only moments of a busy server's log) and gets back at
+ * most `maxEvents` of them, oldest first:
+ *
+ * - capped: more may remain in the range — continue right after the last one
+ *   returned, so none is skipped;
+ * - not capped: the whole range was read — continue at its end, but never
+ *   past the newest record that existed when the poll ran, since IDs beyond
+ *   that are events still to be written.
+ *
+ * `recordIds` are all events returned, including ones ignored afterwards.
+ * (The first version kept 500 IDs per poll and stopped at the last event
+ * returned; on a real file server the log outran it by millions of records and
+ * no user's change was ever reached.)
  */
 export function nextBookmark(args: {
   after: number;
   windowEnd: number;
   recordIds: readonly number[];
   newestRecordId: number | null;
+  /** Oldest record still in the log; below it there is nothing left to read. */
+  oldestRecordId?: number | null;
+  maxEvents: number;
 }): number {
-  if (args.recordIds.length > 0) return Math.max(...args.recordIds);
-  if (args.newestRecordId !== null && args.newestRecordId > args.windowEnd) return args.windowEnd;
-  return args.after;
+  const lastReturned = args.recordIds.length > 0 ? Math.max(...args.recordIds) : args.after;
+  if (args.recordIds.length >= args.maxEvents) return lastReturned;
+  const readUpTo = args.newestRecordId === null ? args.after : Math.min(args.windowEnd, args.newestRecordId);
+  // The Security log is circular: record numbers below the oldest one kept
+  // are gone, so walking them reads nothing. Skipping them loses nothing —
+  // and a bookmark far behind (a real server's sat 26 billion records back)
+  // would otherwise take months to reach today.
+  const oldestGone = args.oldestRecordId ? args.oldestRecordId - 1 : 0;
+  return Math.max(args.after, lastReturned, readUpTo, oldestGone);
 }
 
 /**

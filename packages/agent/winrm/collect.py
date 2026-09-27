@@ -33,19 +33,45 @@ $ProgressPreference = 'SilentlyContinue'
 $newest = (wevtutil qe Security /c:1 /rd:true /f:XML 2>$null) -join ''
 if ("$newest" -match '<EventRecordID>(\d+)</EventRecordID>') {{ Write-Output "NEWEST:$($Matches[1])" }}
 else {{ Write-Output "ERR:could not read the Security log (wevtutil returned nothing)" }}
-$q = "*[System[(EventID=5145) and (EventRecordID>{after}) and (EventRecordID<={until})]]"
+# The log is circular; record numbers below its oldest event are gone.
+$oldest = (wevtutil qe Security /c:1 /f:XML 2>$null) -join ''
+if ("$oldest" -match '<EventRecordID>(\d+)</EventRecordID>') {{ Write-Output "OLDEST:$($Matches[1])" }}
+$q = "*[System[(EventID=5145) and (EventRecordID>{after}) and (EventRecordID<={until})]]{exclude}"
 # One blob, split on </Event> by the caller: wevtutil wraps each event over
 # several lines, so emitting a separator per line handed the parser fragments
 # and every event was silently dropped.
-Write-Output ((wevtutil qe Security /q:$q /f:XML /c:{max_events} 2>$null) -join '')
+$events = (wevtutil qe Security /q:$q /f:XML /c:{max_events} 2>$null) -join ''
+# A rejected query must not look like an empty window: that would advance the
+# bookmark past events never read. Reported as an error, the bookmark stays.
+if ($LASTEXITCODE -ne 0) {{ Write-Output "ERR:wevtutil query failed (exit $LASTEXITCODE)" }}
+Write-Output $events
 """
+
+
+def exclude_clause(user: str) -> str:
+    """XPath that drops the scan account's own 5145s on the server.
+
+    Every file the share scan opens is a 5145 by that account — tens of
+    thousands per walk — and they filled each capped result before a real
+    user's change could appear. The event log's XPath compares strings
+    case-sensitively and has no lower-case(), so the usual spellings are
+    excluded; anything that slips through is still dropped by the agent
+    (activityRecords.ts). Only plain account names are put into the query.
+    """
+    name = (user or "").split("\\")[-1].split("@")[0].strip()
+    if not name or not re.fullmatch(r"[A-Za-z0-9._ -]{1,64}", name):
+        return ""
+    spellings = sorted({name, name.lower(), name.upper(), name[:1].upper() + name[1:].lower()})
+    conditions = " and ".join(f"Data[@Name='SubjectUserName']!='{s}'" for s in spellings)
+    return f" and *[EventData[{conditions}]]"
 
 
 def main() -> int:
     cfg = json.load(sys.stdin)
     after = int(cfg.get("after") or 0)
     window = int(cfg.get("window") or 500)
-    result = {"events": [], "newestRecordId": None, "windowEnd": after + window, "error": None}
+    max_events = int(cfg.get("maxEvents") or window)
+    result = {"events": [], "newestRecordId": None, "oldestRecordId": None, "windowEnd": after + window, "error": None}
     try:
         from pypsrp.client import Client
 
@@ -55,7 +81,9 @@ def main() -> int:
         # account in Remote Management Users gets "Access is denied" there,
         # while the PowerShell endpoint accepts exactly that group. Seen the
         # moment the share was switched to a service account.
-        script = SCRIPT.format(after=after, until=after + window, max_events=window)
+        script = SCRIPT.format(
+            after=after, until=after + window, max_events=max_events, exclude=exclude_clause(cfg.get("excludeUser") or "")
+        )
         with Client(
             cfg["host"],
             port=int(cfg.get("port", 5985)),
@@ -76,6 +104,9 @@ def main() -> int:
             if line.startswith("NEWEST:"):
                 value = line[len("NEWEST:"):].strip()
                 result["newestRecordId"] = int(value) if value.isdigit() else None
+            elif line.startswith("OLDEST:"):
+                value = line[len("OLDEST:"):].strip()
+                result["oldestRecordId"] = int(value) if value.isdigit() else None
             elif line.startswith("ERR:"):
                 result["error"] = line[len("ERR:"):].strip()
         body = stdout.split("NEWEST:", 1)[-1]

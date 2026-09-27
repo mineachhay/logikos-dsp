@@ -20,6 +20,8 @@ import { knownFilesFor } from "./knownFiles.js";
 interface CollectorResult {
   events: string[];
   newestRecordId: number | null;
+  /** The oldest record still in the (circular) Security log; null from an older collect.py. */
+  oldestRecordId?: number | null;
   windowEnd: number;
   error: string | null;
 }
@@ -78,14 +80,17 @@ async function pollServer(collector: ActivityCollectorConfig): Promise<void> {
       username: collector.username,
       password: collector.password,
       after,
-      window: config.activityWindowSize,
+      window: config.activityIdWindow,
+      maxEvents: config.activityMaxEvents,
+      // Dropped on the server, so our own scanning (every file it opens is a
+      // 5145) doesn't fill the capped result; still filtered here too.
+      excludeUser: collector.scanAccount,
     });
 
     if (result.error) {
       await postActivity({
         fileServerId: collector.fileServerId,
         records: [],
-        bookmark: after,
         error: describeActivityError(result.error, collector.host, collector.winrmPort),
       });
       return;
@@ -93,7 +98,7 @@ async function pollServer(collector: ActivityCollectorConfig): Promise<void> {
 
     // First ever poll: don't replay the server's whole Security log.
     if (collector.bookmark === null && !localBookmarks.has(collector.fileServerId) && after === 0) {
-      const start = initialBookmark(result.newestRecordId, config.activityWindowSize);
+      const start = initialBookmark(result.newestRecordId, config.activityMaxEvents);
       localBookmarks.set(collector.fileServerId, start);
       await postActivity({ fileServerId: collector.fileServerId, records: [], bookmark: start });
       return;
@@ -109,7 +114,13 @@ async function pollServer(collector: ActivityCollectorConfig): Promise<void> {
       windowEnd: result.windowEnd,
       recordIds: built.recordIds,
       newestRecordId: result.newestRecordId,
+      oldestRecordId: result.oldestRecordId ?? null,
+      maxEvents: config.activityMaxEvents,
     });
+    const behind = result.newestRecordId === null ? 0 : result.newestRecordId - bookmark;
+    if (behind > config.activityIdWindow) {
+      console.log(`activity: catching up on ${collector.host}'s Security log — ${behind} record(s) behind`);
+    }
     localBookmarks.set(collector.fileServerId, bookmark);
     if (built.records.length > 0) {
       console.log(`activity: ${built.records.length} change(s) by user from ${collector.host} (${built.ignored} ignored)`);
@@ -119,7 +130,6 @@ async function pollServer(collector: ActivityCollectorConfig): Promise<void> {
     await postActivity({
       fileServerId: collector.fileServerId,
       records: [],
-      bookmark: collector.bookmark ?? 0,
       error: describeActivityError((err as Error).message, collector.host, collector.winrmPort),
     }).catch(() => undefined);
   } finally {

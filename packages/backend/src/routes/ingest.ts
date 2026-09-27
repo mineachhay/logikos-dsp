@@ -37,7 +37,8 @@ const eventsBatchSchema = z.array(fileEventSchema).min(1).max(500);
 const activitySchema = z.object({
   agentKey: z.string().min(8),
   fileServerId: z.string().uuid(),
-  bookmark: z.number().int().nonnegative(),
+  // Omitted by a failed poll, which leaves the stored bookmark as it is.
+  bookmark: z.number().int().nonnegative().optional(),
   error: z.string().max(2000).optional(),
   records: z
     .array(
@@ -238,7 +239,7 @@ export async function ingestRoutes(app: FastifyInstance) {
     await prisma.fileServer.update({
       where: { id: server.id },
       data: {
-        activityBookmark: BigInt(body.bookmark),
+        ...(body.bookmark !== undefined ? { activityBookmark: BigInt(body.bookmark) } : {}),
         lastActivityAt: new Date(),
         lastActivityError: body.error ?? null,
       },
