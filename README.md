@@ -435,6 +435,11 @@ have no endpoint at all yet, point `RESPONSE_WEBHOOK_URL` at the bundled
 
 ## Backup and restore
 
+Backups work before any off-site destination is set: "Back up now" and the
+daily schedule then keep verified database dumps on this server only (in
+`BACKUP_DIR_HOST`), and the dashboard shows a notice until an encrypted
+off-site copy exists. Set a destination and an age public key to add that.
+
 Everything the product knows lives in one Postgres database (plus the env files
 holding its secrets). Backups are configured in the dashboard under
 **Administration → Backups** and run by the `backup` container.

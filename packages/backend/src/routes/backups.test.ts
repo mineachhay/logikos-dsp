@@ -100,14 +100,16 @@ describe("backup settings", () => {
     expect((await as("PUT", "/backup/settings", oauth)).statusCode).toBe(200);
   });
 
-  it("refuses a private key where the age public key goes, and refuses to schedule without key and destination", async () => {
+  it("refuses a private key where the age public key goes, and a destination without a key — but schedules local dumps without either", async () => {
     const { as } = await setup();
     const leaked = await as("PUT", "/backup/settings", settings({ agePublicKey: "AGE-SECRET-KEY-1QYQSZQGPQYQSZQGPQYQSZQGPQYQSZQGPQYQSZQGPQYQSZQGPQYQSZQGP" }));
     expect(leaked.statusCode).toBe(400);
     expect(JSON.stringify(leaked.json())).toContain("never the AGE-SECRET-KEY");
 
+    // A destination without a key would mean uploading unencrypted: refused.
     expect((await as("PUT", "/backup/settings", settings({ enabled: true, agePublicKey: null }))).statusCode).toBe(400);
-    expect((await as("PUT", "/backup/settings", settings({ enabled: true, destination: null }))).statusCode).toBe(400);
+    // No destination (and no key): allowed — the schedule then makes local dumps only.
+    expect((await as("PUT", "/backup/settings", settings({ enabled: true, destination: null, agePublicKey: null }))).statusCode).toBe(200);
   });
 
   it("starts the schedule from when it's turned on, not from a slot already past", async () => {
@@ -134,8 +136,16 @@ describe("backup settings", () => {
 });
 
 describe("backup runs", () => {
-  it("won't queue a backup before a destination and key exist, or twice at once", async () => {
+  it("queues a local-only backup with no destination, refuses a destination without a key, and never runs two at once", async () => {
     const { as } = await setup();
+    // Nothing saved yet: a local dump is still worth making.
+    const local = await as("POST", "/backup/runs", { kind: "BACKUP" });
+    expect(local.statusCode).toBe(202);
+    expect((await as("POST", "/backup/runs", { kind: "TEST_DESTINATION" })).statusCode).toBe(400);
+    await prisma.backupRun.deleteMany();
+
+    // A destination but no key: refused (nothing leaves unencrypted).
+    await prisma.backupSettings.update({ where: { id: "default" }, data: { destinationType: "S3", agePublicKey: null } });
     expect((await as("POST", "/backup/runs", { kind: "BACKUP" })).statusCode).toBe(400);
 
     await as("PUT", "/backup/settings", settings());

@@ -198,6 +198,7 @@ function StatusCard({ settings, onRun, busyKind, runError }: {
           <div className="stat-label">Last successful backup</div>
           <div>{last ? when(last.finishedAt) : "never"}</div>
           {last && <div className="muted field-hint">{formatBytes(last.sizeBytes)} · {last.fileName}</div>}
+          {last && !last.uploaded && <div className="test-warn field-hint">on this server only — not off-site</div>}
         </div>
         <div>
           <div className="stat-label">Next backup</div>
@@ -206,8 +207,9 @@ function StatusCard({ settings, onRun, busyKind, runError }: {
         </div>
       </div>
       <div className="fs-actions">
-        <button className="btn" disabled={!configured || !settings.agePublicKey || busyKind !== null} onClick={() => onRun("BACKUP")}>
-          Back up now
+        {/* No destination yet: the backup is a verified local dump only (packages/backup runLocalBackup). */}
+        <button className="btn" disabled={(configured && !settings.agePublicKey) || busyKind !== null} onClick={() => onRun("BACKUP")}>
+          {configured ? "Back up now" : "Back up now (this server only)"}
         </button>
         <button className="btn btn-secondary" disabled={!configured || busyKind !== null} onClick={() => onRun("TEST_DESTINATION")}>
           Test destination
@@ -216,7 +218,12 @@ function StatusCard({ settings, onRun, busyKind, runError }: {
           Run restore check
         </button>
       </div>
-      {!configured && <p className="muted fs-hint">Set a destination and an encryption key below, save, then test the destination.</p>}
+      {!configured && (
+        <p className="muted fs-hint">
+          With no destination, backups are database dumps kept on this server only — better than none, but lost with the
+          server. Set a destination and an encryption key below to also keep an encrypted copy off-site.
+        </p>
+      )}
       {runError && <p className="error">{runError}</p>}
     </section>
   );

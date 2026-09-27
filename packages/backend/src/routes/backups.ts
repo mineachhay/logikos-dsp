@@ -212,8 +212,11 @@ export async function backupRoutes(app: FastifyInstance) {
       const missing = missingCredentials(body.destination, storedCreds);
       if (missing) return reply.code(400).send({ error: missing });
     }
-    if (body.enabled && (!body.destination || !body.agePublicKey)) {
-      return reply.code(400).send({ error: "set a destination and an age public key before turning on scheduled backups" });
+    // No destination is allowed — scheduled backups are then local dumps only,
+    // which beats none. A destination without a key is not: nothing leaves
+    // this server unencrypted.
+    if (body.destination && !body.agePublicKey) {
+      return reply.code(400).send({ error: "an off-site destination needs an age public key — backups are never uploaded unencrypted" });
     }
 
     const mergedCreds = body.destination ? mergeCredentials(storedCreds, body.destination.credentials) : null;
@@ -252,10 +255,11 @@ export async function backupRoutes(app: FastifyInstance) {
   app.post("/backup/runs", async (req, reply) => {
     const { kind } = runRequestSchema.parse(req.body);
     const settings = await getSettings();
-    if (kind !== "VERIFY" && !settings.destinationType) {
+    if (kind === "TEST_DESTINATION" && !settings.destinationType) {
       return reply.code(400).send({ error: "save a destination first" });
     }
-    if (kind === "BACKUP" && !settings.agePublicKey) {
+    // Without a destination a backup is a local dump only (packages/backup runLocalBackup).
+    if (kind === "BACKUP" && settings.destinationType && !settings.agePublicKey) {
       return reply.code(400).send({ error: "save an age public key first — backups are never uploaded unencrypted" });
     }
     const inFlight = await prisma.backupRun.findFirst({ where: { kind, status: { in: ["PENDING", "RUNNING"] } } });

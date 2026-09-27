@@ -74,12 +74,12 @@ export async function claimRun(pool: pg.Pool): Promise<RunRow | null> {
 export async function finishRun(
   pool: pg.Pool,
   id: string,
-  outcome: { ok: boolean; message: string; fileName?: string; sizeBytes?: number; sha256?: string },
+  outcome: { ok: boolean; message: string; fileName?: string; sizeBytes?: number; sha256?: string; uploaded?: boolean },
 ): Promise<void> {
   await pool.query(
     `UPDATE "BackupRun" SET "status" = $2, "finishedAt" = now(), "message" = $3, "fileName" = $4, "sizeBytes" = $5, "sha256" = $6, "uploaded" = $7
      WHERE "id" = $1`,
-    [id, outcome.ok ? "SUCCEEDED" : "FAILED", outcome.message, outcome.fileName ?? null, outcome.sizeBytes ?? null, outcome.sha256 ?? null, Boolean(outcome.ok && outcome.fileName)],
+    [id, outcome.ok ? "SUCCEEDED" : "FAILED", outcome.message, outcome.fileName ?? null, outcome.sizeBytes ?? null, outcome.sha256 ?? null, outcome.uploaded ?? Boolean(outcome.ok && outcome.fileName)],
   );
 }
 

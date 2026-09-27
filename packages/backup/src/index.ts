@@ -4,7 +4,7 @@ import { createPool } from "./db.js";
 import { shortMessage } from "./pure.js";
 import type { DestinationInput } from "./rcloneConfig.js";
 import { claimRun, enqueueDueRuns, failAbandonedRuns, finishRun, heartbeat, lastUpload, raiseFailureAlert, type RunRow, type SettingsRow } from "./runs.js";
-import { runBackup, runRestoreCheck, testDestination } from "./steps.js";
+import { runBackup, runLocalBackup, runRestoreCheck, testDestination } from "./steps.js";
 
 /**
  * Off-box backup worker. Polls the database: heartbeats (the dashboard shows
@@ -33,10 +33,14 @@ async function execute(run: RunRow, s: SettingsRow): Promise<void> {
       if (!destination) throw new Error("no destination saved");
       await finishRun(pool, run.id, { ok: true, message: await testDestination(destination) });
     } else if (run.kind === "BACKUP") {
-      if (!destination) throw new Error("no destination saved");
-      if (!s.agePublicKey) throw new Error("no age public key saved — refusing to upload an unencrypted backup");
-      const result = await runBackup(cfg, destination, s.agePublicKey, { local: s.localRetention, remote: s.remoteRetention });
-      await finishRun(pool, run.id, { ok: true, ...result });
+      if (!destination) {
+        // No off-site destination yet: still make (and verify) the local dump.
+        await finishRun(pool, run.id, { ok: true, ...(await runLocalBackup(cfg, s.localRetention)) });
+      } else {
+        if (!s.agePublicKey) throw new Error("no age public key saved — refusing to upload an unencrypted backup");
+        const result = await runBackup(cfg, destination, s.agePublicKey, { local: s.localRetention, remote: s.remoteRetention });
+        await finishRun(pool, run.id, { ok: true, ...result, uploaded: true });
+      }
     } else {
       const message = await runRestoreCheck(cfg, destination, await lastUpload(pool));
       await finishRun(pool, run.id, { ok: true, message });

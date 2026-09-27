@@ -92,6 +92,42 @@ export interface BackupResult {
 }
 
 /**
+ * Step 1 of every backup: dump to a .partial name, and only rename once
+ * pg_restore can read it back — a truncated dump must never look like a good
+ * one (same rule as deploy/backup.sh).
+ */
+async function dumpLocally(cfg: WorkerConfig, now: Date): Promise<{ dumpName: string; dumpPath: string }> {
+  await mkdir(cfg.backupDir, { recursive: true });
+  const dumpName = dumpFileName(now);
+  const dumpPath = path.join(cfg.backupDir, dumpName);
+  const partial = `${dumpPath}.partial`;
+  await run("pg_dump", ["-Fc", "--no-owner", "-f", partial], { env: pgEnvFromUrl(cfg.databaseUrl), timeoutMs: 2 * HOUR });
+  await run("pg_restore", ["--list", partial], { timeoutMs: 10 * 60_000 });
+  await rename(partial, dumpPath);
+  return { dumpName, dumpPath };
+}
+
+/**
+ * A backup with no off-site destination saved yet: the verified local dump
+ * and local retention, nothing uploaded. It used to be refused outright, so a
+ * new install had no backup of any kind until a destination was set up — the
+ * local dump is what restore.sh and the weekly restore check use anyway. The
+ * encrypted bundle (with the env files) is only built for an upload.
+ */
+export async function runLocalBackup(cfg: WorkerConfig, localRetention: number): Promise<BackupResult & { uploaded: false }> {
+  const { dumpName, dumpPath } = await dumpLocally(cfg, new Date());
+  const size = (await stat(dumpPath)).size;
+  const digest = await sha256(dumpPath);
+  const localDeletes = selectForRetention(await readdir(cfg.backupDir), DUMP_FILE_PATTERN, localRetention);
+  for (const name of localDeletes) await rm(path.join(cfg.backupDir, name), { force: true });
+  const notes = [
+    `local dump ${dumpName} (${size} bytes) verified — on this server only; set an off-site destination to protect against losing the server`,
+    localDeletes.length ? `retention removed ${localDeletes.length} local` : "",
+  ].filter(Boolean);
+  return { fileName: dumpName, sizeBytes: size, sha256: digest, message: notes.join("; "), uploaded: false };
+}
+
+/**
  * The whole backup: dump locally (kept, for restore.sh), then bundle the dump
  * with the secret files and a manifest, encrypt it to the age recipient,
  * upload, and apply retention on both sides.
@@ -104,17 +140,7 @@ export async function runBackup(
 ): Promise<BackupResult> {
   const now = new Date();
   const pgEnv = pgEnvFromUrl(cfg.databaseUrl);
-  await mkdir(cfg.backupDir, { recursive: true });
-
-  // 1. Dump to a .partial name, and only rename once pg_restore can read it
-  //    back — a truncated dump must never look like a good one (same rule as
-  //    deploy/backup.sh).
-  const dumpName = dumpFileName(now);
-  const dumpPath = path.join(cfg.backupDir, dumpName);
-  const partial = `${dumpPath}.partial`;
-  await run("pg_dump", ["-Fc", "--no-owner", "-f", partial], { env: pgEnv, timeoutMs: 2 * HOUR });
-  await run("pg_restore", ["--list", partial], { timeoutMs: 10 * 60_000 });
-  await rename(partial, dumpPath);
+  const { dumpName, dumpPath } = await dumpLocally(cfg, now);
 
   return withTempDir(async (dir) => {
     // 2. Bundle: dump + secrets + manifest + restore notes.
