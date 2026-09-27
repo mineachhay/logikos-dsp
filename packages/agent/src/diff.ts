@@ -212,3 +212,36 @@ export function carryForwardUnreadable(
   }
   return current;
 }
+
+/**
+ * Files in a folder that was unreadable last scan and is readable now weren't
+ * *created* — they were there all along, just out of sight. They're added to
+ * the previous baseline as-is, so the diff treats them like the first scan
+ * treats everything: seen, not reported. Reporting them was worse than noisy:
+ * granting Read on one folder of a real share surfaced 793 files at once as
+ * COPIED events (old timestamps look like pastes) and tripped the
+ * ransomware-rate rule with a CRITICAL alert. Mutates `previous`; returns how
+ * many files were absorbed. A folder still unreadable now (or inside one) is
+ * left alone. The price: a file created in the folder while it was locked is
+ * never reported — there's no way to tell when it appeared.
+ */
+export function absorbNewlyReadable(
+  previous: Map<string, Baseline>,
+  current: Map<string, Baseline>,
+  unreadableBefore: readonly string[],
+  unreadableNow: readonly string[],
+): number {
+  const stillLocked = unreadableNow.map((dir) => `${dir.replace(/\/+$/, "")}/`);
+  const opened = unreadableBefore
+    .map((dir) => `${dir.replace(/\/+$/, "")}/`)
+    .filter((dir) => !stillLocked.some((locked) => dir.startsWith(locked)));
+  if (opened.length === 0) return 0;
+  let absorbed = 0;
+  for (const [path, stats] of current) {
+    if (!previous.has(path) && opened.some((dir) => path.startsWith(dir))) {
+      previous.set(path, stats);
+      absorbed++;
+    }
+  }
+  return absorbed;
+}

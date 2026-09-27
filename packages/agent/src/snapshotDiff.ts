@@ -3,7 +3,7 @@ import type { Source } from "./sources/types.js";
 import { config } from "./config.js";
 import { postEvents, postStorageSnapshot } from "./client.js";
 import { isSampleable } from "./contentSampling.js";
-import { carryForwardUnreadable, diffSnapshots } from "./diff.js";
+import { absorbNewlyReadable, carryForwardUnreadable, diffSnapshots } from "./diff.js";
 import type { Baseline } from "./diff.js";
 
 export interface DiffLoopOptions {
@@ -62,6 +62,7 @@ async function scanOnce(
   sourceId: string | undefined,
   isStopped: () => boolean,
   previousScanAt: number | undefined,
+  unreadableBefore: readonly string[] = [],
 ): Promise<{ baseline: Map<string, Baseline>; fileCount: number; totalBytes: number; unreadable: string[] } | null> {
   const unreadable: string[] = [];
   const nodes = await source.listTree(unreadable);
@@ -69,6 +70,13 @@ async function scanOnce(
   const current = new Map<string, Baseline>();
   for (const node of nodes) {
     current.set(node.path, { sizeBytes: node.sizeBytes, mtimeMs: node.mtimeMs });
+  }
+  if (baseline !== null && unreadableBefore.length > 0) {
+    // Became readable since last scan: seen, not new (see absorbNewlyReadable).
+    const absorbed = absorbNewlyReadable(baseline, current, unreadableBefore, unreadable);
+    if (absorbed > 0) {
+      console.log(`${source.describe()}: ${absorbed} file(s) became readable — added to the baseline, not reported as new`);
+    }
   }
   if (unreadable.length > 0) {
     // Not "deleted": keep what was last seen there (see carryForwardUnreadable).
@@ -155,6 +163,7 @@ async function scanOnce(
 export function startDiffLoop(source: Source, intervalMs: number, opts: DiffLoopOptions = {}): DiffLoop {
   let baseline: Map<string, Baseline> | null = null;
   let previousScanAt: number | undefined;
+  let unreadableBefore: string[] = [];
   let stopped = false;
   let timer: NodeJS.Timeout | undefined;
   let interval = intervalMs;
@@ -163,9 +172,10 @@ export function startDiffLoop(source: Source, intervalMs: number, opts: DiffLoop
   async function tick() {
     try {
       const startedAt = Date.now();
-      const result = await runScan(() => scanOnce(source, baseline, opts.sourceId, () => stopped, previousScanAt));
+      const result = await runScan(() => scanOnce(source, baseline, opts.sourceId, () => stopped, previousScanAt, unreadableBefore));
       if (result) {
         baseline = result.baseline;
+        unreadableBefore = result.unreadable;
         previousScanAt = startedAt;
         opts.onScanComplete?.({
           ok: true,

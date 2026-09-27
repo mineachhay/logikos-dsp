@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { carryForwardUnreadable, diffSnapshots } from "./diff.js";
+import { absorbNewlyReadable, carryForwardUnreadable, diffSnapshots } from "./diff.js";
 import type { Baseline } from "./diff.js";
 
 function baseline(sizeBytes: number, mtimeMs: number): Baseline {
@@ -260,5 +260,44 @@ describe("carryForwardUnreadable", () => {
     const current = new Map([["a.txt", baseline(1, 1)]]);
     expect(carryForwardUnreadable(previous, current, [])).toBe(current);
     expect(current.size).toBe(1);
+  });
+});
+
+describe("absorbNewlyReadable", () => {
+  // A folder with old files that the account couldn't read, then could.
+  const previous = () => new Map([["Public/readme.txt", baseline(5, 1000)]]);
+  const current = () =>
+    new Map([
+      ["Public/readme.txt", baseline(5, 1000)],
+      ["IT Management/budget.xlsx", baseline(10, 500)],
+      ["IT Management/Proposals/offer.pdf", baseline(20, 400)],
+      ["IT Management/Locked/secret.docx", baseline(30, 300)],
+      ["Public/new.txt", baseline(7, 2000)],
+    ]);
+
+  it("treats a folder that just became readable as seen, not as a burst of new files", () => {
+    const prev = previous();
+    const absorbed = absorbNewlyReadable(prev, current(), ["IT Management"], []);
+    expect(absorbed).toBe(3);
+    const diff = diffSnapshots(prev, current(), 1500);
+    expect(diff.created).toEqual(["Public/new.txt"]); // genuinely new elsewhere is still reported
+    expect(diff.copied).toEqual([]);
+  });
+
+  it("leaves subfolders that are still locked alone", () => {
+    const prev = previous();
+    const now = current();
+    now.delete("IT Management/Locked/secret.docx"); // still unreadable, so not listed
+    expect(absorbNewlyReadable(prev, now, ["IT Management"], ["IT Management/Locked"])).toBe(2);
+  });
+
+  it("does nothing when the folder is still unreadable, or nothing was", () => {
+    expect(absorbNewlyReadable(previous(), current(), ["IT Management"], ["IT Management"])).toBe(0);
+    expect(absorbNewlyReadable(previous(), current(), [], [])).toBe(0);
+  });
+
+  it("matches whole folder names, not prefixes", () => {
+    const prev = previous();
+    expect(absorbNewlyReadable(prev, current(), ["IT"], [])).toBe(0);
   });
 });

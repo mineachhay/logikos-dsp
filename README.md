@@ -62,7 +62,8 @@ say *what* changed but not *who*, and quarantine isn't available for shares.
 A subfolder the account can't read is skipped rather than failing the scan, and
 the share's status lists it (`ok · N folders not readable`) — those folders
 aren't monitored until the account is given Read on them; the warning clears on
-the next scan after that. *Test connection* only checks the top level, so this
+the next scan after that, and the files already in them are taken as the
+starting point, not reported as new. *Test connection* only checks the top level, so this
 list is where deeper permission gaps show up.
 
 Requirements: the backend needs `SOURCE_CREDENTIALS_KEY` (32 bytes,
